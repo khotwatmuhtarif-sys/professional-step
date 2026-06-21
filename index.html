@@ -1273,6 +1273,8 @@ function getClientData(key) {
   const map = {
     id: client.id || '—',
     name: client.name || '—',
+    start: client.start || '-',
+    contractStartDate: client.contractStartDate || '-',
     end: client.end || '—',
     used, visits, remaining, percent,
     value: client.value ? client.value.toLocaleString() : '0',
@@ -1289,7 +1291,34 @@ function clientHome() {
       <p>عقدك نشط — ${getClientData('remaining')} زيارات متبقية</p>
       <span class="contract-badge">✅ عقد #${getClientData("id")} نشط حتى ${getClientData("end")}</span>
     </div>
+<div class="card" style="margin-bottom:16px;">
+    <div class="section-title">📅 معلومات العقد</div>
 
+    <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #eee;">
+        <span>إجمالي الزيارات</span>
+        <strong>${getClientData('visits')}</strong>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #eee;">
+        <span>الزيارات المنفذة</span>
+        <strong>${getClientData('used')}</strong>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #eee;">
+        <span>الزيارات المتبقية</span>
+        <strong>${getClientData('remaining')}</strong>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #eee;">
+        <span>بداية العقد</span>
+        <strong>${getClientData('contractStartDate')}</strong>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;padding:8px 0;">
+        <span>نهاية العقد</span>
+        <strong>${getClientData('end')}</strong>
+    </div>
+</div>
     <div class="stats-row cols-4">
       <div class="stat-card">
         <span class="stat-icon">📅</span>
