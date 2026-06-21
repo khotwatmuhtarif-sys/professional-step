@@ -1914,9 +1914,27 @@ function adminClients() {
               <td>${c.used}/${c.visits}</td>
               <td><span class="status-badge ${c.status}">${c.status === 'active' ? 'نشط' : 'ينتهي قريباً'}</span></td>
               <td>
-                <button class="submit-btn" style="width:auto; padding:4px 10px; font-size:11px; margin-left:4px;" onclick="openModal('addClient')">تعديل</button>
-                <button class="submit-btn red" style="width:auto; padding:4px 10px; font-size:11px; background:var(--red);" onclick="deleteClient(${c.id})">حذف</button>
-              </td>
+                <td>
+
+    <button class="submit-btn"
+    style="width:auto; padding:4px 10px; font-size:11px; margin-left:4px;"
+    onclick="showClientSchedule(${c.id})">
+    📅 الجدول
+    </button>
+
+    <button class="submit-btn"
+    style="width:auto; padding:4px 10px; font-size:11px; margin-left:4px;"
+    onclick="openModal('addClient')">
+    تعديل
+    </button>
+
+    <button class="submit-btn red"
+    style="width:auto; padding:4px 10px; font-size:11px; background:var(--red);"
+    onclick="deleteClient(${c.id})">
+    حذف
+    </button>
+
+</td>
             </tr>
           `).join('')}
         </tbody>
@@ -1924,7 +1942,48 @@ function adminClients() {
     </div>
   `;
 }
+function showClientSchedule(id) {
+    const client = db.clients.find(c => c.id == id);
 
+    if (!client) {
+        showToast('العميل غير موجود');
+        return;
+    }
+
+    const schedule = client.visitSchedule || [];
+
+    document.getElementById('appContent').innerHTML = `
+        <div class="card">
+            <div class="section-title">📅 جدول زيارات العميل</div>
+
+            <div style="font-size:18px; font-weight:800; margin-bottom:8px;">
+                ${client.name}
+            </div>
+
+            <div style="color:var(--text-light); margin-bottom:16px;">
+                عدد الزيارات: ${client.used || 0} / ${client.visits || 0}
+            </div>
+
+            ${schedule.length ? schedule.map(v => `
+                <div class="visit-item">
+                    <div class="visit-info">
+                        <div class="visit-title">الزيارة رقم ${v.number}</div>
+                        <div class="visit-date">${v.date}</div>
+                    </div>
+                    <span class="visit-badge upcoming">${v.status || 'مجدولة'}</span>
+                </div>
+            `).join('') : `
+                <div class="card" style="background:#f8f9fa; text-align:center;">
+                    لا يوجد جدول زيارات لهذا العميل
+                </div>
+            `}
+
+            <button class="submit-btn" style="margin-top:16px;" onclick="renderPanel('all_clients')">
+                رجوع
+            </button>
+        </div>
+    `;
+}
 // ===== ADMIN REPORTS =====
 function adminReports() {
   const allReports = (db.reports || []).sort((a, b) => (b.id || 0) - (a.id || 0));
