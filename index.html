@@ -1793,21 +1793,31 @@ if (!db.reports) db.reports = [];
 
 saveDB();
   const reportId = Date.now();
-const reportImages = [];
+async function readImages(inputId) {
+    const images = [];
+    const files = document.getElementById(inputId)?.files || [];
 
-const files = document.getElementById('reportImages')?.files || [];
+    for (let i = 0; i < files.length; i++) {
+        const file = files[i];
 
-for (let i = 0; i < files.length; i++) {
-    const file = files[i];
+        const base64 = await new Promise(resolve => {
+            const reader = new FileReader();
+            reader.onload = e => resolve(e.target.result);
+            reader.readAsDataURL(file);
+        });
 
-    const base64 = await new Promise(resolve => {
-        const reader = new FileReader();
-        reader.onload = e => resolve(e.target.result);
-        reader.readAsDataURL(file);
-    });
+        images.push({
+            name: file.name,
+            data: base64
+        });
+    }
 
-    reportImages.push(base64);
+    return images;
 }
+
+const executionImages = await readImages('executionImages');
+const pestImages = await readImages('pestImages');
+const paperReportImages = await readImages('paperReportImages');
 const fullReport = {
   id: reportId,
   clientId: parseInt(clientId),
@@ -1817,7 +1827,14 @@ const fullReport = {
   materials: report.materials || '',
   notes: report.notes || '',
   pests: selectedPests,
-  images: reportImages,
+  executionImages,
+pestImages,
+paperReportImages,
+images: [
+    ...executionImages.map(img => img.data),
+    ...pestImages.map(img => img.data),
+    ...paperReportImages.map(img => img.data)
+],
   date: new Date().toLocaleDateString('ar-SA'),
   status: 'مكتمل',
   createdAt: new Date().toISOString()
