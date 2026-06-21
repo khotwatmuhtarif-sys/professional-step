@@ -1276,6 +1276,7 @@ function getClientData(key) {
     start: client.start || '-',
     contractStartDate: client.contractStartDate || '-',
     end: client.end || '—',
+    nextVisit: (client.visitSchedule || []).find(v => v.status === 'مجدولة')?.date || 'لا يوجد',
     used, visits, remaining, percent,
     value: client.value ? client.value.toLocaleString() : '0',
     pay: client.pay || '—'
@@ -1318,6 +1319,10 @@ function clientHome() {
         <span>نهاية العقد</span>
         <strong>${getClientData('end')}</strong>
     </div>
+    <div style="display:flex;justify-content:space-between;padding:8px 0;">
+    <span>الزيارة القادمة</span>
+    <strong>${getClientData('nextVisit')}</strong>
+</div>
 </div>
     <div class="stats-row cols-4">
       <div class="stat-card">
