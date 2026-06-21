@@ -1931,12 +1931,11 @@ function adminClients() {
               <td>${c.type}</td>
               <td><span class="tag">${c.pay}</span></td>
               <td>
-  <div>${c.used || 0}/${c.visits || 0}</div>
-  <div style="font-size:11px; color:var(--text-light); margin-top:4px;">
-    القادمة: ${
-      (c.visitSchedule || []).find(v => v.status === 'مجدولة')?.date || 'لا يوجد'
-    }
-  </div>
+  ${c.used || 0}/${c.visits || 0}
+  <br>
+  <small style="color:var(--text-light); font-size:11px;">
+    القادمة: ${(c.visitSchedule || []).find(v => v.status === 'مجدولة')?.date || 'لا يوجد'}
+  </small>
 </td>
               <td><span class="status-badge ${c.status}">${c.status === 'active' ? 'نشط' : 'ينتهي قريباً'}</span></td>
               <td>
