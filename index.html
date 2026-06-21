@@ -1749,7 +1749,26 @@ const fullReport = {
 if (!db.reports) db.reports = [];
 db.reports.unshift(fullReport);
 saveDB();
+const client = db.clients.find(c => c.id == parseInt(clientId));
 
+if (client) {
+    client.used = (client.used || 0) + 1;
+
+    if (client.visitSchedule && client.visitSchedule.length) {
+        const nextVisit = client.visitSchedule.find(v => v.status === 'مجدولة');
+        if (nextVisit) {
+            nextVisit.status = 'منفذة';
+            nextVisit.reportId = reportId;
+            nextVisit.doneAt = new Date().toISOString();
+        }
+    }
+
+    saveDB();
+
+    if (window.saveClientToFirebase) {
+        await window.saveClientToFirebase(client);
+    }
+}
 await firebase.database()
   .ref('reports/' + reportId)
   .set(fullReport);
