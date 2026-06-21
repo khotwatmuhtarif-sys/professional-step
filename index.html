@@ -1276,7 +1276,7 @@ function getClientData(key) {
     start: client.start || '-',
     contractStartDate: client.contractStartDate || '-',
     end: client.end || '—',
-    nextVisit: (client.visitSchedule || []).find(v => v.status === 'مجدولة')?.date || 'لا يوجد',
+    nextVisit: (client.visitSchedule || []).find(v => (v.status || '').includes('مجدولة'))?.date || 'لا يوجد',
     used, visits, remaining, percent,
     value: client.value ? client.value.toLocaleString() : '0',
     pay: client.pay || '—'
