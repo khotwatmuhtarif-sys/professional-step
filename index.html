@@ -1,0 +1,2626 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>خطوة محترف — بوابة المتعاقدين</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="خطوة محترف">
+<meta name="theme-color" content="#1a3a5c">
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;900&display=swap" rel="stylesheet">
+
+<!-- Firebase CDN - نسخة تعمل بشكل كامل -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script>
+  // انتظر تحميل Firebase
+  function initFirebase() {
+    if (typeof firebase === 'undefined') {
+      setTimeout(initFirebase, 100);
+      return;
+    }
+
+    if (!firebase.apps.length) {
+      firebase.initializeApp({
+        apiKey: "AIzaSyDudd2Y4qfxHJJXpxrDNlnGWPQaBnlKQro",
+        authDomain: "stepro-contractors.firebaseapp.com",
+        databaseURL: "https://stepro-contractors-default-rtdb.europe-west1.firebasedatabase.app",
+        projectId: "stepro-contractors",
+        storageBucket: "stepro-contractors.firebasestorage.app",
+        messagingSenderId: "69302004635",
+        appId: "1:69302004635:web:f72bfaeb8e75de2d438f3e"
+      });
+    }
+
+    const db_fire = firebase.database();
+
+    window.loadClientsFromFirebase = async function() {
+      try {
+        const snapshot = await db_fire.ref('clients').get();
+        if (snapshot.exists()) {
+          const data = snapshot.val();
+          db.clients = Object.values(data);
+          if (db.clients.length > 0) {
+            db.nextId = Math.max(...db.clients.map(c => c.id)) + 1;
+          }
+        }
+      } catch(e) {
+        console.log('خطأ تحميل:', e);
+      }
+    };
+    window.loadReportsFromFirebase = async function() {
+  try {
+    const snapshot = await db_fire.ref('reports').get();
+
+    if (snapshot.exists()) {
+      const data = snapshot.val();
+
+      db.reports = Object.values(data)
+        .sort((a, b) => (b.id || 0) - (a.id || 0));
+
+      saveDB();
+    }
+  } catch(e) {
+    console.log('خطأ تحميل التقارير:', e);
+  }
+};
+
+    window.saveClientToFirebase = async function(client) {
+      try {
+        await db_fire.ref('clients/' + client.id).set(client);
+        console.log('✅ تم حفظ العميل في Firebase:', client.username);
+        return true;
+      } catch(e) {
+        console.log('خطأ حفظ:', e);
+        return false;
+      }
+    };
+
+    window.deleteClientFromFirebase = async function(id) {
+      try {
+        await db_fire.ref('clients/' + id).remove();
+        return true;
+      } catch(e) {
+        return false;
+      }
+    };
+
+    window.loginFromFirebase = async function(username, password) {
+      try {
+        const snapshot = await db_fire.ref('clients').get();
+        if (snapshot.exists()) {
+          const data = snapshot.val();
+          const clients = Object.values(data);
+          const found = clients.find(c => c.username === username && c.password === password);
+          if (found) {
+            db.clients = clients;
+            if (clients.length > 0) {
+              db.nextId = Math.max(...clients.map(c => c.id)) + 1;
+            }
+            console.log('✅ تم الدخول:', found.name);
+            return found;
+          }
+        }
+        return null;
+      } catch(e) {
+        console.log('خطأ دخول:', e);
+        return null;
+      }
+    };
+
+    console.log('✅ Firebase جاهز!');
+  }
+
+  // ابدأ التهيئة
+  initFirebase();
+</script>
+<style>
+:root {
+  --primary: #1a3a5c;
+  --primary-light: #2a5080;
+  --green: #2e7d32;
+  --green-light: #4caf50;
+  --gold: #c9a227;
+  --red: #e53935;
+  --orange: #f57c00;
+  --white: #ffffff;
+  --bg: #f0f4f8;
+  --card: #ffffff;
+  --border: #e0e7ef;
+  --text: #1a2332;
+  --text-light: #6b7a8d;
+  --shadow: 0 4px 24px rgba(26,58,92,0.10);
+  --shadow-lg: 0 8px 40px rgba(26,58,92,0.16);
+  --radius: 16px;
+  --radius-sm: 10px;
+  .status-badge{
+    display:inline-block;
+    padding:4px 10px;
+    border-radius:12px;
+    font-size:13px;
+    font-weight:bold;
+    background:#ffedd5;
+    color:#9a3412;
+
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  font-family: 'Cairo', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  direction: rtl;
+}
+
+/* ===== SCREENS ===== */
+.screen { display: none; min-height: 100vh; }
+.screen.active { display: block; }
+
+/* ===== LOGIN SCREEN ===== */
+#loginScreen {
+  background: linear-gradient(135deg, #0d2137 0%, #1a3a5c 50%, #1e4d30 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 20px;
+  position: relative;
+  overflow: hidden;
+}
+
+#loginScreen::before {
+  content: '';
+  position: absolute;
+  top: -100px; right: -100px;
+  width: 400px; height: 400px;
+  background: radial-gradient(circle, rgba(76,175,80,0.15) 0%, transparent 70%);
+  border-radius: 50%;
+  animation: pulse 4s ease-in-out infinite;
+}
+
+#loginScreen::after {
+  content: '';
+  position: absolute;
+  bottom: -100px; left: -100px;
+  width: 350px; height: 350px;
+  background: radial-gradient(circle, rgba(201,162,39,0.1) 0%, transparent 70%);
+  border-radius: 50%;
+  animation: pulse 4s ease-in-out infinite 2s;
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.1); opacity: 0.7; }
+}
+
+.login-box {
+  background: rgba(255,255,255,0.05);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 24px;
+  padding: 48px 40px;
+  width: 100%;
+  max-width: 440px;
+  text-align: center;
+  position: relative;
+  z-index: 1;
+  animation: slideUp 0.6s ease;
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(30px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.logo-circle {
+  width: 80px; height: 80px;
+  background: linear-gradient(135deg, var(--green-light), var(--primary));
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 auto 20px;
+  font-size: 36px;
+  box-shadow: 0 8px 32px rgba(76,175,80,0.3);
+}
+
+.login-box h1 {
+  color: white;
+  font-size: 28px;
+  font-weight: 900;
+  margin-bottom: 4px;
+}
+
+.login-box p {
+  color: rgba(255,255,255,0.6);
+  font-size: 14px;
+  margin-bottom: 32px;
+}
+
+.role-selector {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 28px;
+}
+
+.role-btn {
+  background: rgba(255,255,255,0.08);
+  border: 2px solid rgba(255,255,255,0.15);
+  border-radius: 12px;
+  padding: 14px 8px;
+  cursor: pointer;
+  transition: all 0.3s;
+  color: rgba(255,255,255,0.7);
+  font-family: 'Cairo', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.role-btn .role-icon { font-size: 24px; display: block; margin-bottom: 6px; }
+
+.role-btn:hover, .role-btn.selected {
+  background: rgba(76,175,80,0.2);
+  border-color: var(--green-light);
+  color: white;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(76,175,80,0.2);
+}
+
+.login-input {
+  width: 100%;
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 12px;
+  padding: 14px 18px;
+  color: white;
+  font-family: 'Cairo', sans-serif;
+  font-size: 14px;
+  margin-bottom: 12px;
+  text-align: right;
+  direction: rtl;
+  outline: none;
+  transition: all 0.3s;
+}
+
+.login-input::placeholder { color: rgba(255,255,255,0.4); }
+.login-input:focus { border-color: var(--green-light); background: rgba(255,255,255,0.15); }
+
+.login-btn {
+  width: 100%;
+  background: linear-gradient(135deg, var(--green), var(--green-light));
+  border: none;
+  border-radius: 12px;
+  padding: 16px;
+  color: white;
+  font-family: 'Cairo', sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.3s;
+  margin-top: 8px;
+  box-shadow: 0 8px 24px rgba(46,125,50,0.3);
+}
+
+.login-btn:hover { transform: translateY(-2px); box-shadow: 0 12px 32px rgba(46,125,50,0.4); }
+
+.demo-hint {
+  margin-top: 20px;
+  padding: 12px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 10px;
+  font-size: 12px;
+  color: rgba(255,255,255,0.5);
+  line-height: 1.6;
+}
+
+/* ===== APP LAYOUT ===== */
+#appScreen {
+  display: none;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+#appScreen.active { display: flex; }
+
+/* TOP NAV */
+.topnav {
+  background: linear-gradient(135deg, var(--primary), var(--primary-light));
+  padding: 0 20px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  box-shadow: 0 4px 20px rgba(26,58,92,0.2);
+}
+
+.topnav-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: white;
+}
+
+.topnav-logo .logo-sm {
+  width: 38px; height: 38px;
+  background: linear-gradient(135deg, var(--green-light), var(--green));
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+}
+
+.topnav-logo span {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.topnav-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: white;
+}
+
+.user-avatar {
+  width: 36px; height: 36px;
+  background: rgba(255,255,255,0.2);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px;
+}
+
+.user-name { font-size: 13px; font-weight: 600; }
+.user-role { font-size: 11px; color: rgba(255,255,255,0.6); }
+
+.logout-btn {
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 8px;
+  padding: 6px 12px;
+  color: white;
+  font-family: 'Cairo', sans-serif;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.logout-btn:hover { background: rgba(229,57,53,0.3); border-color: var(--red); }
+
+/* MAIN CONTENT */
+.app-content {
+  flex: 1;
+  padding: 24px 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* BOTTOM NAV (mobile) */
+.bottomnav {
+  background: white;
+  border-top: 1px solid var(--border);
+  display: grid;
+  padding: 8px 0 12px;
+  position: sticky;
+  bottom: 0;
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.06);
+}
+
+.bottomnav.client-nav { grid-template-columns: repeat(4, 1fr); }
+.bottomnav.employee-nav { grid-template-columns: repeat(4, 1fr); }
+.bottomnav.admin-nav { grid-template-columns: repeat(5, 1fr); }
+
+.nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  padding: 6px 4px;
+  border-radius: 12px;
+  margin: 0 4px;
+  transition: all 0.2s;
+  color: var(--text-light);
+  font-size: 10px;
+  font-weight: 600;
+  border: none;
+  background: none;
+  font-family: 'Cairo', sans-serif;
+}
+
+.nav-item .nav-icon { font-size: 22px; }
+.nav-item.active { color: var(--primary); background: rgba(26,58,92,0.08); }
+.nav-item:hover { color: var(--primary); }
+
+/* ===== DASHBOARD PANELS ===== */
+.panel { display: none; animation: fadeIn 0.3s ease; }
+.panel.active { display: block; }
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* WELCOME HEADER */
+.welcome-header {
+  background: linear-gradient(135deg, var(--primary), var(--primary-light));
+  border-radius: var(--radius);
+  padding: 24px;
+  color: white;
+  margin-bottom: 20px;
+  position: relative;
+  overflow: hidden;
+}
+
+.welcome-header::after {
+  content: '📊';
+  position: absolute;
+  left: 20px; top: 50%;
+  transform: translateY(-50%);
+  font-size: 60px;
+  opacity: 0.15;
+}
+
+.welcome-header h2 { font-size: 20px; font-weight: 900; margin-bottom: 4px; }
+.welcome-header p { font-size: 13px; color: rgba(255,255,255,0.75); }
+.welcome-header .contract-badge {
+  display: inline-block;
+  background: rgba(76,175,80,0.25);
+  border: 1px solid rgba(76,175,80,0.4);
+  border-radius: 20px;
+  padding: 4px 14px;
+  font-size: 12px;
+  margin-top: 8px;
+  color: #a5d6a7;
+}
+
+/* STATS ROW */
+.stats-row {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.stats-row.cols-4 { grid-template-columns: repeat(4, 1fr); }
+.stats-row.cols-3 { grid-template-columns: repeat(3, 1fr); }
+.stats-row.cols-2 { grid-template-columns: repeat(2, 1fr); }
+
+.stat-card {
+  background: var(--card);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  text-align: center;
+  transition: transform 0.2s;
+}
+
+.stat-card:hover { transform: translateY(-2px); }
+
+.stat-icon {
+  font-size: 28px;
+  margin-bottom: 8px;
+  display: block;
+}
+
+.stat-num {
+  font-size: 28px;
+  font-weight: 900;
+  color: var(--primary);
+  display: block;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+
+.stat-num.green { color: var(--green); }
+.stat-num.gold { color: var(--gold); }
+.stat-num.red { color: var(--red); }
+.stat-num.orange { color: var(--orange); }
+
+.stat-label { font-size: 11px; color: var(--text-light); font-weight: 600; }
+
+/* SECTION TITLE */
+.section-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--primary);
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.section-title::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* CARDS */
+.card {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 20px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  margin-bottom: 16px;
+}
+
+/* ACTION BUTTONS GRID */
+.action-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.action-btn {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 16px 10px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.25s;
+  box-shadow: var(--shadow);
+  font-family: 'Cairo', sans-serif;
+  color: var(--text);
+}
+
+.action-btn:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-lg);
+  border-color: var(--primary);
+}
+
+.action-btn .btn-icon {
+  font-size: 32px;
+  display: block;
+  margin-bottom: 8px;
+}
+
+.action-btn .btn-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  display: block;
+}
+
+.action-btn .btn-sub {
+  font-size: 10px;
+  color: var(--text-light);
+  display: block;
+  margin-top: 2px;
+}
+
+.action-btn.emergency { border-color: var(--red); background: #fff5f5; }
+.action-btn.emergency:hover { background: #fce4e4; }
+
+/* VISIT LIST */
+.visit-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.visit-item:last-child { border-bottom: none; }
+
+.visit-dot {
+  width: 42px; height: 42px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.visit-dot.done { background: #e8f5e9; }
+.visit-dot.upcoming { background: #e3f2fd; }
+.visit-dot.pending { background: #fff8e1; }
+
+.visit-info { flex: 1; }
+.visit-info .visit-title { font-size: 14px; font-weight: 700; margin-bottom: 2px; }
+.visit-info .visit-date { font-size: 12px; color: var(--text-light); }
+
+.visit-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 20px;
+  flex-shrink: 0;
+}
+
+.visit-badge.done { background: #e8f5e9; color: var(--green); }
+.visit-badge.upcoming { background: #e3f2fd; color: #1565c0; }
+.visit-badge.pending { background: #fff8e1; color: var(--gold); }
+
+/* PROGRESS BAR */
+.progress-wrap {
+  background: #eee;
+  border-radius: 10px;
+  height: 10px;
+  overflow: hidden;
+  margin: 8px 0;
+}
+
+.progress-bar {
+  height: 100%;
+  border-radius: 10px;
+  background: linear-gradient(90deg, var(--green), var(--green-light));
+  transition: width 1s ease;
+}
+
+/* REPORT CARD */
+.report-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+
+.report-card:hover { box-shadow: var(--shadow); transform: translateX(-4px); }
+
+.report-icon {
+  width: 44px; height: 44px;
+  background: linear-gradient(135deg, var(--primary), var(--primary-light));
+  border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.report-info { flex: 1; }
+.report-title { font-size: 14px; font-weight: 700; margin-bottom: 2px; }
+.report-date { font-size: 12px; color: var(--text-light); }
+.report-arrow { color: var(--text-light); font-size: 18px; }
+
+/* MAP PLACEHOLDER */
+.map-container {
+  background: linear-gradient(135deg, #e8f5e9, #e3f2fd);
+  border-radius: var(--radius-sm);
+  height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.map-grid {
+  position: absolute;
+  inset: 0;
+  background-image: 
+    linear-gradient(rgba(26,58,92,0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(26,58,92,0.05) 1px, transparent 1px);
+  background-size: 30px 30px;
+}
+
+.trap-pin {
+  position: absolute;
+  width: 28px; height: 28px;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  cursor: pointer;
+  transition: transform 0.2s;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+
+.trap-pin:hover { transform: rotate(-45deg) scale(1.3); }
+.trap-pin.active { background: var(--green); }
+.trap-pin.warning { background: var(--gold); }
+.trap-pin.danger { background: var(--red); }
+
+.trap-pin-inner {
+  position: absolute;
+  inset: 4px;
+  background: white;
+  border-radius: 50% 50% 50% 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px;
+  transform: rotate(45deg);
+}
+
+.map-legend {
+  position: absolute;
+  bottom: 12px; right: 12px;
+  background: rgba(255,255,255,0.9);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 10px;
+  line-height: 1.8;
+  backdrop-filter: blur(10px);
+}
+
+/* PEST PHOTO UPLOAD */
+.pest-upload-area {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius-sm);
+  padding: 32px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: var(--bg);
+}
+
+.pest-upload-area:hover { border-color: var(--primary); background: rgba(26,58,92,0.03); }
+
+/* FORM */
+.form-group { margin-bottom: 16px; }
+.form-label { display: block; font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+
+.form-input, .form-select, .form-textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-family: 'Cairo', sans-serif;
+  font-size: 14px;
+  color: var(--text);
+  background: white;
+  outline: none;
+  transition: border-color 0.2s;
+  direction: rtl;
+}
+
+.form-input:focus, .form-select:focus, .form-textarea:focus {
+  border-color: var(--primary);
+}
+
+.form-textarea { resize: vertical; min-height: 80px; }
+
+.submit-btn {
+  width: 100%;
+  background: linear-gradient(135deg, var(--primary), var(--primary-light));
+  border: none;
+  border-radius: 12px;
+  padding: 14px;
+  color: white;
+  font-family: 'Cairo', sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 4px 16px rgba(26,58,92,0.25);
+}
+
+.submit-btn:hover { transform: translateY(-1px); }
+.submit-btn.green { background: linear-gradient(135deg, var(--green), var(--green-light)); }
+.submit-btn.red { background: linear-gradient(135deg, var(--red), #ef5350); }
+
+/* PAYMENT STATUS */
+.payment-card {
+  border-radius: var(--radius-sm);
+  padding: 20px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.payment-card.paid { background: #e8f5e9; border: 1px solid #a5d6a7; }
+.payment-card.unpaid { background: #fce4ec; border: 1px solid #f48fb1; }
+
+.payment-icon { font-size: 36px; }
+.payment-info { flex: 1; }
+.payment-title { font-size: 15px; font-weight: 700; margin-bottom: 2px; }
+.payment-date { font-size: 12px; color: var(--text-light); }
+.payment-amount { font-size: 20px; font-weight: 900; }
+.payment-card.paid .payment-amount { color: var(--green); }
+.payment-card.unpaid .payment-amount { color: var(--red); }
+
+/* NOTIFICATION DOT */
+.notif-dot {
+  width: 8px; height: 8px;
+  background: var(--red);
+  border-radius: 50%;
+  position: absolute;
+  top: 2px; left: 2px;
+}
+
+/* ADMIN TABLE */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.data-table th {
+  background: var(--primary);
+  color: white;
+  padding: 10px 14px;
+  text-align: right;
+  font-weight: 600;
+}
+
+.data-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+
+.data-table tr:hover td { background: #f0f4f8; }
+
+.status-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.status-badge.active { background: #e8f5e9; color: var(--green); }
+.status-badge.pending { background: #fff8e1; color: var(--gold); }
+.status-badge.expired { background: #fce4ec; color: var(--red); }
+
+/* MODAL */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 1000;
+  align-items: flex-end;
+  justify-content: center;
+  backdrop-filter: blur(4px);
+}
+
+.modal-overlay.active { display: flex; }
+
+.modal-box {
+  background: white;
+  border-radius: 24px 24px 0 0;
+  width: 100%;
+  max-width: 600px;
+  max-height: 85vh;
+  overflow-y: auto;
+  padding: 28px 24px;
+  animation: slideUp 0.3s ease;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.modal-title { font-size: 18px; font-weight: 700; color: var(--primary); }
+.modal-close {
+  background: var(--bg);
+  border: none;
+  border-radius: 50%;
+  width: 32px; height: 32px;
+  cursor: pointer;
+  font-size: 18px;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* SUCCESS TOAST */
+.toast {
+  position: fixed;
+  top: 80px;
+  right: 50%;
+  transform: translateX(50%);
+  background: var(--green);
+  color: white;
+  padding: 14px 24px;
+  border-radius: 30px;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 8px 32px rgba(46,125,50,0.3);
+  z-index: 2000;
+  display: none;
+  animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateX(50%) translateY(-20px); }
+  to { opacity: 1; transform: translateX(50%) translateY(0); }
+}
+
+/* RESPONSIVE */
+@media (max-width: 600px) {
+  .stats-row.cols-4 { grid-template-columns: repeat(2, 1fr); }
+  .action-grid { grid-template-columns: repeat(3, 1fr); }
+  .login-box { padding: 36px 24px; }
+}
+
+/* EMPLOYEE SPECIFIC */
+.client-select-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.client-select-card:hover { border-color: var(--primary); box-shadow: var(--shadow); }
+
+.client-avatar {
+  width: 44px; height: 44px;
+  background: linear-gradient(135deg, var(--primary), var(--primary-light));
+  border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  color: white;
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+/* PEST IMAGE GRID */
+.pest-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.pest-item {
+  background: var(--bg);
+  border-radius: 10px;
+  padding: 14px 8px;
+  text-align: center;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-light);
+}
+
+.pest-item:hover, .pest-item.selected {
+  border-color: var(--primary);
+  background: rgba(26,58,92,0.05);
+  color: var(--primary);
+}
+
+.pest-item .pest-emoji { font-size: 28px; display: block; margin-bottom: 6px; }
+</style>
+</head>
+<body>
+
+<!-- ===== LOGIN SCREEN ===== -->
+<div id="loginScreen" class="screen active">
+  <div class="login-box">
+    <div class="logo-circle" style="background:white; padding:6px;"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAYAAABS3GwHAAAjSklEQVR4nO3deWBU9bUH8O/53Tsz2QgQAVlUXIuGViUDbn06YRGSoHWd1FarCMlMRKlPX/v6XmvfzbSvdW+LC8lMJsSlVl/GarUKoRCTsdaVgWobtNVaN0BBCNkzM/f+zvtjMgEVW1fU9Hz+gZncdeZ37m879w4ghBBCCCGEEEIIIYQQQgghhBBCCCGEEEIIIYQQQgghhBBCCCGEEEIIIYQQQgghhBBCCCGEEEIIIYQQQgghhBBCCCGEEEIIIYQQQgghhBBCCCGEEEIIIYQQQgghhBBCCCGEEEIIIYQQQgghhBBCCCE+JcQM+qwPQoh9bs+CL0Eg/qVkC7xlQVlNvpzM/y312R6VEPuAxZmCfsWNJ+Q2tpWva4pXvHDLQ76JANDc7Dc+26P71yNXnX3IsqBqEeJA2Os6ZtZ+D+TkuuYqommjx4xau7z538ZXVsYcCYJ9SwJgH7EsqNpacGXMr048amJszH6eU/v7kuckB50TTbeaPnbKmNU/v983prIy5mRrCfHpk87XPmBZUIAFoF0dMic/NmZczplvbe6rDs5fEwWAFasXLCgan9OSHLSf3PZyat53L1zbZ7GlQhTSn/GhC/HxMIMyAQC67dGF9/6m42yOrCtbAgBtbT4zHPa6AGDFw/NPi208k29/dGH8xuYTcgHpGIsvuEzhtxQAaoov/NUDz5/Dkd8tqAGAbMEHMoEAAPWrF5x977Nn8u2PLlyzfFWZB7vXF+KLhRk01JanpvbyTOFfW7YMeGfhz8oGQbhl/jfv+9NZ3BRf+FvL8pmWBTVUgwjxxbBH4UdjW8VtD+5R+K02n2lZlvL7mw0wEwD4/c2G399shNcHXAAQWbNg0W86zuam+MJfA5laQCbLxBcCMyg7lLmyfWH0wRfO5Whr2XeA3Vf5fyRbOzSsKQs88Pw5vLK9/FdAZv5AgkB8rr2j8LeVR3/7wjncsK78P4FM4fc3NxsAMCNQf/ZJ37nvQW8gfCYAeAP1jd5g5NfFS24sAoDhmmBt2bIHXziHV7ZXrAQyE2USBJ8saVt+UhgUi/lVZWXMaXykom7igQVL3nyj76rqeauvs9p85uzZcWdbR0em8DLPySmccDppPibzms73jBp3tgc5+wNA8NpO3dbmMwOnttz81ua+/95/St7Fje0VkcrKmBODX0GCQHyu8O6szpVtFbc0J87ghnXllwHDqQ9DBTbT5j8mWHfwid++e+7MRbceCAAlVStO8AYbSk+44sbcPTeb7fxG15Vffu+zZ3HjI2U3Z/cHmcP5REgN8AmwYFEk4TWja8vqx4zLubSrM/U3IspteGTBtycnEjkAGAD5/ZUKAJRWJ5Pp/g92m14AIKWqCfhOuq9gDLB7/P+wk07NbWpbWKoNfqrz7YHVo4tyL2tYV35dOOE1LbYkAD4BEgAfEzMoRCHtDEwsgKIzd+0Y7AMw0e1R15Gma9JderzV5jPD673m2HljFQAQ8Qx3wdhyOHp6Zit0jpk7aiHZTiEAFBU95bLafGbadC0cPc7Tlp/resI0jfLBARujizzfNbsmFocopFlSJj62fzoqIf4xIjAALD354U4AE5vazhijDcckJ+3yFFBf1QmruncvnUBzs9+4dh1dP7Br611Onvs1ADBIn2QP9nrynbdetSyoyy9vSQ6t0NzUVtHNzKMdzf0M3tHfn+o6Qg3+JbNvSZX4uKQa/WSQ1eYzDtK5IdNj+NJJPQFgBqifFHoI9HdSeNQesO+vLvvdzn+2sWjrgmnKMMuIuEQ7PIY1JigTBaapXkml9G1Vc1bfx7w7+MRHJwHwcTEIBLaai90HFE3tM0x6TGsdhVJbwNxDzPlgmury0AzHwTQ7hZbqU1fd5Pc3G8XFHRwKhbTf7zdisWYdbV14EDOfSgoTTEUv2UybnEF7B+WQAYcPcbmMW+20Prhq7vFjiEI8fARCfJayY//RdeUtDWvLVv2DRamhteyK6Lryq9vafGZ2csuyLBVZc+oh0daKU25bt3DK+63c2Fbxl2hr+XIgM6P8CZ/GvyTpRH2inGsLizzl4ZaKk959Y8sd8dMPue3xhbNcwIMg/cRLTl5NiEK6FhaFakPscqe2Vs1d9eiieQ9vtthS2Umv7MxwZM2CRTm5xpcA+hkAoL1U2v+fAGkCfUKy+fuNreXrDBdNXXTKqiOirRVT3TlUzRon22l2K4MGbFu/VT139TcirRWVBugvS+Y+/KxlWSoUCunsTTPZtj0PTa5tLegxCwvUZiep7686taW6udlvVFbGnM/4lEcECYBPSDb5bcKaJ6bk57meN0x6Kp3WymVQR9rhX5Hu23Dx7PggkJngOrjU53bSOfOr5q95kBm0tw5tOOx1BYOJdMO68pvcHlWtbXPSK+3HdgMhhEKQGkB8PkXWzj9t1Ut+bmgt/+Ge72dSm3cntUXWVBx755NlhXvbxvA9Ai3zy+7/09lc97sF32hu9hvZNAjJCRKfF8MFMrx23kHh9Zk2e3j1gm/98snT7YbW8ouB4QS3oVygzL+3r5273+1rz9xvz/eA3R3cFQ/NPfTOx0/raXik/DoACK+dN3pla8VJzX/2u7P73EfnOGJJJ/jj46Y2X05jW9mc4KnrXt/y2wK+I376HHe+MTY1aL+Zl2+ujLYu+FZwZiRttfmM7LApALz8WGtnbqdrFwBk37PafGZodty+4UHfuJxRnoe15lyD0Hn77xfOOzBtDr66I399z1t9Z4bXzhtNBJYg+Hjkw/sYmpv9ht9fzA2tT52tiP9kmGqeYSgfA1t1mjfaSftBchnLJ00tuGDra73/XjVn9XKLLYXavbfh2zJZo/b1vz51wvgJ7t8T4UvJAT3NdNGXTVOdBOYDGPRHJ6UfdbT+sh67vWnsy4fqysqYhswHfCQSAB9RdiQm8rsFlcpUcwEuUMrocJHd9C3fmq0AEFm34FLF9BVXnuvFvDzjhr7e9IpFJz98KQDsWRMwg2rbfUZodtwOt8w/Mr/Q3Z5O85bUoH2PYdCRVfNaFgPAiocWjs0vxLmptPYRaAKI26vmrP6pjAp9dBIAH8HQkCc3tMw/zJVnbrTTfBdAV1fNXfVqdpmGteXXkMK413cULA1VxlKNa8tP8xQYv2FNj6X69eLXHnv4ldpacLbgA0Bja0WlJ1/9Sjv8aGeXc+blFS3d0XXlNQyU96e48vKKTI7QHWtOzU8a5qVuj/pJKqkrquetXitBIPaZPWZ+f934SOaOrz3/Fn2k/MroI+VhIHN1Xz90h9dND84/8pdPnP5GdG3ZLc3NfiPb2f35/b4xtz1WcVts45ncFF/4s+FtDXV2I+vK/r2xtazu3cex8pEFCxrWlT3Z/Lg/V/oCYp/IjvdH1i04uWFd2UPZ91e2VpzU8Ej59Xc9cfqahtbydcA7b2HMFnaryTcm+puvjcqu1xSvWHLnHxZ2/vLx096KPlKxMLte9maY7KhSQ2tZ3V1Pfm11U1vFT1a2Lzw5u37DuvLGhtayS/bch/jg5AP7sNrbFQBNoGpirGpu9htdRb03scL+RHTr4IA9lQy+GgA6xm8jxPzKattGodlxBwBCF8d3WRbUbe3lF0KpH5oudbht65ve+svOq75X9XgPAGQfj2iVtptbesAWW0r/tv2HA0T3KaX+QOAlkXVlF6eMgW+TptsZuAZAHUpLNRD/7D6bLyCpNj8cAsDLV5V58tx4RjOWKsIyIrW+au6q61e2LzzCcfT3q+esXtzW7jNmD7XtsxofLSsmR10EhSWGov205l/ZSfxv9fxVzzc+UrEkN8/4fnLA+YXjMn9d9W8Pbsmul02zaFhX9mMFbFgyr+X+hkcqgqT1mazVlUzOvQxXefDUh157v1llsXdSA3wIlmVRKBTiwlx9CJO5H2z9E2K+rmreqocBQNu6AibfBwLPRty+c1VZYdKjjiWTKuDoM1zKONJh/RY0RdM212U7zVabzyTH2Wjb9AcoXG3Y9vKm9vInmOl+x9G/Gx3b1AEARCrKzN8DcH/1nFXhhrUL/gKlb8nJdRWmeu0jAbwWi/kVIJ3hD0oC4EOYPn0TAYDtGAfmFxr79/fgv5bMXbWK1i48FAqjtHZK4eDIhnXlZxoKx6VAR5gGPI7m10lRi5OyL3sl3tKWnQNobvYbHR0xHhoF2gDgwuhjX7vUsJ0yAr7ORN93uY3re8f1vh1tLdtIxH9kRnFDe8VR7rR720Wn/qZ9ZXv5DtOkp5OKxgFDzS7xgUkAfAjZwkXEY1xuwwDsaxtbyxqhtKkUERgDCtQNhVc18DgxX+9yqycWnfjwi3tux2rzmWiP6z2HLS3LUtNrN1ElxXoAxADEwuu9LtU3cYZSKFVMp2iNb4C4yABtSqtkKtpavsux+e8gyiHS7n37aYwMcrX4ELLt63DbaeM8LudMOwkCeBdYvW2Ss81x0bYlp7Rs39u6VpvPnL59Alf6Yxr/oI2eTYGGH6ik9zZlGh8tG69t4yDFfBgDU0H6IJfLNAaBa4InP/QaMxMRSR/gA5IA+BRYbKmh0SKgvVSHQiHGR0hVyAZDx/htNH37BJaJrk+eBMBHkE1dAIDppRMYMaDDX8y1CDFl8z0/xX0DFsWwiTrat1EpgHYAtaVxR0Z/xIdiWayyT2v7nNvnx+izLNPvbx7xv1f2RfjyPx8sS/kAFQe0D6UqHprt4AuQgen3NxuxWKU0nd7Hv2wA+C5qyunPx5Gg3tefuXXZDgxNcn3Wx/U5QTMD9Usd4LWNkZrfApYCRuZDuP71AsCyFEIhPauq6VjPuHEb+3Zu/o+Nk7b+wgeoeChkv9/y3mDDVwH9VUA9Tco4kVRf5Jlbl+2Av9nwFXfQhE3TeVtxB8UBjdBHLyw+yzLjoZDtDYSvBvgM0vglud2XpZzkrGfDl2zOHs8eq2S/w3cGr2UpXztU75FTLoLmQxMNwR9kbr6vZZ9VO9y0edfxEgAutix33tYpSQ1ee1jn2PKXX16nEolI+qOe0+fZiJ0HyLZfY81+jT2HBUO1DIQob8rBf+7vfONsR+k/IBTS2Mtvcfn9zcbLWztVAtCsdZlhmlc52r7Z5SlYNjiQfADADsQqnfdk37y3kA5vb1txB6EdQCkwYdN0fnfzZMKmTQzLUtjKWwDeyMDfwUjk2KYNMKEWjFAIsCzl3zSdhtff8/XQ/ndVRY7KKyiKpnre/jUAPLR1sgFQOh7COwN99/EyAGwKhVLeQHjMYOeWgVgs6ACsgciH+wK+IEZoDcAE7HUsfLiZMyMQnWmCx7Eitz2Yfv6Pt13y4j9YD8ctu7NQ93SPXjh12+ZV2w+e0Dc+f+emUGV6RiDqNQx1HoDJxHjRTvffubHxspfeGwTvv+3347Pacvrffi0/b9zLXe+qnYbPw+9vNjqKYWwKVaaG92PVEkIhfezFdcd4Ro3e4Az23rl+0ubFCIX0Cf4bc539xlYCPIMVbcPg4IPrVy79MyxWCBEffcEdee78gYsYykukUsxOayIcuPfd+x0pRl4AMBOI2Lv41oVGfuG37MHe/g0NlywGQLAs8m6dbLDWd7jyCs8z3LlgrWEP9iS1nboiEQnWZR9TCBDPrF5xDrH5wjPRQEd28yVVdWcp0m+sb7j0GQDwBiLL8vY74Kb0QDeU4UK6v7vLdpLnbIzUtGa2FXOyx1RStWKB4copY20XMFSSHf3EhmjgrqHgACyLEAppbyD8FTLMCGs+jogVmJIgbmGtqxKRwA6AeMbShsNNqGu1rUsA7SbT/QI79o8T4ep2n9VmxkOz7RlLGo52F+Q/aw9035OI1Hxj5uKfT2NP4d2evDEzGAwihXR/V9pJDQY2RC+5DZalirdPz8u1d76ZM2ZyvraTgNZI9e1oLpj81vkft3n3eTSibor3+5sNELE3EF5o5BY85Mot/DqBxgPA4cuWu4e+PL+ncNx59mDva6nubbcke3bczazdIPxs1kW3TIzFYhog9gbC/+UqGH9vmngcAICZSqrqzs8dO+k+RxvTMntkAviO/h1vfDvZv6s82bUtqtye0QRqOmlxdFQs1qx9VpuZKfx1i1z5Y1rMvMJ/d+WNqXLnj77UU1j0y5LqumsAYr+/OfNd+JsNZr7dzMk/gbXzgnacp7V2trkL9jsDrGsB4sOXLfdQ2o6ZOaPPBjvjGTzKdOfMYdYPHL+kYf94belws4pIAaDOmYtXTKOcMW3unFEzBrq3P5Tq2bEo2bX9p8xakelumFUV+RJCtbxpRWUvK3Veqmv711PdnRel+rted4+aUNm7dVIVQiHts6wR1WweUSczjHmJcnl4cOfWy6HoDr/fb2wrOtp5CQADc1hrDeD89ZGaxwBgZnU47SoYc2Fa7ToKwJsAwERHMLM2tBoAABAxBcITmVkrUj0A4PPVGvFIqAvAzUN7bimprh/vLhh7Rqp3178BtBrtVqaNvVX9l7ZTvamB7m8rMt6AY48jw/ULIuMybyB8dSxS2QUAM5ZGpxrwzEj37lqzoSFYDhAfu6xxfLJ350sgNRcA8gdyDzdzc49N9exoUYPpC1JFBU66b9fNnoL9LkgO7JoFoocAwHCRodNJMPOJcJlnmO7cScm+nf+5saHm+uxH5a2u6/KMnnBtsuvtbwJU6w2EXYn6wPCNPt5A+GXHHmxnpgsB1Mdrax2EQp/q17cvjagAiMX8Q9UzHZjq62J7dN7K5268sA/hsGv8/c8pn2WhdwsmOOkBZWja7LuoKWdzYTfrQbxGpFg77Mlui5iTACsAruxVr2cLBgBWDHh8lmXiFZjeaWEqSLoN5PeZ27dvTxHRGmW4vgbmA7PrnfT6gfmDRvoQJzX4x40NNU3ZfZRU159tunPP1bpvPwBdAKBTukDl5TDb6Vf8/pjaOHG5Ofq51zp7p03uA5AHAErr/QzTw5oGEs/cuWxHZlt160kZ5xuaC7P77d+s2eEkDFfOsaQIyZ5dizc21jSVLVvu2dKZMvvHum17wHjYTA1eA0Kxz7LM3J2D6vBlyz2Db9rqsLwi3uzpfqawn7tJ0ZRsUw4jqC8wogIg0/kDM3OfcrvZGEyNBtCXCAYzQ3gtgDcQfstw5SCl00Xx6MV/BzI1AECkDHO4fcuU6R85purMdkBnVIcnMGsQO5uH3st2TIeHCL3Buj4QEUHtyq53dM2KXDfluNhODwJAsdXs3lTrT1Mw/J7HmSgXaTATg0cNjfA4LwHwTsvcYgwAyiQDADQ7w0+VY8DJ7BfDHWZvIDzWMHOgtb0zNZAqf7bxkqcBoOXmy5MAkgBwTLBuV+b3ijn1rnPCG9lzqg6PyCFQYIQFQHamlhQ94c4b7Rvs2n5XSaB+FYiZNBSg0sw8VdtpmxwdKamuuxdEAwx81bFTtnbs4T4RaSiwhsF2sCQYfpmY9wdRdbqvKw1DneUN1B/PRIo4UygJrJjJZuaT7ME+Wyuc5a2um8JEJjm8QLkNOGQf5A2EDxq/c+tbqKx18djJCvyOACDtNrfaA/19pMzTvVX1IRDtImITpHK11t0AYGh6xR7sJaXM82YG6ndool3EONVJ9sNhnFcSqD9CAXma+UJmttmxe01Deb3V4VKG1kRq6FrOWmua6NhpmxnF3urwFURsMkgzayJSTGDFpHKgdRdqa0fMlT9rZI0CDf3yujcYmQhQizt/zNFkvDPGtZ2CtlNQphvKzKTQO+lBkGEi1b3j7A1T3nzAB6i+LZNvNnLyglAuMlxDy6UGwFrD8OQOdS73cgiODSc9CMOVg+y+tZNGum8XzJwC2IO9aQZ2DC0+XinDSNkD056LLvurNxB2JSLBdEl13XdMT/71picfIAKYwayR6t3xxmmTglNDIdIlVfU/c+UVXmG4c0BKwR7oRXqgG+78sVAuz9C5JqHtNEiZMD15YH7vAA6zhpPshzJcw+u9awGwdpDq2/nWoZ1FU4ZqpRETCCOqBsi2TxPA1hP8N56QIppNCvvD1sOBzgRFUMpJDWjizJ1ZrDSRmWuQUgmEQjoO6JLqcJ5BilL9XSFS9Aoxm0xEijU56V6HtNprAXj39lkRkeY+NtWL6f6eamW65kPbeUMLv6kdJw140gCQmLTFAZg2NNANM2tWtCbTg18hYhOaGYbLxZp3hUKZc9wQrblyVqA+5qQHDuN0qgdKLXLljT4jPdBVx33qGVJsApmaSZNiZ6Bnr/lArDQRk2FrZkXqvctQZt/E1L27jzUyCj8w0mqAYR9+0ilrZs2KaVB557GTvhLMri7PwNiXMm3mT4Tf32z0TNxqvgRgSnchAUD8tkXJd8xW7+5svr+hibYTrrgx10mNm6vTg9cY7tzpaZ06eOOKqlf/4bpi2MgMgKG0gJfHdioAKJi05QMEw8FmPLQo6a0O35m//yHnJ7vfRnqg+3+J1I8Kkm4Dr7xio/QjHk87EC+F9m6dbCQmbXE+0GTSUPbpnm/tmTrhsyxzwqbp/LexnfcU7H/ouem+XUh2bb9jQ/e4xcWAMb54vO7d+lcC3n3+pZkD+pD2lrYhviisPX+t/f1k+g8l1XWXH3fZHTd6A+GFn94BcfaX3j/OL75n+jvV4R/MvPSOH82siZ6Tub8BgGWp4f8Pvf6C3Pewz424D8XvbzZeHb1rUtqtDLdj0AAZ/c/VX7gNwO6EseIO9rVDxeMhG2DKZkfGUasRouGr88xA5LuGO/erTrL/uvUNwSeKLcs1fdN0Z9u2DorHQ9n7AchnWUPZlaWIo11nk+t8KFVAOzbvLDJeuvnylLeq7jwodUIiErwczITaWsouE6+tdTLNHia/P6ZixR2crQHioaF9MZOvttYASjFh0/bhK7J30c0lBVywKX77xYN7Np+KrWZ37tZOTkQyw8DZTjYAyvyKK3E2aXBbcQcNH8PQ55R5fzwNn9MINHICYKhNfNyy5Qc4Sc+fhk4tTYbLzeysgdYXJyLB/n+2Gd9FTTnxg19JlWyeUqpM1apM9/fSqf4nN0ZqHv0QR7PXUZKSYOQs0jwz0RD8wfvcqPKhR1f8/mbjb2N27iRSP01EAtf5/c3qpVHdBxgeCrPWRwGcVoZrh7ZTVeM9B/51e/L1x/sGUvNfuDOTyo0P3Kz56P2qz7ORNQoEIJlys0lqjGZ9Hmz7SQVMJGXEmfW3Zl68Yq1D+gCt3DtM4tmJhsCt0xZfV1DgKrqElDGRnfT/xSMXP1W89JYCIv4Wa2c7aydhutIdAMhb03iVMoxT2E4/2b9z9I83FXfYh+8sco1NFwRZ65NhmG/CTt29viH4+MzFK6axJ6cG2p6ilOtZV9K5KcnO7w2mZwAgFqt0Ziy59WjD9FxIpHalkz3hPzZdvt0bCE9i7RxFytgOUl+DUm8W9Ku74rcvSh5X1XCwdrvOJfBR2nbiiUj17bFYpeOtru8EcwoAZ16H65mNInZwNinOJUXHsnbc2wbeOMP05JQUmK6gNxD+v0Sk8m/eYGSJUq6vM5xXjRRf9VRj9bZjg3VHG/BMYE4d4nLnH5wa6L5nYyM994E6518wIyoZbhgzFOjZjSsvezURCT6ltf08Ex3ouNQsT+F+cUPxagbmnbS4saDANfYxkDqXtT2GDPMxbyA8P9d2HUCGOZ+BUUxYjqRnYkl1fYMiXMSp5N0MfDN37M6fIxTSo5M5K0EUYjgvKsMoYkLZccuWF8Lt/j2BvcT4KxPPTSE1FUCVTfwMAMwK1J9iuHOeAvFEBs8x3HmJ4qW3FAA4yJU3upUZj4H1BaYrJ9rjTl0HEDvQSwl0Emt7OxlGtCRQn/mtASLXnqdPwCgCdW6IVicSkeBjT9+y6JYN0aUJKH2W1rZDUItYO+O9gUiNUsZyzXYzmA6yDf0AADa0Os2dl/87Ylzs2MlzTHfuMzMXr/gyiGDt5b6JL7IRdTIA4HEbBCDNwDXeQP0vZgYb7jdcOccS6P+UVh4nlexm0zh5Q0PwzJRpn0vA1ET9kuMS4cBiduwVYPw8EQm+4Dj2jwjoXH/rxV/Wit9ShrnEtlPXp5VeA+gwQBcBABizAP7roZ1FP3z6lgvPT0SC/+MkcyabOQXj2XFi6yOBq9avWDxn/cqlfwbIBPEAADhMP2bHvm99ffUF6+uXzGFmV27adT4Z5nYnndJEWJiIBI9KD/bcAsJ8AEhEa777zIpFZ5GBRtbOeiJa8J4PwLIUE75Nhpo2s6axe2ZN9L6SqhUnAwCBrmQnrZKpntM2RJc+CeaQo+07bbZXazv5M2W6jz9pcXQUiAZSfV0vJxpqTlxfXzWNNW9l01gKgNtHWJkZUSfzTjwGpCYrZXZpe2B+IhL8ExSPd1IDnRtXVL061Pn7CmvnWViW8l3UlEMKj4IwAQAI2gDDADNp8MEMdohU0GT1EJR5HoA/gJk0cRXIGPfKuB575iUr7zsmWDclMWnLX9O9u36kTPOGmTWNXd5A9CoAYGZFGO5kH6Q0tZctW+XxWW0msV5PxF9mxya2U6oHeAHMRKDObK9gxpL6r89a2rRN27hbKfMwAO/p03i3TjYSkeCG7tc3fYUZQRCNNjx5j5RUrTjBSZs2SFGOkZfrs9pMBrsUGaUm00OkjGu0k/pjn9NjaGYTrLU3EHb5/c0GO6mnmfElIDMc+ul/d/vOiOsDpLXSBFvZSl/2XH3Nn4f/wEwIRtMgMCxLxUKVjrc6/DpA5w7N/g56A+EjAPRlVlAAsQ0ixuKbtyiP27DhfHdDpKZ1eJuRIDYCjwI4bFYgOpNM9aCpVRShUHkCsOD3/8hbVLbIlT8qOitQ/6gD3sHZiw7xLk2Y1nJzRRIAvIHw4Qx6DGAwke3RyAERozpsANx/9AV35JPRfxdr54JEOHBPSXXdnSAqymyLbBrKc8iO+f/lwet7ANwN4G5vILKJlPENQ9n/Tay0M9DTGQ/Ntr2BsNK2fc+GaM078ptLguEc1nA2RILpRObYDiPgeSAzWvQpfG2fmREXACmdNPI9hYZO9U7yWdYLuTuPN4AX0UKURKAhD0BRZkiPSbluvZsd9/94a6IrmZ31REZI2/b3hjaVB9BoANi4ctmWkur6ew2X5/6S6vANyjBIaxvu/KLrkr2d1xuGsUGn02+SYSgQ3jw2WHeMqXKCjpNcDW3nsnagiQeJjQKAhwqtuoGUcfvMQOQNUnQwA4ey1neA9IGmK99MOj2ZgkacD6axBe6USpIymKjEGwgfoVw539TpwdUAAOZxGEqVBkpRUj3xRmW6+2Hbf2elDlPKOMp2UlcWmrbqR74yRo9ddkyw7lYwfmzm5N3gDUZGMXgHgIMO2zn2sr/xzm7Tk3eItzr8E1LGWOX2lOjB/iuBkVcDjJwmUG1tJlUY1OsM9t3mEL8WD4Xs44ueSh9ftHMonVdvABAFAFi19MyKy9604XyVgHylXGdr1pdtiNb8AgDA9CewvgtDL7pzkhewY19LSs0BUEqgpKdwfJqAXoCCMI0biOgBAJe6HaObgPEK6sfKdC12BnsuTYQveRraeYEJ9QCwIRy4ix37QjLUQoaaylqfkogEtyrH2GWn+lcqUC8AENPviXDP4yureuA4fmW4ZzLr8axTPwWjBQAIFGZCAgDiodk2kbGZQV4mBIjUidpJn78xUtMSH7+9X9up/4HhLjUc49BEJHijk0pWQ6ljFFQ5MemXx3YqMJnaTr8NwmQyjSOdgV7/+oZgHMwks8Ejyl5nRz+tKv5d293bvj/N2dq9bJv3vj9vIHy1t7pu8z9dfwQYcU0gIPtsnVrnPRM3736UCDKznr52qAkTMlX78N+YyV8ZU3tc8chnWcaeTYBYrNLx+SwzXgqN2lr2ldYa8XjtUK5OrRGvrXVQW0t7Pq5k9/53z8ICQKy4gzOz0JmZ6eGnQOyxzp7Lbxt6FlH2/cz6mdna4UfCFHdwdkY3FiMn+7fMsrW850wwAGSfLqHBjxNAPl/mzrIJE6Zzdn0hhBAjmmWpf4UH4wohhBBCCCGEEEIIIYQQQgghhBBCCCGEEEIIIYQQQgghhBBCCCGEEEIIIYQQQgghhBBCCCGEEEIIIYQQQgghhBBCCCGEEEIIIYQQQgghhBBCCCGEEEIIIYQQQgghhBBCCCGEEEIIIYQQQgghhBBCCCGEEEIIIUaU/wdMtQE1nOp2rAAAAABJRU5ErkJggg==" style="width:68px; height:68px; object-fit:contain;"></div>
+    <h1>خطوة محترف</h1>
+    <p>بوابة المتعاقدين</p>
+
+    <div class="role-selector">
+      <button class="role-btn selected" onclick="selectRole('client', this)">
+        <span class="role-icon">🏢</span>
+        عميل متعاقد
+      </button>
+      <button class="role-btn" onclick="selectRole('employee', this)">
+        <span class="role-icon">👷</span>
+        موظف / فني
+      </button>
+      <button class="role-btn" onclick="selectRole('admin', this)">
+        <span class="role-icon">🖥️</span>
+        التحكم بالنظام
+      </button>
+    </div>
+
+    <input type="text" class="login-input" id="loginUser" placeholder="اسم المستخدم" autocomplete="username">
+    <input type="password" class="login-input" id="loginPass" placeholder="كلمة المرور" autocomplete="current-password">
+    <div id="loginError" style="color:#ef5350; font-size:13px; margin-bottom:8px; display:none;">⚠️ اسم المستخدم أو كلمة المرور غير صحيحة</div>
+    <button class="login-btn" onclick="doLogin()">🔓 دخول</button>
+
+    <div style="margin-top:24px; padding-top:16px; border-top:1px solid rgba(255,255,255,0.1); text-align:center; color:rgba(255,255,255,0.4); font-size:11px;">
+      مدعوم بالذكاء الاصطناعي — خطوة محترف © 2025
+    </div>
+  </div>
+</div>
+
+<!-- ===== APP SCREEN ===== -->
+<div id="appScreen" class="screen">
+  <!-- TOP NAV -->
+  <nav class="topnav">
+    <div class="topnav-logo">
+      <div class="logo-sm" style="background:white; padding:2px;"><img src="data:image/png;base64,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" style="width:30px; height:30px; object-fit:contain;"></div>
+      <div>
+        <span>خطوة محترف</span>
+      </div>
+    </div>
+    <div class="topnav-user">
+      <div>
+        <div class="user-name" id="navUserName">—</div>
+        <div class="user-role" id="navUserRole">—</div>
+      </div>
+      <div class="user-avatar" id="navUserAvatar">👤</div>
+      <button class="logout-btn" onclick="doLogout()">خروج</button>
+    </div>
+  </nav>
+
+  <!-- MAIN CONTENT -->
+  <div class="app-content" id="appContent"></div>
+
+  <!-- BOTTOM NAV -->
+  <nav class="bottomnav" id="bottomNav"></nav>
+</div>
+
+<!-- MODAL -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal-box" id="modalBox">
+    <div class="modal-header">
+      <span class="modal-title" id="modalTitle">—</span>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div id="modalContent"></div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast">✅ تم بنجاح!</div>
+
+<script>
+// ===== DATABASE =====
+let db = {
+  clients: [],
+  users: [
+    { username: 'admin', password: 'stepro@2025', role: 'admin', name: 'مدير النظام' },
+    { username: 'tech1', password: 'tech@1234', role: 'employee', name: 'الفني الأول' },
+    { username: 'tech2', password: 'tech@5678', role: 'employee', name: 'الفني الثاني' },
+  ],
+  nextId: 1001
+};
+
+// توليد كلمة سر تلقائية
+function generatePassword(id) {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let pass = 'K';
+  for(let i = 0; i < 5; i++) pass += chars[Math.floor(Math.random() * chars.length)];
+  return pass + id;
+}
+
+// حفظ البيانات
+function saveDB() {
+  try { localStorage.setItem('khotwah_db', JSON.stringify(db)); } catch(e) {}
+}
+
+// تحميل البيانات
+function loadDB() {
+  try {
+    const saved = localStorage.getItem('khotwah_db');
+    if (saved) db = JSON.parse(saved);
+  } catch(e) {}
+}
+
+loadDB();
+
+// ===== STATE =====
+let currentRole = 'client';
+let currentPanel = 'home';
+let currentUser = null;
+let currentClientId = null;
+
+function selectRole(role, btn) {
+  currentRole = role;
+  document.querySelectorAll('.role-btn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  const users = { client: 'عميل_تجريبي', employee: 'موظف_1', admin: 'admin' };
+  document.getElementById('loginUser').value = users[role];
+}
+
+function selectRole(role, btn) {
+  currentRole = role;
+  document.querySelectorAll('.role-btn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  // مسح خانات الدخول عند تغيير الدور
+  document.getElementById('loginUser').value = '';
+  document.getElementById('loginPass').value = '';
+  document.getElementById('loginError').style.display = 'none';
+}
+
+async function doLogin() {
+  const username = document.getElementById('loginUser').value.trim();
+  const password = document.getElementById('loginPass').value.trim();
+  const errorEl = document.getElementById('loginError');
+  errorEl.style.display = 'none';
+
+  if (!username || !password) {
+    errorEl.textContent = '⚠️ أدخل اسم المستخدم وكلمة المرور';
+    errorEl.style.color = '#ef5350';
+    errorEl.style.display = 'block';
+    return;
+  }
+
+  // 1. تحقق من الإدارة والفنيين أولاً (محلي)
+  const user = db.users.find(u => u.username === username && u.password === password);
+  if (user) {
+    currentRole = user.role;
+    currentUser = user;
+    document.getElementById('navUserName').textContent = user.name;
+    document.getElementById('navUserRole').textContent = user.role === 'admin' ? 'التحكم بالنظام' : 'فني ميداني';
+    document.getElementById('navUserAvatar').textContent = user.role === 'admin' ? '🖥️' : '👷';
+    document.getElementById('loginScreen').classList.remove('active');
+    document.getElementById('appScreen').classList.add('active');
+    await window.loadClientsFromFirebase();
+    await window.loadReportsFromFirebase();
+    renderNav();
+    renderPanel('home');
+    return;
+  }
+
+  // 2. تحقق من العملاء في Firebase
+  errorEl.textContent = '⏳ جاري التحقق...';
+  errorEl.style.color = 'rgba(255,255,255,0.7)';
+  errorEl.style.display = 'block';
+
+  const clientUser = await window.loginFromFirebase(username, password);
+
+  if (!clientUser) {
+    errorEl.textContent = '⚠️ اسم المستخدم أو كلمة المرور غير صحيحة';
+    errorEl.style.color = '#ef5350';
+    errorEl.style.display = 'block';
+    return;
+  }
+
+  // دخول العميل
+  currentRole = 'client';
+  currentUser = clientUser;
+  currentClientId = clientUser.id;
+  document.getElementById('navUserName').textContent = clientUser.name;
+  document.getElementById('navUserRole').textContent = 'عميل متعاقد';
+  document.getElementById('navUserAvatar').textContent = '🏢';
+  document.getElementById('loginScreen').classList.remove('active');
+  document.getElementById('appScreen').classList.add('active');
+  renderNav();
+  renderPanel('home');
+}
+
+function doLogout() {
+  document.getElementById('appScreen').classList.remove('active');
+  document.getElementById('loginScreen').classList.add('active');
+}
+
+// ===== NAV =====
+const navs = {
+  client: [
+    { id: 'home', icon: '🏠', label: 'الرئيسية' },
+    { id: 'reports', icon: '📋', label: 'تقاريري' },
+    { id: 'map', icon: '🗺️', label: 'المصائد' },
+    { id: 'payments', icon: '💳', label: 'الدفع' },
+  ],
+  employee: [
+    { id: 'home', icon: '🏠', label: 'الرئيسية' },
+    { id: 'visits', icon: '📅', label: 'الزيارات' },
+    { id: 'report_upload', icon: '📤', label: 'رفع تقرير' },
+    { id: 'clients_list', icon: '👥', label: 'العملاء' },
+  ],
+  admin: [
+    { id: 'home', icon: '🏠', label: 'الرئيسية' },
+    { id: 'all_clients', icon: '👥', label: 'العملاء' },
+    { id: 'all_reports', icon: '📊', label: 'التقارير' },
+    { id: 'all_visits', icon: '📅', label: 'الزيارات' },
+    { id: 'emergency_admin', icon: '🚨', label: 'الطوارئ' },
+    { id: 'settings', icon: '⚙️', label: 'الإعدادات' },
+  ]
+};
+
+function renderNav() {
+  const nav = document.getElementById('bottomNav');
+  const items = navs[currentRole];
+  nav.className = `bottomnav ${currentRole}-nav`;
+  nav.innerHTML = items.map(item => `
+    <button class="nav-item ${item.id === 'home' ? 'active' : ''}" onclick="renderPanel('${item.id}', this)">
+      <span class="nav-icon">${item.icon}</span>
+      ${item.label}
+    </button>
+  `).join('');
+}
+
+function renderPanel(panelId, btn) {
+  document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  currentPanel = panelId;
+
+  const content = document.getElementById('appContent');
+  content.innerHTML = getPanelHTML(panelId);
+  initPanelJS(panelId);
+}
+
+// ===== PANELS =====
+function getPanelHTML(id) {
+  const panels = {
+    // CLIENT PANELS
+    home: currentRole === 'client' ? clientHome() : currentRole === 'employee' ? employeeHome() : adminHome(),
+    reports: clientReports(),
+    map: clientMap(),
+    payments: clientPayments(),
+    // EMPLOYEE
+    visits: employeeVisits(),
+    report_upload: employeeUpload(),
+    clients_list: employeeClients(),
+    // ADMIN
+    all_clients: adminClients(),
+    all_reports: adminAllReports(),
+    all_visits: adminVisits(),
+    emergency_admin: adminEmergency(),
+    settings: adminSettings(),
+  };
+  return panels[id] || '<p>الصفحة غير موجودة</p>';
+}
+
+
+// ===== HELPER: CLIENT DATA =====
+function getClientData(key) {
+  const client = db.clients.find(c => c.id === currentClientId) || {};
+  const used = client.used || 0;
+  const visits = client.visits || 0;
+  const remaining = visits - used;
+  const percent = visits > 0 ? Math.round((used/visits)*100) : 0;
+  const map = {
+    id: client.id || '—',
+    name: client.name || '—',
+    end: client.end || '—',
+    used, visits, remaining, percent,
+    value: client.value ? client.value.toLocaleString() : '0',
+    pay: client.pay || '—'
+  };
+  return map[key] ?? '—';
+}
+
+// ===== CLIENT HOME =====
+function clientHome() {
+  return `
+    <div class="welcome-header">
+      <h2>أهلاً بك 👋</h2>
+      <p>عقدك نشط — ${getClientData('remaining')} زيارات متبقية</p>
+      <span class="contract-badge">✅ عقد #${getClientData("id")} نشط حتى ${getClientData("end")}</span>
+    </div>
+
+    <div class="stats-row cols-4">
+      <div class="stat-card">
+        <span class="stat-icon">📅</span>
+        <span class="stat-num green">${getClientData("remaining")}</span>
+        <span class="stat-label">زيارات متبقية</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-icon">✅</span>
+        <span class="stat-num">${getClientData("used")}</span>
+        <span class="stat-label">زيارات منجزة</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-icon">🗺️</span>
+        <span class="stat-num gold">12</span>
+        <span class="stat-label">محطة طعم</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-icon">📋</span>
+        <span class="stat-num">4</span>
+        <span class="stat-label">تقارير</span>
+      </div>
+    </div>
+
+    <div class="section-title">⚡ إجراءات سريعة</div>
+    <div class="action-grid">
+      <div class="action-btn emergency" onclick="openModal('emergency')">
+        <span class="btn-icon">🚨</span>
+        <span class="btn-label">طوارئ</span>
+        <span class="btn-sub">زيارة مجانية</span>
+      </div>
+      <div class="action-btn" onclick="openModal('complaint')">
+        <span class="btn-icon">📣</span>
+        <span class="btn-label">شكوى</span>
+        <span class="btn-sub">أو اقتراح</span>
+      </div>
+      <div class="action-btn" onclick="renderPanel('reports')">
+        <span class="btn-icon">📋</span>
+        <span class="btn-label">تقاريري</span>
+        <span class="btn-sub">4 تقارير</span>
+      </div>
+      <div class="action-btn" onclick="renderPanel('map')">
+        <span class="btn-icon">🗺️</span>
+        <span class="btn-label">المصائد</span>
+        <span class="btn-sub">خريطة تفاعلية</span>
+      </div>
+      <div class="action-btn" onclick="renderPanel('payments')">
+        <span class="btn-icon">💳</span>
+        <span class="btn-label">الدفع</span>
+        <span class="btn-sub">حالة الفاتورة</span>
+      </div>
+      <div class="action-btn" onclick="openModal('rate')">
+        <span class="btn-icon">⭐</span>
+        <span class="btn-label">تقييم</span>
+        <span class="btn-sub">آخر زيارة</span>
+      </div>
+    </div>
+
+    <div class="section-title">📅 الزيارة القادمة</div>
+    <div class="card" style="background:linear-gradient(135deg,#e3f2fd,#e8f5e9); border:none;">
+      <div style="display:flex; align-items:center; gap:16px;">
+        <div style="font-size:48px;">📅</div>
+        <div>
+          <div style="font-size:16px; font-weight:900; color:var(--primary);">سيتم إشعارك بموعد الزيارة القادمة</div>
+          <div style="font-size:13px; color:var(--text-light); margin:4px 0;">الساعة 10:00 صباحاً</div>
+          <div style="font-size:13px; color:var(--green); font-weight:700;">سيتم تحديد الفني</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-title">📊 رصيد الزيارات</div>
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+        <span style="font-size:13px; font-weight:700;">المستخدم: ${getClientData("used")} من ${getClientData("visits")}</span>
+        <span style="font-size:13px; color:var(--green); font-weight:700;">متبقي: ${getClientData("remaining")}</span>
+      </div>
+      <div class="progress-wrap">
+        <div class="progress-bar" style="width:${getClientData("percent")}%"></div>
+      </div>
+    </div>
+  `;
+}
+
+// ===== CLIENT REPORTS =====
+function clientReports() {
+    const clientReports = (db.reports || [])
+        .filter(r => r.clientId == currentClientId)
+        .sort((a, b) => (b.id || 0) - (a.id || 0));
+
+    return `
+        <div class="section-title">📄 تقاريري الدورية</div>
+
+        ${clientReports.length ? clientReports.map(r => `
+            <div class="report-card" onclick="openReportDetails(${r.id})">
+                <div class="report-icon">📄</div>
+                <div class="report-info">
+                    <div class="report-title">${r.client} — ${r.type}</div>
+                    <div class="report-date">الفني: ${r.tech} | ${r.date}</div>
+                </div>
+                <span class="visit-badge done">${r.status || 'مكتمل'}</span>
+                <span class="report-arrow">›</span>
+            </div>
+        `).join('') : '<div class="card">لا توجد تقارير مرفوعة حتى الآن</div>'}
+
+        <div class="section-title" style="margin-top:20px;">🪳 صور الآفات المرصودة</div>
+        <div class="pest-grid">
+            <div class="pest-item selected"><span class="pest-emoji">🪳</span>صرصور</div>
+            <div class="pest-item"><span class="pest-emoji">🐭</span>قوارض</div>
+            <div class="pest-item"><span class="pest-emoji">🦟</span>بعوض</div>
+            <div class="pest-item"><span class="pest-emoji">🐜</span>نمل أبيض</div>
+            <div class="pest-item"><span class="pest-emoji">🦗</span>حشرات</div>
+            <div class="pest-item"><span class="pest-emoji">✅</span>لا شيء</div>
+        </div>
+        <p style="font-size:12px; color:var(--text-light); text-align:center; margin-top:8px;">
+            ✅ تمت المعالجة حسب التقرير المرفوع
+        </p>
+    `;
+}
+
+// ===== CLIENT MAP =====
+function clientMap() {
+  return `
+    <div class="section-title">🗺️ خريطة مصائد الطعوم</div>
+    <div class="card" style="padding:0; overflow:hidden;">
+      <div class="map-container">
+        <div class="map-grid"></div>
+        <div class="trap-pin active" style="top:30%; right:25%"><div class="trap-pin-inner">🟢</div></div>
+        <div class="trap-pin active" style="top:50%; right:45%"><div class="trap-pin-inner">🟢</div></div>
+        <div class="trap-pin warning" style="top:20%; right:60%"><div class="trap-pin-inner">🟡</div></div>
+        <div class="trap-pin active" style="top:65%; right:30%"><div class="trap-pin-inner">🟢</div></div>
+        <div class="trap-pin danger" style="top:40%; right:70%"><div class="trap-pin-inner">🔴</div></div>
+        <div class="trap-pin active" style="top:75%; right:55%"><div class="trap-pin-inner">🟢</div></div>
+        <div class="trap-pin warning" style="top:55%; right:15%"><div class="trap-pin-inner">🟡</div></div>
+        <div class="map-legend">
+          🟢 سليمة (9)<br>
+          🟡 تحتاج متابعة (2)<br>
+          🔴 نشطة (1)
+        </div>
+      </div>
+    </div>
+
+    <div class="stats-row cols-3" style="margin-top:16px;">
+      <div class="stat-card">
+        <span class="stat-icon">🟢</span>
+        <span class="stat-num green">9</span>
+        <span class="stat-label">سليمة</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-icon">🟡</span>
+        <span class="stat-num gold">2</span>
+        <span class="stat-label">متابعة</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-icon">🔴</span>
+        <span class="stat-num red">1</span>
+        <span class="stat-label">نشطة</span>
+      </div>
+    </div>
+
+    <div class="section-title">تفاصيل المحطات</div>
+    ${[
+      { num: 'M-01', loc: 'المطبخ — مدخل', status: 'active', label: 'سليمة' },
+      { num: 'M-02', loc: 'المستودع — جانب أيمن', status: 'done', label: 'نشطة ⚠️' },
+      { num: 'M-03', loc: 'الممر الخلفي', status: 'upcoming', label: 'تحتاج متابعة' },
+      { num: 'M-04', loc: 'غرفة التبريد', status: 'active', label: 'سليمة' },
+    ].map(t => `
+      <div class="visit-item">
+        <div class="visit-dot ${t.status}" style="border-radius:8px; font-size:13px; font-weight:700; color:var(--primary);">${t.num}</div>
+        <div class="visit-info">
+          <div class="visit-title">${t.loc}</div>
+          <div class="visit-date">آخر فحص: 15 مايو 2025</div>
+        </div>
+        <span class="visit-badge ${t.status}">${t.label}</span>
+      </div>
+    `).join('')}
+  `;
+}
+
+// ===== CLIENT PAYMENTS =====
+function clientPayments() {
+  return `
+    <div class="section-title">💳 حالة الدفع والفواتير</div>
+
+    <!-- بطاقة العقد -->
+    <div class="card" style="background:linear-gradient(135deg,#1a3a5c,#2a5080); color:white; border:none; margin-bottom:16px;">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
+        <div>
+          <div style="font-size:12px; color:rgba(255,255,255,0.6); margin-bottom:4px;">رقم العقد</div>
+          <div style="font-size:22px; font-weight:900; letter-spacing:2px;">#${getClientData("id")}</div>
+        </div>
+        <div style="text-align:left;">
+          <div style="font-size:12px; color:rgba(255,255,255,0.6); margin-bottom:4px;">نوع الدفع</div>
+          <div style="background:rgba(76,175,80,0.3); border:1px solid rgba(76,175,80,0.5); border-radius:20px; padding:4px 12px; font-size:13px; font-weight:700; color:#a5d6a7;">ربع سنوي 📅</div>
+        </div>
+      </div>
+      <div style="display:flex; justify-content:space-between; align-items:center; padding-top:12px; border-top:1px solid rgba(255,255,255,0.15);">
+        <div>
+          <div style="font-size:12px; color:rgba(255,255,255,0.6);">قيمة العقد السنوي</div>
+          <div style="font-size:20px; font-weight:900;">7,200 ريال</div>
+        </div>
+        <div style="text-align:left;">
+          <div style="font-size:12px; color:rgba(255,255,255,0.6);">الدفعة كل ربع سنة</div>
+          <div style="font-size:18px; font-weight:700; color:#a5d6a7;">1,800 ريال</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- نوع الدفع -->
+    <div class="section-title">🔄 طريقة الدفع</div>
+    <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:16px;">
+      ${[
+        { label: 'شهري', icon: '📆', desc: '600 ر/شهر', active: false },
+        { label: 'ربع سنوي', icon: '📅', desc: '1,800 ر', active: true },
+        { label: 'نصف سنوي', icon: '🗓️', desc: '3,600 ر', active: false },
+        { label: 'سنوي', icon: '📋', desc: '7,200 ر', active: false },
+      ].map(t => `
+        <div style="background:${t.active ? 'linear-gradient(135deg,#2e7d32,#4caf50)' : 'var(--bg)'}; border:2px solid ${t.active ? 'var(--green)' : 'var(--border)'}; border-radius:10px; padding:10px 6px; text-align:center;">
+          <div style="font-size:20px;">${t.icon}</div>
+          <div style="font-size:11px; font-weight:700; color:${t.active ? 'white' : 'var(--text)'}; margin:4px 0;">${t.label}</div>
+          <div style="font-size:10px; color:${t.active ? 'rgba(255,255,255,0.8)' : 'var(--text-light)'};">${t.desc}</div>
+        </div>
+      `).join('')}
+    </div>
+
+    <div class="section-title">📑 سجل الدفعات</div>
+
+    <div class="payment-card paid">
+      <span class="payment-icon">✅</span>
+      <div class="payment-info">
+        <div class="payment-title">الدفعة الأولى — يناير 2025</div>
+        <div class="payment-date">تاريخ الدفع: 5 يناير 2025 | الربع الأول</div>
+      </div>
+      <span class="payment-amount">1,800 ر</span>
+    </div>
+
+    <div class="payment-card paid">
+      <span class="payment-icon">✅</span>
+      <div class="payment-info">
+        <div class="payment-title">الدفعة الثانية — أبريل 2025</div>
+        <div class="payment-date">تاريخ الدفع: 3 أبريل 2025 | الربع الثاني</div>
+      </div>
+      <span class="payment-amount">1,800 ر</span>
+    </div>
+
+    <div class="payment-card unpaid">
+      <span class="payment-icon">⚠️</span>
+      <div class="payment-info">
+        <div class="payment-title">الدفعة الثالثة — يوليو 2025</div>
+        <div class="payment-date">موعد الاستحقاق: 1 يوليو 2025 | الربع الثالث</div>
+      </div>
+      <span class="payment-amount">1,800 ر</span>
+    </div>
+
+    <div class="payment-card" style="background:#f3f4f6; border:1px solid #d1d5db;">
+      <span class="payment-icon">🔒</span>
+      <div class="payment-info">
+        <div class="payment-title">الدفعة الرابعة — أكتوبر 2025</div>
+        <div class="payment-date">موعد الاستحقاق: 1 أكتوبر 2025 | الربع الرابع</div>
+      </div>
+      <span class="payment-amount" style="color:var(--text-light);">1,800 ر</span>
+    </div>
+
+    <div class="card" style="background:#e8f5e9; border:1px solid #a5d6a7; margin-top:8px;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <div style="font-size:13px; font-weight:700; color:var(--green);">إجمالي العقد السنوي</div>
+          <div style="font-size:12px; color:var(--text-light);">12 زيارة — يناير حتى ديسمبر 2025</div>
+        </div>
+        <div style="text-align:left;">
+          <div style="font-size:11px; color:var(--text-light);">المدفوع: 3,600 ر</div>
+          <div style="font-size:20px; font-weight:900; color:var(--primary);">7,200 ر</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ===== EMPLOYEE HOME =====
+function employeeHome() {
+  return `
+    <div class="welcome-header">
+      <h2>أهلاً، ${currentUser?.name || 'الفني'} 👷</h2>
+      <p>لديك زيارات مجدولة اليوم</p>
+    </div>
+
+    <div class="stats-row cols-3">
+      <div class="stat-card">
+        <span class="stat-icon">📅</span>
+        <span class="stat-num orange">0</span>
+        <span class="stat-label">زيارات اليوم</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-icon">✅</span>
+        <span class="stat-num green">0</span>
+        <span class="stat-label">هذا الشهر</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-icon">📋</span>
+        <span class="stat-num">0</span>
+        <span class="stat-label">تقارير مرفوعة</span>
+      </div>
+    </div>
+
+    <div class="section-title">📅 زيارات اليوم</div>
+    ${[].map(v => `
+      <div class="client-select-card" onclick="openModal('startVisit')">
+        <div class="client-avatar">🏢</div>
+        <div style="flex:1;">
+          <div style="font-size:14px; font-weight:700;">${v.name}</div>
+          <div style="font-size:12px; color:var(--text-light);">${v.time} — ${v.type}</div>
+        </div>
+        <span class="visit-badge ${v.status}">${v.status === 'upcoming' ? 'قادمة' : 'لاحقاً'}</span>
+      </div>
+    `).join('')}
+
+    <button class="submit-btn green" style="margin-top:16px;" onclick="renderPanel('report_upload')">
+      📤 رفع تقرير جديد
+    </button>
+  `;
+}
+
+// ===== EMPLOYEE VISITS =====
+function employeeVisits() {
+  return `
+    <div class="section-title">📅 جدول الزيارات</div>
+    ${[].map(v => `
+      <div class="visit-item">
+        <div class="visit-dot ${v.status}">📅</div>
+        <div class="visit-info">
+          <div class="visit-title">${v.name}</div>
+          <div class="visit-date">${v.date} — ${v.type}</div>
+        </div>
+        <span class="visit-badge ${v.status}">${v.status === 'upcoming' ? 'اليوم' : 'قادمة'}</span>
+      </div>
+    `).join('')}
+  `;
+}
+
+// ===== EMPLOYEE UPLOAD REPORT =====
+function employeeUpload() {
+  return `
+    <div class="section-title">📤 رفع تقرير زيارة</div>
+    <div class="card">
+      <div class="form-group">
+        <label class="form-label">اختر العميل</label>
+       <select class="form-select" id="reportClientSelect">
+<option value="">— اختر العميل —</option>
+${db.clients.map(c => `
+<option value="${c.id}">${c.name}</option>
+`).join('')}
+</select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">نوع الخدمة</label>
+        <select class="form-select" id="serviceType">
+          <option>زيارة دورية</option>
+<option>طوارئ</option>
+<option>متابعة</option>
+<option>فحص مصائد الطعوم</option>
+<option>مكافحة صراصير</option>
+<option>مكافحة نمل أبيض</option>
+<option>مكافحة قوارض</option>
+<option>مكافحة طيور</option>
+<option>تقرير متابعة ميدانية (ورقي)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">الآفات المرصودة</label>
+        <div class="pest-grid">
+          <div class="pest-item" onclick="this.classList.toggle('selected')"><span class="pest-emoji">🪳</span>صراصير</div>
+          <div class="pest-item" onclick="this.classList.toggle('selected')"><span class="pest-emoji">🐀</span>قوارض</div>
+          <div class="pest-item" onclick="this.classList.toggle('selected')"><span class="pest-emoji">🦟</span>بعوض</div>
+          <div class="pest-item" onclick="this.classList.toggle('selected')"><span class="pest-emoji">🐜</span>نمل أبيض</div>
+          <div class="pest-item" onclick="this.classList.toggle('selected')"><span class="pest-emoji">🦗</span>حشرات</div>
+          <div class="pest-item" onclick="this.classList.toggle('selected')"><span class="pest-emoji">🚫</span>لا شيء</div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">المواد المستخدمة</label>
+        <input type="text" class="form-input" id="materialsInput" placeholder="مثال: بيفلوثرين 100ml + طعم جل صراصير">
+      </div>
+      <div class="form-group">
+        <label class="form-label">ملاحظات الزيارة</label>
+        <textarea class="form-textarea" id="notesInput" placeholder="اكتب ملاحظاتك هنا..."></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">📷 الصور والمرفقات (اختياري)</label>
+         <input type="file" id="reportImages" accept="image/*" multiple style="display:none">
+
+<div class="pest-upload-area" onclick="document.getElementById('reportImages').click()">
+  <div style="font-size:40px; margin-bottom:8px;">📷</div>
+  <div style="font-size:14px; font-weight:600;"> صور الموقع أو الآفات أو تقرير المتابعة الورقي </div>
+  <div style="font-size:12px; color:var(--text-light); margin-top:4px;">صور التقرير أو الموقع أو الآفات</div>
+</div>
+      </div>
+     <button class="submit-btn" onclick="saveVisitReport()">
+📋 رفع التقرير
+</button>
+    </div>
+  `;
+}
+async function saveVisitReport() {
+  const clientSelect = document.getElementById('reportClientSelect');
+  const clientId = clientSelect ? clientSelect.value : '';
+  const selectedPests = Array.from(document.querySelectorAll('.pest-item.selected'))
+  .map(item => item.innerText.trim());
+
+  if (!clientId) {
+    showToast('⚠️ اختر العميل أولاً');
+    return;
+  }
+
+  const report = {
+    clientId: parseInt(clientId),
+    employeeName: currentUser?.name || 'فني',
+    type: document.getElementById('serviceType')?.value || 'زيارة فنية',
+    materials: document.getElementById('materialsInput')?.value || '',
+    notes: document.getElementById('notesInput')?.value || '',
+    status: 'pending',
+    createdAt: new Date().toISOString()
+};
+if (!db.reports) db.reports = [];
+
+
+
+saveDB();
+  const reportId = Date.now();
+const reportImages = [];
+
+const files = document.getElementById('reportImages')?.files || [];
+
+for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+
+    const base64 = await new Promise(resolve => {
+        const reader = new FileReader();
+        reader.onload = e => resolve(e.target.result);
+        reader.readAsDataURL(file);
+    });
+
+    reportImages.push(base64);
+}
+const fullReport = {
+  id: reportId,
+  clientId: parseInt(clientId),
+  client: db.clients.find(c => c.id == clientId)?.name || 'عميل',
+  tech: report.employeeName,
+  type: report.type,
+  materials: report.materials || '',
+  notes: report.notes || '',
+  pests: selectedPests,
+  images: reportImages,
+  date: new Date().toLocaleDateString('ar-SA'),
+  status: 'مكتمل',
+  createdAt: new Date().toISOString()
+};
+
+if (!db.reports) db.reports = [];
+db.reports.unshift(fullReport);
+saveDB();
+
+await firebase.database()
+  .ref('reports/' + reportId)
+  .set(fullReport);
+
+  showToast('✅ تم رفع التقرير وإرساله للإدارة للاعتماد');
+}
+
+// ===== EMPLOYEE CLIENTS =====
+function employeeClients() {
+  return `
+    <div class="section-title">👥 قائمة عملائي</div>
+    ${[].map(c => `
+      <div class="client-select-card">
+        <div class="client-avatar">🏢</div>
+        <div style="flex:1;">
+          <div style="font-size:14px; font-weight:700;">${c.name}</div>
+          <div style="font-size:12px; color:var(--text-light);">${c.type} — ${c.visits}</div>
+        </div>
+        <span class="status-badge ${c.status}">${c.status === 'active' ? 'نشط' : 'ينتهي قريباً'}</span>
+      </div>
+    `).join('')}
+  `;
+}
+
+// ===== ADMIN HOME =====
+function adminHome() {
+  // حساب الإحصائيات من البيانات الحقيقية
+  const clients = db.clients;
+  const total = clients.length;
+  const active = clients.filter(c => c.status === 'active').length;
+  const pending = clients.filter(c => c.status === 'pending').length;
+  const expired = clients.filter(c => c.status === 'expired').length;
+  
+  const monthly = clients.filter(c => c.pay === 'شهري').length;
+  const quarterly = clients.filter(c => c.pay === 'ربع سنوي').length;
+  const biannual = clients.filter(c => c.pay === 'نصف سنوي').length;
+  const annual = clients.filter(c => c.pay === 'سنوي').length;
+  
+  const totalRevenue = clients.reduce((sum, c) => sum + (c.value || 0), 0);
+
+  return `
+    <div class="welcome-header">
+      <h2>لوحة التحكم 📊</h2>
+      <p>نظرة عامة شاملة على أداء المؤسسة</p>
+    </div>
+
+    <div class="section-title">📋 إحصائيات العقود</div>
+    <div class="stats-row cols-4">
+      <div class="stat-card" style="border-top:3px solid var(--green);">
+        <span class="stat-icon">📋</span>
+        <span class="stat-num green">${total}</span>
+        <span class="stat-label">إجمالي العقود</span>
+      </div>
+      <div class="stat-card" style="border-top:3px solid var(--green-light);">
+        <span class="stat-icon">✅</span>
+        <span class="stat-num green">${active}</span>
+        <span class="stat-label">عقود نشطة</span>
+      </div>
+      <div class="stat-card" style="border-top:3px solid var(--gold);">
+        <span class="stat-icon">⏳</span>
+        <span class="stat-num gold">${pending}</span>
+        <span class="stat-label">تنتهي قريباً</span>
+      </div>
+      <div class="stat-card" style="border-top:3px solid var(--red);">
+        <span class="stat-icon">❌</span>
+        <span class="stat-num red">${expired}</span>
+        <span class="stat-label">عقود منتهية</span>
+      </div>
+    </div>
+
+    <div class="section-title">💰 إحصائيات مالية</div>
+    <div class="stats-row cols-3">
+      <div class="stat-card" style="border-top:3px solid var(--primary);">
+        <span class="stat-icon">💰</span>
+        <span class="stat-num gold">${totalRevenue.toLocaleString()}</span>
+        <span class="stat-label">إجمالي قيمة العقود (ر)</span>
+      </div>
+      <div class="stat-card" style="border-top:3px solid var(--green);">
+        <span class="stat-icon">👥</span>
+        <span class="stat-num green">${total}</span>
+        <span class="stat-label">إجمالي العملاء</span>
+      </div>
+      <div class="stat-card" style="border-top:3px solid var(--orange);">
+        <span class="stat-icon">📅</span>
+        <span class="stat-num orange">0</span>
+        <span class="stat-label">زيارات اليوم</span>
+      </div>
+    </div>
+
+    <div class="section-title">🔄 توزيع طرق الدفع</div>
+    <div class="stats-row cols-4">
+      <div class="stat-card" style="border-top:3px solid var(--primary);">
+        <span class="stat-icon">📆</span>
+        <span class="stat-num" style="color:var(--primary);">${monthly}</span>
+        <span class="stat-label">شهري</span>
+      </div>
+      <div class="stat-card" style="border-top:3px solid var(--green);">
+        <span class="stat-icon">📅</span>
+        <span class="stat-num green">${quarterly}</span>
+        <span class="stat-label">ربع سنوي</span>
+      </div>
+      <div class="stat-card" style="border-top:3px solid var(--gold);">
+        <span class="stat-icon">🗓️</span>
+        <span class="stat-num gold">${biannual}</span>
+        <span class="stat-label">نصف سنوي</span>
+      </div>
+      <div class="stat-card" style="border-top:3px solid var(--orange);">
+        <span class="stat-icon">📋</span>
+        <span class="stat-num orange">${annual}</span>
+        <span class="stat-label">سنوي</span>
+      </div>
+    </div>
+
+    ${total === 0 ? `
+    <div class="card" style="text-align:center; padding:40px; background:#f8fafc;">
+      <div style="font-size:48px; margin-bottom:12px;">📋</div>
+      <div style="font-size:16px; font-weight:700; color:var(--primary); margin-bottom:8px;">لا يوجد عملاء بعد</div>
+      <div style="font-size:13px; color:var(--text-light); margin-bottom:16px;">ابدأ بإضافة أول عميل متعاقد</div>
+      <button class="submit-btn" style="width:auto; padding:10px 24px;" onclick="renderPanel('all_clients')">+ إضافة عميل</button>
+    </div>
+    ` : `
+    <div class="section-title">🆕 آخر العملاء المضافين</div>
+    <div style="overflow-x:auto;">
+      <table class="data-table">
+        <thead><tr><th>رقم العقد</th><th>العميل</th><th>النوع</th><th>طريقة الدفع</th><th>الحالة</th></tr></thead>
+        <tbody>
+          ${clients.slice(-5).reverse().map(c => `
+            <tr>
+              <td><strong style="color:var(--primary);">#${c.id}</strong></td>
+              <td><strong>${c.name}</strong></td>
+              <td>${c.type}</td>
+              <td><span class="tag">${c.pay}</span></td>
+              <td><span class="status-badge ${c.status}">${c.status === 'active' ? 'نشط' : 'ينتهي قريباً'}</span></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+    `}
+  `;
+}
+
+// ===== ADMIN CLIENTS =====
+function adminClients() {
+  return `
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+      <div class="section-title" style="margin:0;">👥 جميع العملاء (${db.clients.length})</div>
+      <button class="submit-btn" style="width:auto; padding:8px 16px; font-size:13px;" onclick="openModal('newClient')">+ إضافة عميل</button>
+    </div>
+    <div style="overflow-x:auto;">
+      <table class="data-table">
+        <thead>
+          <tr><th>رقم العقد</th><th>العميل</th><th>النوع</th><th>طريقة الدفع</th><th>الزيارات</th><th>الحالة</th><th>إجراء</th></tr>
+        </thead>
+        <tbody>
+          ${db.clients.map(c => `
+            <tr>
+              <td><strong style="color:var(--primary);">#${c.id}</strong></td>
+              <td><strong>${c.name}</strong></td>
+              <td>${c.type}</td>
+              <td><span class="tag">${c.pay}</span></td>
+              <td>${c.used}/${c.visits}</td>
+              <td><span class="status-badge ${c.status}">${c.status === 'active' ? 'نشط' : 'ينتهي قريباً'}</span></td>
+              <td>
+                <button class="submit-btn" style="width:auto; padding:4px 10px; font-size:11px; margin-left:4px;" onclick="openModal('addClient')">تعديل</button>
+                <button class="submit-btn red" style="width:auto; padding:4px 10px; font-size:11px; background:var(--red);" onclick="deleteClient(${c.id})">حذف</button>
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+// ===== ADMIN REPORTS =====
+function adminReports() {
+  const allReports = (db.reports || []).sort((a, b) => (b.id || 0) - (a.id || 0));
+const threeDaysAgo = Date.now() - (3 * 24 * 60 * 60 * 1000);
+const recentReports = allReports.filter(r => (r.id || 0) >= threeDaysAgo);
+  return `
+    <div class="section-title">📊 التقارير والإحصائيات</div>
+    <div class="stats-row cols-2">
+      <div class="stat-card" onclick="renderPanel('all_reports')">
+        <span class="stat-icon">📋</span>
+        <span class="stat-num green">${(db.reports || []).length}</span>
+        <span class="stat-label">تقارير هذا الشهر</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-icon">🪳</span>
+        <span class="stat-num orange">0</span>
+        <span class="stat-label">حالات آفات نشطة</span>
+      </div>
+    </div>
+    <div class="section-title">أحدث التقارير</div>
+   ${recentReports.map(r => `
+      <div class="report-card" onclick="openReportDetails(${r.id})">
+        <div class="report-icon">📄</div>
+        <div class="report-info">
+          <div class="report-title">${r.client} — ${r.type}</div>
+          <div class="report-date">الفني: ${r.tech} | ${r.date}</div>
+        </div>
+        <span class="visit-badge done">مكتمل</span>
+      </div>
+    `).join('')}
+  `;
+}
+function adminAllReports() {
+    const allReports = (db.reports || []).sort((a, b) => (b.id || 0) - (a.id || 0));
+
+    return `
+        <div class="section-title">📊 جميع التقارير</div>
+
+        ${allReports.map(r => `
+            <div class="report-card" onclick="openReportDetails(${r.id})">
+                <div class="report-icon">📄</div>
+                <div class="report-info">
+                    <div class="report-title">${r.client} — ${r.type}</div>
+                    <div class="report-date">الفني: ${r.tech} | ${r.date}</div>
+                </div>
+                <span class="visit-badge done">مكتمل</span>
+            </div>
+        `).join('')}
+    `;
+}
+// ===== ADMIN VISITS =====
+function adminVisits() {
+  return `
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+      <div class="section-title" style="margin:0;">📅 جدول الزيارات</div>
+      <button class="submit-btn" style="width:auto; padding:8px 16px; font-size:13px;" onclick="openModal('scheduleVisit')">+ جدولة زيارة</button>
+    </div>
+    ${[].map(v => `
+      <div class="visit-item">
+        <div class="visit-dot ${v.status}">📅</div>
+        <div class="visit-info">
+          <div class="visit-title">${v.client}</div>
+          <div class="visit-date">${v.time} — ${v.type} | الفني: ${v.tech}</div>
+        </div>
+        <span class="visit-badge ${v.status}">${v.status === 'upcoming' ? 'اليوم' : 'قادمة'}</span>
+      </div>
+    `).join('')}
+  `;
+}
+
+// ===== ADMIN SETTINGS =====
+function adminSettings() {
+  return `
+    <div class="section-title">⚙️ الإعدادات</div>
+    <div class="card">
+      <div class="form-group">
+        <label class="form-label">اسم المؤسسة</label>
+        <input type="text" class="form-input" value="خطوة محترف لمكافحة الحشرات والآفات">
+      </div>
+      <div class="form-group">
+        <label class="form-label">رقم التواصل — الرياض</label>
+        <input type="text" class="form-input" value="0553244026">
+      </div>
+      <div class="form-group">
+        <label class="form-label">رقم التواصل — جدة</label>
+        <input type="text" class="form-input" value="0545421853">
+      </div>
+      <button class="submit-btn" onclick="showToast('✅ تم حفظ الإعدادات')">💾 حفظ التغييرات</button>
+    </div>
+
+    <div class="section-title">👥 إدارة المستخدمين</div>
+    <div class="card">
+      <div class="visit-item">
+        <div class="visit-dot done" style="font-size:20px;">👷</div>
+        <div class="visit-info"><div class="visit-title">لا يوجد فنيين بعد</div><div class="visit-date">أضف فنيين من الإعدادات</div></div>
+        <span class="status-badge active">نشط</span>
+      </div>
+      <div class="visit-item">
+        <div class="visit-dot done" style="font-size:20px;">👷</div>
+        
+        <span class="status-badge active">نشط</span>
+      </div>
+      <button class="submit-btn" style="margin-top:12px;" onclick="openModal('addEmployee')">+ إضافة موظف</button>
+    </div>
+  `;
+}
+function adminEmergency() {
+  return `
+    <div class="section-title">🚨 طلبات الطوارئ</div>
+<div class="stats-grid">
+
+<div class="stat-card">
+<div class="stat-number" id="emNew">0</div>
+<div class="stat-label">طلبات جديدة</div>
+</div>
+
+<div class="stat-card">
+<div class="stat-number" id="emProgress">0</div>
+<div class="stat-label">قيد التنفيذ</div>
+</div>
+
+<div class="stat-card">
+<div class="stat-number" id="emDone">0</div>
+<div class="stat-label">تم التنفيذ</div>
+</div>
+
+<div class="stat-card">
+<div class="stat-number" id="emTotal">0</div>
+<div class="stat-label">إجمالي الطلبات</div>
+</div>
+
+</div>
+    <div id="emergencyTable">
+      <div class="card">جاري تحميل الطلبات...</div>
+    </div>
+  `;
+  setTimeout(loadEmergencyRequests, 300);
+}
+
+// ===== MODALS =====
+const modalContents = {
+  emergency: {
+    title: '🚨 طلب زيارة طوارئ مجانية',
+    html: `
+      <div class="form-group">
+        <label class="form-label">وصف المشكلة</label>
+        <textarea id="emergencyDescription" class="form-textarea" placeholder="صف المشكلة التي تواجهها..."></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">الموقع داخل المنشأة</label>
+        <input id="emergencyLocation" type="text" class="form-input" placeholder="مثال: المطبخ الرئيسي">
+      </div>
+      <div class="pest-grid">
+        <div class="pest-item" onclick="this.classList.toggle('selected')"><span class="pest-emoji">🪳</span>صراصير</div>
+        <div class="pest-item" onclick="this.classList.toggle('selected')"><span class="pest-emoji">🐀</span>قوارض</div>
+        <div class="pest-item" onclick="this.classList.toggle('selected')"><span class="pest-emoji">🦟</span>بعوض</div>
+        <div class="pest-item" onclick="this.classList.toggle('selected')"><span class="pest-emoji">🐜</span>نمل أبيض</div>
+        <div class="pest-item" onclick="this.classList.toggle('selected')"><span class="pest-emoji">🕷️</span>عناكب</div>
+        <div class="pest-item" onclick="this.classList.toggle('selected')"><span class="pest-emoji">❓</span>أخرى</div>
+      </div>
+        <button class="submit-btn red" style="margin-top:16px;" onclick="submitEmergencyRequest()">
+        🚨 إرسال طلب الطوارئ
+      </button>
+    `
+  },
+  complaint: {
+    title: '📣 شكوى أو اقتراح',
+    html: `
+      <div class="form-group">
+        <label class="form-label">النوع</label>
+        <select class="form-select">
+          <option>شكوى</option>
+          <option>اقتراح</option>
+          <option>استفسار</option>
+          <option>تقييم</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">الموضوع</label>
+        <input type="text" class="form-input" placeholder="موضوع الشكوى أو الاقتراح">
+      </div>
+      <div class="form-group">
+        <label class="form-label">التفاصيل</label>
+        <textarea class="form-textarea" placeholder="اكتب تفاصيل شكواك أو اقتراحك..."></textarea>
+      </div>
+      <button class="submit-btn" onclick="showToast('✅ تم إرسال الشكوى وسنرد خلال 24 ساعة'); closeModal();">
+        📤 إرسال
+      </button>
+    `
+  },
+  viewReport: {
+    title: '📄 تقرير مايو 2025',
+    html: `
+      <div style="background:var(--bg); border-radius:10px; padding:16px; margin-bottom:16px;">
+        <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+          <span style="font-weight:700;">نوع الخدمة:</span><span>رش دوري</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+          <span style="font-weight:700;">الفني:</span><span>—</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+          <span style="font-weight:700;">تاريخ الزيارة:</span><span>15 مايو 2025</span>
+        </div>
+        <div style="display:flex; justify-content:space-between;">
+          <span style="font-weight:700;">الحالة:</span><span class="status-badge active">مكتملة</span>
+        </div>
+      </div>
+      <div style="font-weight:700; margin-bottom:8px;">الآفات المرصودة:</div>
+      <div><span class="tag">🪳 صراصير — تمت المعالجة</span> <span class="tag green">لا قوارض</span></div>
+      <div style="font-weight:700; margin:12px 0 8px;">المواد المستخدمة:</div>
+      <p style="font-size:13px; color:var(--text-light);">بيفلوثرين 0.05% — 150ml + طعم جل صراصير Maxforce</p>
+      <div style="font-weight:700; margin:12px 0 8px;">ملاحظات الفني:</div>
+      <p style="font-size:13px; color:var(--text-light);">تم رش جميع المناطق المستهدفة. يُنصح بإغلاق فتحات الصرف الصحي في المطبخ.</p>
+      <button class="submit-btn" style="margin-top:16px;" onclick="showToast('✅ تم تحميل التقرير'); closeModal();">
+        ⬇️ تحميل التقرير PDF
+      </button>
+    `
+  },
+  rate: {
+    title: '⭐ تقييم آخر زيارة',
+    html: `
+      <div style="text-align:center; padding:16px 0;">
+        <p style="font-size:15px; margin-bottom:20px;">كيف تقيّم زيارة 15 مايو 2025؟</p>
+        <div style="display:flex; justify-content:center; gap:12px; font-size:40px; margin-bottom:24px;">
+          ${['😞','😐','🙂','😊','😍'].map((e,i) => `<span style="cursor:pointer; transition:transform 0.2s;" onmouseover="this.style.transform='scale(1.3)'" onmouseout="this.style.transform='scale(1)'" onclick="showToast('✅ شكراً على تقييمك!'); closeModal();">${e}</span>`).join('')}
+        </div>
+        <div class="form-group">
+          <textarea class="form-textarea" placeholder="أضف تعليقاً (اختياري)..."></textarea>
+        </div>
+        <button class="submit-btn" onclick="showToast('✅ تم إرسال تقييمك، شكراً!'); closeModal();">إرسال التقييم</button>
+      </div>
+    `
+  },
+  addClient: {
+    title: '➕ إضافة عميل جديد',
+    html: `
+      <div class="form-group">
+        <label class="form-label">رقم العقد</label>
+        <input type="text" class="form-input" value="#1048" readonly style="background:#f0f4f8; color:var(--primary); font-weight:700;">
+      </div>
+      <div class="form-group"><label class="form-label">اسم العميل / المنشأة</label><input type="text" class="form-input" placeholder="مثال: مطعم الريادة"></div>
+      <div class="form-group"><label class="form-label">نوع المنشأة</label><select class="form-select"><option>مطعم</option><option>فندق</option><option>مستشفى</option><option>مستودع</option><option>مصنع</option><option>سكني</option></select></div>
+      <div class="form-group"><label class="form-label">طريقة الدفع</label><select class="form-select"><option>شهري</option><option>ربع سنوي</option><option>نصف سنوي</option><option>سنوي</option></select></div>
+      <div class="form-group"><label class="form-label">رقم التواصل</label><input type="text" class="form-input" placeholder="05xxxxxxxx"></div>
+      <div class="form-group"><label class="form-label">عدد الزيارات السنوية</label><input type="number" class="form-input" value="12"></div>
+      <div class="form-group"><label class="form-label">قيمة العقد (ريال)</label><input type="number" class="form-input" placeholder="0"></div>
+      <button class="submit-btn green" onclick="showToast('✅ تم إضافة العميل برقم عقد #1048!'); closeModal();">حفظ العميل</button>
+    `
+  },
+  scheduleVisit: {
+    title: '📅 جدولة زيارة جديدة',
+    html: `
+      <div class="form-group"><label class="form-label">العميل</label><select class="form-select" id="visitClientSelect"><option value="">— اختر العميل —</option></select></div>
+      <div class="form-group"><label class="form-label">الفني المسؤول</label><select class="form-select"><option>اختر الفني</option></select></div>
+      <div class="form-group"><label class="form-label">التاريخ والوقت</label><input type="datetime-local" class="form-input"></div>
+      <div class="form-group"><label class="form-label">نوع الخدمة</label><select class="form-select"><option>رش دوري</option><option>فحص مصائد</option><option>معالجة قوارض</option><option>معالجة نمل أبيض</option></select></div>
+      <button class="submit-btn" onclick="showToast('✅ تم جدولة الزيارة وإشعار الفني!'); closeModal();">جدولة الزيارة</button>
+    `
+  },
+  startVisit: {
+    title: '▶️ بدء الزيارة',
+    html: `
+      <div style="text-align:center; padding:10px 0 20px;">
+        <div style="font-size:48px; margin-bottom:12px;">🏢</div>
+        <div style="font-size:18px; font-weight:900; color:var(--primary);">العميل المختار</div>
+        <div style="font-size:13px; color:var(--text-light); margin:4px 0;">رش دوري — اليوم 10:00 صباحاً</div>
+      </div>
+      <button class="submit-btn green" onclick="showToast('✅ تم تسجيل بدء الزيارة!'); closeModal();">▶️ بدء الزيارة الآن</button>
+    `
+  },
+  addEmployee: {
+    title: '➕ إضافة موظف جديد',
+    html: `
+      <div class="form-group"><label class="form-label">الاسم الكامل</label><input type="text" class="form-input" placeholder="اسم الموظف"></div>
+      <div class="form-group"><label class="form-label">الدور</label><select class="form-select"><option>فني ميداني</option><option>مشرف</option><option>خدمة عملاء</option></select></div>
+      <div class="form-group"><label class="form-label">المدينة</label><select class="form-select"><option>جدة</option><option>الرياض</option><option>مكة المكرمة</option></select></div>
+      <div class="form-group"><label class="form-label">رقم الجوال</label><input type="text" class="form-input" placeholder="05xxxxxxxx"></div>
+      <button class="submit-btn green" onclick="showToast('✅ تم إضافة الموظف وإرسال بيانات الدخول!'); closeModal();">حفظ الموظف</button>
+    `
+  },
+  newClient: {
+    title: '➕ إضافة عميل جديد',
+    html: `
+      <div class="form-group">
+        <label class="form-label">رقم العقد (تلقائي)</label>
+        <input type="text" class="form-input" id="newClientId" readonly style="background:#f0f4f8; color:var(--primary); font-weight:700;">
+      </div>
+      <div class="form-group">
+        <label class="form-label">اسم العميل / المنشأة *</label>
+        <input type="text" class="form-input" id="newClientName" placeholder="مثال: مطعم الريادة">
+      </div>
+      <div class="form-group">
+        <label class="form-label">نوع المنشأة *</label>
+        <select class="form-select" id="newClientType">
+          <option>مطعم</option><option>فندق</option><option>مستشفى</option>
+          <option>مستودع</option><option>مصنع</option><option>صيدلية</option>
+          <option>مدرسة</option><option>مكتب</option><option>سكني</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">رقم الجوال *</label>
+        <input type="text" class="form-input" id="newClientPhone" placeholder="05xxxxxxxx">
+      </div>
+      <div class="form-group">
+        <label class="form-label">طريقة الدفع *</label>
+        <select class="form-select" id="newClientPay">
+          <option>شهري</option><option>ربع سنوي</option>
+          <option>نصف سنوي</option><option>سنوي</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">عدد الزيارات السنوية</label>
+        <input type="number" class="form-input" id="newClientVisits" value="12">
+      </div>
+      <div class="form-group">
+        <div class="form-group">
+  <label class="form-label">تاريخ بداية العقد</label>
+  <input type="date" class="form-input" id="contractStartDate">
+</div>
+<div class="form-group">
+  <label class="form-label">تكرار الزيارة</label>
+  <select class="form-select" id="visitFrequency">
+    <option value="monthly">شهري</option>
+    <option value="15days">كل 15 يوم</option>
+    <option value="10days">كل 10 أيام</option>
+    <option value="weekly">أسبوعي</option>
+    <option value="manual">يدوي</option>
+  </select>
+</div>
+        <label class="form-label">قيمة العقد (ريال)</label>
+        <input type="number" class="form-input" id="newClientValue" placeholder="0">
+      </div>
+
+      <div style="background:linear-gradient(135deg,#e8f5e9,#e3f2fd); border-radius:12px; padding:16px; margin-bottom:16px;">
+        <div style="font-size:13px; font-weight:700; color:var(--primary); margin-bottom:8px;">🔐 بيانات دخول العميل (تلقائية)</div>
+        <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+          <span style="font-size:12px; color:var(--text-light);">اسم المستخدم:</span>
+          <strong id="previewUsername" style="font-size:13px; color:var(--primary);"></strong>
+        </div>
+        <div style="display:flex; justify-content:space-between;">
+          <span style="font-size:12px; color:var(--text-light);">كلمة المرور:</span>
+          <strong id="previewPassword" style="font-size:13px; color:var(--green);"></strong>
+        </div>
+        <div style="font-size:11px; color:var(--text-light); margin-top:8px;">📱 أرسل هذه البيانات للعميل عبر واتساب</div>
+      </div>
+
+      <button class="submit-btn green" onclick="saveNewClient()">💾 حفظ العميل وإنشاء حسابه</button>
+    `
+  }
+};
+
+function openModal(type) {
+  const m = modalContents[type];
+  if (!m) return;
+  document.getElementById('modalTitle').textContent = m.title;
+  document.getElementById('modalContent').innerHTML = m.html;
+  document.getElementById('modalOverlay').classList.add('active');
+  // ضبط رقم العقد التلقائي وبيانات الدخول
+  if (type === 'newClient') {
+    const el = document.getElementById('newClientId');
+    if (el) el.value = '#' + db.nextId;
+    const username = 'client' + db.nextId;
+    const password = generatePassword(db.nextId);
+    const unEl = document.getElementById('previewUsername');
+    const pwEl = document.getElementById('previewPassword');
+    if (unEl) unEl.textContent = username;
+    if (pwEl) pwEl.textContent = password;
+  }
+}
+function generateVisitSchedule(startDate, visitsCount, frequency) {
+    const schedule = [];
+
+    if (!startDate || frequency === 'manual') {
+        return schedule;
+    }
+
+    const start = new Date(startDate);
+
+    for (let i = 0; i < visitsCount; i++) {
+        const visitDate = new Date(start);
+
+        if (frequency === 'monthly') {
+            visitDate.setMonth(start.getMonth() + i);
+        } else if (frequency === '15days') {
+            visitDate.setDate(start.getDate() + (i * 15));
+        } else if (frequency === '10days') {
+            visitDate.setDate(start.getDate() + (i * 10));
+        } else if (frequency === 'weekly') {
+            visitDate.setDate(start.getDate() + (i * 7));
+        }
+
+        schedule.push({
+            id: Date.now() + i,
+            number: i + 1,
+            date: visitDate.toISOString().split('T')[0],
+            status: 'مجدولة',
+            reportId: null
+        });
+    }
+
+    return schedule;
+}
+async function saveNewClient() {
+  const name = document.getElementById('newClientName').value.trim();
+  const phone = document.getElementById('newClientPhone').value.trim();
+  if (!name) { showToast('⚠️ أدخل اسم العميل'); return; }
+  if (!phone) { showToast('⚠️ أدخل رقم الجوال'); return; }
+
+  const username = document.getElementById('previewUsername').textContent;
+  const password = document.getElementById('previewPassword').textContent;
+
+  const newClient = {
+    id: db.nextId,
+    name,
+    type: document.getElementById('newClientType').value,
+    phone,
+    pay: document.getElementById('newClientPay').value,
+    visits: parseInt(document.getElementById('newClientVisits').value) || 12,
+    contractStartDate: document.getElementById('contractStartDate')?.value || '',
+visitFrequency: document.getElementById('visitFrequency')?.value || 'manual',
+visitSchedule: generateVisitSchedule(
+    document.getElementById('contractStartDate')?.value || '',
+    parseInt(document.getElementById('newClientVisits').value) || 12,
+    document.getElementById('visitFrequency')?.value || 'manual'
+),
+    used: 0,
+    value: parseInt(document.getElementById('newClientValue').value) || 0,
+    status: 'active',
+    username,
+    password,
+    start: new Date().toISOString().split('T')[0],
+    end: new Date(new Date().setFullYear(new Date().getFullYear()+1)).toISOString().split('T')[0]
+  };
+  db.clients.push(newClient);
+  db.nextId++;
+  saveDB();
+
+  // حفظ في Firebase
+  if (window.saveClientToFirebase) {
+    await window.saveClientToFirebase(newClient);
+  }
+
+  closeModal();
+  showToast(`✅ تم إنشاء حساب ${name} — يوزر: ${username}`);
+  renderPanel('all_clients');
+}
+
+async function deleteClient(id) {
+  if (!confirm('هل تريد حذف هذا العميل؟')) return;
+  db.clients = db.clients.filter(c => c.id !== id);
+  saveDB();
+
+  // حذف من Firebase
+  if (window.deleteClientFromFirebase) {
+    await window.deleteClientFromFirebase(id);
+  }
+
+  showToast('🗑️ تم حذف العميل');
+  renderPanel('all_clients');
+}
+
+async function submitEmergencyRequest() {
+
+  const description = document.getElementById('emergencyDescription').value.trim();
+  const location = document.getElementById('emergencyLocation').value.trim();
+
+  if (!description) {
+    showToast('⚠️ اكتب وصف المشكلة');
+    return;
+  }
+
+  const request = {
+    clientId: currentUser?.id || '',
+    clientName: currentUser?.name || '',
+    description: description,
+    location: location,
+    status: 'جديد',
+    createdAt: new Date().toISOString()
+  };
+
+  try {
+
+    if (firebase && firebase.database) {
+      await firebase.database().ref('emergencyRequests').push(request);
+    }
+
+    showToast('🚨 تم إرسال طلب الطوارئ');
+    closeModal();
+
+  } catch (err) {
+    console.error(err);
+    showToast('❌ فشل إرسال الطلب');
+  }
+}
+async function loadEmergencyRequests() {
+
+  const container = document.getElementById('emergencyTable');
+
+  if (!container) return;
+
+  container.innerHTML = '<tr><td colspan="6">جاري التحميل...</td></tr>';
+
+  try {
+
+    const snapshot = await firebase.database()
+      .ref('emergencyRequests')
+      .once('value');
+
+    const data = snapshot.val();
+const requests = Object.values(data || {});
+
+const totalCount = requests.length;
+const newCount = requests.filter(r => (r.status || 'جديد') === 'جديد').length;
+const progressCount = requests.filter(r => r.status === 'جاري التنفيذ').length;
+const doneCount = requests.filter(r => r.status === 'تم التنفيذ').length;
+
+if (document.getElementById('emTotal')) document.getElementById('emTotal').textContent = totalCount;
+if (document.getElementById('emNew')) document.getElementById('emNew').textContent = newCount;
+if (document.getElementById('emProgress')) document.getElementById('emProgress').textContent = progressCount;
+if (document.getElementById('emDone')) document.getElementById('emDone').textContent = doneCount;
+    if (!data) {
+      container.innerHTML = '<tr><td colspan="6">لا توجد طلبات</td></tr>';
+      return;
+    }
+
+    container.innerHTML = '';
+
+    Object.entries(data).reverse().forEach(([key, item], index) => {
+  const requestNumber = Object.values(data).length - index;
+
+      container.innerHTML += `
+  <tr>
+    <td colspan="6">
+      <div class="card" style="margin-bottom:12px; text-align:right;">
+        <div style="font-weight:800; color:var(--primary); margin-bottom:8px;">
+          🚨 طلب طوارئ رقم #${requestNumber}
+        </div>
+
+        <div style="font-size:14px; line-height:2;">
+          <b>العميل:</b> ${item.clientName || '-'}<br>
+          <b>الموقع:</b> ${item.location || '-'}<br>
+          <b>الوصف:</b><br>
+<div style="white-space:pre-wrap; word-break:break-word; margin-top:6px;">
+${item.description || '-'}
+</div>
+          <b>الحالة:</b>
+<span class="status-badge active">${item.status || 'جديد'}</span>
+          <br><b>تاريخ الطلب:</b> ${item.createdAt ? formatDateTime(item.createdAt).replace(/'/g, "") : "-"}
+          <br><b>آخر تحديث:</b> ${item.updatedAt ? formatDateTime(item.updatedAt).replace(/'/g, "") : "-"}
+        </div>
+
+       
+  
+<button class="submit-btn" style="margin-top:10px; padding:8px 12px; font-size:13px; background:#16a34a;" onclick="markEmergencyDone('${key}')">
+🔄 تغيير حالة الطلب
+</button>
+      </div>
+    </td>
+  </tr>
+`;
+    });
+
+  } catch (err) {
+
+    console.error(err);
+
+    container.innerHTML =
+      '<tr><td colspan="6">خطأ في تحميل البيانات</td></tr>';
+
+  }
+
+}
+function closeModal() {
+  document.getElementById('modalOverlay').classList.remove('active');
+}
+
+document.getElementById('modalOverlay').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+function formatDateTime(dateValue) {
+    const d = new Date(dateValue);
+
+    const date = d.toLocaleDateString('en-GB');
+    const time = d.toLocaleTimeString('ar-SA', {
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+
+    return date + ' - ' + time;
+}
+async function markEmergencyDone(key) {
+    const choice = prompt(
+        'اختر حالة الطلب:\n\n1 = جديد\n2 = جاري التنفيذ\n3 = تم التنفيذ'
+    );
+
+    if (!choice) return;
+
+    let newStatus = '';
+
+    if (choice === '1') newStatus = 'جديد';
+    else if (choice === '2') newStatus = 'جاري التنفيذ';
+    else if (choice === '3') newStatus = 'تم التنفيذ';
+    else {
+        showToast('❌ اختيار غير صحيح');
+        return;
+    }
+
+    try {
+        await firebase.database()
+            .ref('emergencyRequests/' + key)
+            .update({
+                status: newStatus,
+                updatedAt: new Date().toISOString()
+            });
+
+        showToast('✅ تم تغيير الحالة إلى ' + newStatus);
+        loadEmergencyRequests();
+
+    } catch (err) {
+        console.error(err);
+        showToast('❌ فشل تحديث الحالة');
+    }
+}
+
+       
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.display = 'block';
+  setTimeout(() => { t.style.display = 'none'; }, 3000);
+}
+
+function initPanelJS(id) {
+  // Animate progress bars
+  setTimeout(() => {
+    document.querySelectorAll('.progress-bar').forEach(bar => {
+      const w = bar.style.width;
+      bar.style.width = '0';
+      setTimeout(() => { bar.style.width = w; }, 100);
+    });
+  }, 100);
+  if (id === 'emergency_admin') loadEmergencyRequests();
+}
+function openReportDetails(id) {
+    const report = (db.reports || []).find(r => r.id == id);
+
+    if (!report) {
+        showToast('التقرير غير موجود');
+        return;
+    }
+
+    const details = `
+        <div class="card" style="margin-bottom:16px;">
+            <div class="section-title">📄 تفاصيل التقرير</div>
+
+            <div style="line-height:2.1; font-size:15px;">
+                <div><b>العميل:</b> ${report.client || 'غير محدد'}</div>
+                <div><b>الفني:</b> ${report.tech || 'غير محدد'}</div>
+                <div><b>نوع الزيارة:</b> ${report.type || 'زيارة فنية'}</div>
+                <div><b>التاريخ:</b> ${report.date || '-'}</div>
+                <div><b>المواد المستخدمة:</b> ${report.materials || 'غير مسجل'}</div>
+                <div><b>الملاحظات:</b> ${report.notes || 'لا توجد'}</div>
+                <div><b>الآفات المرصودة:</b> ${(report.pests || []).length ? report.pests.join('، ') : 'غير مسجل'}</div>
+                <div><b>الحالة:</b> ${report.status || 'مكتمل'}</div>
+                <div style="margin-top:20px;">
+    <b>الصور المرفقة:</b>
+</div>
+
+<div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
+    ${(report.images || []).length ? (report.images || []).map(img => `
+        <img src="${img}"
+     onclick="openImagePreview('${img}')"
+     style="width:120px; height:120px; object-fit:cover; border-radius:10px; border:1px solid #ddd;">
+    `).join('') : '<div style="color:var(--text-light); font-size:13px;">لا توجد صور مرفقة</div>'}
+</div>
+            </div>
+
+            <button class="submit-btn" style="margin-top:16px;" onclick="renderPanel(currentPanel)">
+                رجوع
+            </button>
+        </div>
+    `;
+
+    document.getElementById('appContent').innerHTML = details;
+}
+function openImagePreview(img) {
+    document.getElementById('appContent').innerHTML = `
+        <div class="card">
+            <div class="section-title">📷 معاينة الصورة</div>
+            <img src="${img}" style="width:100%; border-radius:14px;">
+            <button class="submit-btn" style="margin-top:16px;" onclick="renderPanel(currentPanel)">
+                رجوع
+            </button>
+        </div>
+    `;
+}
+</script>
+</body>
+</html>
