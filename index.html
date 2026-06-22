@@ -2156,7 +2156,7 @@ function showClientSchedule(id) {
 }
 // ===== ADMIN REPORTS =====
 function adminReports() {
-  const allReports = (db.reports || []).sort((a, b) => (b.id || 0) - (a.id || 0));
+    const allReports = (db.reports || []).sort((a, b) => (b.id || 0) - (a.id || 0));
 const threeDaysAgo = Date.now() - (3 * 24 * 60 * 60 * 1000);
 const recentReports = allReports.filter(r => (r.id || 0) >= threeDaysAgo);
   return `
@@ -2187,6 +2187,7 @@ const recentReports = allReports.filter(r => (r.id || 0) >= threeDaysAgo);
   `;
 }
 function adminAllReports() {
+  loadReportsFromFirebase();
     const allReports = (db.reports || []).sort((a, b) => (b.id || 0) - (a.id || 0));
 
     return `
