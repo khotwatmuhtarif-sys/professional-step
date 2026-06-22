@@ -1156,7 +1156,7 @@ async function doLogin() {
     document.getElementById('loginScreen').classList.remove('active');
     document.getElementById('appScreen').classList.add('active');
     await window.loadClientsFromFirebase();
-    await window.loadReportsFromFirebase();
+        await window.loadReportsFromFirebase();
     renderNav();
     renderPanel('home');
     return;
@@ -2191,6 +2191,10 @@ function adminAllReports() {
 
     return `
         <div class="section-title">📊 جميع التقارير</div>
+        <button class="submit-btn" style="margin-bottom:12px;"
+onclick="loadReportsFromFirebase().then(() => renderPanel('all_reports'))">
+    🔄 تحديث التقارير
+</button>
 
         ${allReports.map(r => `
             <div class="report-card" onclick="openReportDetails(${r.id})">
