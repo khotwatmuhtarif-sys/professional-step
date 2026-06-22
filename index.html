@@ -1747,6 +1747,7 @@ ${db.clients.map(c => `
     </div>
 </div>
      <button class="submit-btn" onclick="saveVisitReport()">
+     </form>
 📋 رفع التقرير
 </button>
     </div>
@@ -1852,7 +1853,7 @@ async function readImages(inputId, maxFiles = 3) {
 
     return images;
 }
-
+showToast('⏳ جاري ضغط الصور ورفع التقرير...');
 const executionImages = await readImages('executionImages', 3);
 const pestImages = await readImages('pestImages', 3);
 const paperReportImages = await readImages('paperReportImages', 2);
@@ -1881,6 +1882,15 @@ images: [
 if (!db.reports) db.reports = [];
 db.reports.unshift(fullReport);
 saveDB();
+console.log(fullReport);
+showToast('✅ تم رفع التقرير بنجاح');
+
+
+document.getElementById('executionFilesText').textContent = 'لم يتم اختيار صور';
+document.getElementById('pestFilesText').textContent = 'لم يتم اختيار صور';
+document.getElementById('paperFilesText').textContent = 'لم يتم اختيار صور';
+document.getElementById('reportForm').reset();
+
 const client = db.clients.find(c => c.id == parseInt(clientId));
 
 if (client) {
@@ -2114,7 +2124,7 @@ function showClientSchedule(id) {
 
     document.getElementById('appContent').innerHTML = `
         <div class="card">
-            <div class="section-title">📅 جدول زيارات العميل</div>
+                    <div class="section-title">📅 جدول زيارات العميل</div>
 
             <div style="font-size:18px; font-weight:800; margin-bottom:8px;">
                 ${client.name}
