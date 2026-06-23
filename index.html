@@ -1128,6 +1128,7 @@ function selectRole(role, btn) {
 }
 
 async function doLogin() {
+  alert('doLogin started');
   const username = document.getElementById('loginUser').value.trim();
   const password = document.getElementById('loginPass').value.trim();
   const errorEl = document.getElementById('loginError');
