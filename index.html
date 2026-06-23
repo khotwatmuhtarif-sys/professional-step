@@ -2052,6 +2052,13 @@ function adminHome() {
     </div>
     ` : `
     <div class="section-title">🆕 آخر العملاء المضافين</div>
+    <input
+  type="text"
+  id="clientSearch"
+  class="form-input"
+  placeholder="🔍 ابحث عن عميل..."
+  onkeyup="renderPanel('all_clients')"
+  style="margin-bottom:12px;">
     <div style="overflow-x:auto;">
       <table class="data-table">
         <thead><tr><th>رقم العقد</th><th>العميل</th><th>النوع</th><th>طريقة الدفع</th><th>الحالة</th></tr></thead>
@@ -2085,7 +2092,14 @@ function adminClients() {
           <tr><th>رقم العقد</th><th>العميل</th><th>النوع</th><th>طريقة الدفع</th><th>الزيارات</th><th>الحالة</th><th>إجراء</th></tr>
         </thead>
         <tbody>
-          ${db.clients.map(c => `
+          ${db.clients
+.filter(c => {
+   const q = (document.getElementById('clientSearch')?.value || '').toLowerCase();
+   return !q ||
+          c.name.toLowerCase().includes(q) ||
+          String(c.id).includes(q);
+})
+.map(c =>
             <tr>
               <td><strong style="color:var(--primary);">#${c.id}</strong></td>
               <td><strong>${c.name}</strong></td>
