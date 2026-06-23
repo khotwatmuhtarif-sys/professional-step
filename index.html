@@ -2094,7 +2094,7 @@ function adminClients() {
           c.name.toLowerCase().includes(q) ||
           String(c.id).includes(q);
 })
-.map(c =>
+.map(c => `
             <tr>
               <td><strong style="color:var(--primary);">#${c.id}</strong></td>
               <td><strong>${c.name}</strong></td>
@@ -2102,36 +2102,38 @@ function adminClients() {
               <td><span class="tag">${c.pay}</span></td>
               <td>
   ${c.used || 0}/${c.visits || 0}
-  <br>
+  <br/>
   <small style="color:var(--text-light); font-size:11px;">
     القادمة: ${(c.visitSchedule || []).find(v => v.status === 'مجدولة')?.date || 'لا يوجد'}
   </small>
 </td>
-              <td><span class="status-badge ${c.status}">${c.status === 'active' ? 'نشط' : 'ينتهي قريباً'}</span></td>
               <td>
-                <td>
+  <span class="status-badge ${c.status}">
+    ${c.status === 'active' ? 'نشط' : 'ينتهي قريباً'}
+  </span>
+</td>
 
-    <button class="submit-btn"
+<td>
+  <button class="submit-btn"
     style="width:auto; padding:4px 10px; font-size:11px; margin-left:4px;"
     onclick="showClientSchedule(${c.id})">
-    📅 الجدول
-    </button>
+    الجدول
+  </button>
 
-    <button class="submit-btn"
+  <button class="submit-btn"
     style="width:auto; padding:4px 10px; font-size:11px; margin-left:4px;"
     onclick="openModal('addClient')">
     تعديل
-    </button>
+  </button>
 
-    <button class="submit-btn red"
+  <button class="submit-btn red"
     style="width:auto; padding:4px 10px; font-size:11px; background:var(--red);"
     onclick="deleteClient(${c.id})">
     حذف
-    </button>
-
+  </button>
 </td>
-            </tr>
-          `).join('')}
+</tr>
+`).join('')}
         </tbody>
       </table>
     </div>
@@ -2903,3 +2905,4 @@ async function deleteReport(id) {
 </script>
 </body>
 </html>
+<style></style>
