@@ -60,8 +60,7 @@
 
       db.reports = Object.values(data)
         .sort((a, b) => (b.id || 0) - (a.id || 0));
-        alert('عدد التقارير المحملة: ' + Object.values(data).length);
-
+        
       saveDB();
     }
   } catch(e) {
