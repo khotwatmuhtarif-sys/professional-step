@@ -1115,21 +1115,17 @@ let currentUser = null;
 let currentClientId = null;
 
 function selectRole(role, btn) {
-  currentRole = role;
-  document.querySelectorAll('.role-btn').forEach(b => b.classList.remove('selected'));
-  btn.classList.add('selected');
-  const users = { client: 'عميل_تجريبي', employee: 'موظف_1', admin: 'admin' };
-  document.getElementById('loginUser').value = users[role];
-}
+    currentRole = role;
 
-function selectRole(role, btn) {
-  currentRole = role;
-  document.querySelectorAll('.role-btn').forEach(b => b.classList.remove('selected'));
-  btn.classList.add('selected');
-  // مسح خانات الدخول عند تغيير الدور
-  document.getElementById('loginUser').value = '';
-  document.getElementById('loginPass').value = '';
-  document.getElementById('loginError').style.display = 'none';
+    document.querySelectorAll('.role-btn').forEach(b => {
+        b.classList.remove('selected');
+    });
+
+    btn.classList.add('selected');
+
+    document.getElementById('loginUser').value = '';
+    document.getElementById('loginPass').value = '';
+    document.getElementById('loginError').style.display = 'none';
 }
 
 async function doLogin() {
