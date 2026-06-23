@@ -1711,7 +1711,7 @@ ${db.clients.map(c => `
       </div>
       <div class="form-group">
     <label class="form-label">📸 صور التنفيذ</label>
-    <input type="file" id="executionImages" accept="image/*" capture="environment" multiple
+    <input type="file" id="executionImages" accept="image/*" multiple style="display:none"
            onchange="showFileNames('executionImages','executionFilesText')">
     <div class="pest-upload-area" onclick="document.getElementById('executionImages').click()">
         <div style="font-size:36px;">📸</div>
@@ -1724,7 +1724,7 @@ ${db.clients.map(c => `
 
 <div class="form-group">
     <label class="form-label">🐜 صور الآفات المرصودة</label>
-    <input type="file" id="pestImages" accept="image/*" capture="environment" multiple
+    <input type="file" id="pestImages" accept="image/*" multiple style="display:none"
            onchange="showFileNames('pestImages','pestFilesText')">
     <div class="pest-upload-area" onclick="document.getElementById('pestImages').click()">
         <div style="font-size:36px;">🐜</div>
@@ -1737,7 +1737,7 @@ ${db.clients.map(c => `
 
 <div class="form-group">
     <label class="form-label">📄 صورة تقرير المتابعة الورقي</label>
-    <input type="file" id="paperReportImages" accept="image/*" capture="environment" multiple
+    <input type="file" id="paperReportImages" accept="image/*" multiple style="display:none"
            onchange="showFileNames('paperReportImages','paperFilesText')">
     <div class="pest-upload-area" onclick="document.getElementById('paperReportImages').click()">
         <div style="font-size:36px;">📄</div>
