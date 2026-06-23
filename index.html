@@ -2851,7 +2851,9 @@ function openReportDetails(id) {
     `).join('') : '<div style="color:var(--text-light); font-size:13px;">لا توجد صور مرفقة</div>'}
 </div>
             </div>
-
+<button class="submit-btn red" style="margin-top:16px; background:#dc2626;" onclick="deleteReport(${report.id})">
+    🗑 حذف التقرير
+</button>
             <button class="submit-btn" style="margin-top:16px;" onclick="renderPanel(currentPanel)">
                 رجوع
             </button>
@@ -2870,6 +2872,24 @@ function openImagePreview(img) {
             </button>
         </div>
     `;
+}
+async function deleteReport(id) {
+    if (!confirm('هل تريد حذف التقرير؟')) return;
+
+    try {
+        await firebase.database()
+            .ref('reports/' + id)
+            .remove();
+
+        db.reports = (db.reports || []).filter(r => r.id != id);
+        saveDB();
+
+        showToast('تم حذف التقرير');
+        renderPanel('all_reports');
+    } catch (e) {
+        showToast('حدث خطأ أثناء حذف التقرير');
+        console.log(e);
+    }
 }
 </script>
 </body>
