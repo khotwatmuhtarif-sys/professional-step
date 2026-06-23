@@ -1797,7 +1797,7 @@ saveDB();
   const reportId = Date.now();
 function compressImage(file, maxWidth = 700, quality = 0.45) {
     return new Promise((resolve, reject) => {
-        if (file.size > 6 * 1024 * 1024) {
+        if (file.size > 15 * 1024 * 1024) {
             reject('الصورة كبيرة جداً: ' + file.name);
             return;
         }
@@ -1884,13 +1884,11 @@ if (!db.reports) db.reports = [];
 db.reports.unshift(fullReport);
 saveDB();
 console.log(fullReport);
-showToast('✅ تم رفع التقرير بنجاح');
 
 
 document.getElementById('executionFilesText').textContent = 'لم يتم اختيار صور';
 document.getElementById('pestFilesText').textContent = 'لم يتم اختيار صور';
 document.getElementById('paperFilesText').textContent = 'لم يتم اختيار صور';
-document.getElementById('reportForm').reset();
 
 const client = db.clients.find(c => c.id == parseInt(clientId));
 
