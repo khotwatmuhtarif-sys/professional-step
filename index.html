@@ -1246,7 +1246,7 @@ function getPanelHTML(id) {
   const panels = {
     // CLIENT PANELS
     home: currentRole === 'client' ? clientHome() : currentRole === 'employee' ? employeeHome() : adminHome(),
-    reports: clientReports(),
+    reports: currentRole === 'admin' ? adminAllReports() : clientReports(),
     map: clientMap(),
     payments: clientPayments(),
     // EMPLOYEE
