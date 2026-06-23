@@ -1231,15 +1231,33 @@ function renderNav() {
   `).join('');
 }
 
-function renderPanel(panelId, btn) {
-  document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
-  if (btn) btn.classList.add('active');
-  currentPanel = panelId;
+function renderPanel(panelId, btn, skipHistory = false) {
 
-  const content = document.getElementById('appContent');
-  content.innerHTML = getPanelHTML(panelId);
-  initPanelJS(panelId);
+    if (!skipHistory && currentPanel && currentPanel !== panelId) {
+        history.pushState(
+    { panel: panelId },
+    '',
+    '#'+panelId
+);
+    }
+
+    document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+
+    if (btn) btn.classList.add('active');
+
+    currentPanel = panelId;
+
+    const content = document.getElementById('appContent');
+    content.innerHTML = getPanelHTML(panelId);
+    initPanelJS(panelId);
 }
+window.addEventListener('popstate', function(event){
+
+    if(event.state && event.state.panel){
+        renderPanel(event.state.panel, null, true);
+    }
+
+});
 
 // ===== PANELS =====
 function getPanelHTML(id) {
