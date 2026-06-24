@@ -1512,10 +1512,41 @@ function clientMap() {
     `).join('')}
   `;
 }
+function paymentSummaryCard(client) {
+    const value = Number(client.value || 0);
+    const payments = client.manualPayments || client.payments || [];
+    const paid = payments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+    const remaining = value - paid;
 
+    return `
+        <div class="card" style="background:linear-gradient(135deg,#e8f5e9,#ffffff); border:1px solid #d7eadb;">
+            <div class="section-title">💳 بطاقة متابعة العميل</div>
+
+            <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:10px;">
+                <div>
+                    <div style="font-size:12px;color:var(--text-light);">قيمة العقد</div>
+                    <div style="font-size:18px;font-weight:800;">${value.toLocaleString()} ريال</div>
+                </div>
+
+                <div>
+                    <div style="font-size:12px;color:var(--text-light);">إجمالي المدفوع</div>
+                    <div style="font-size:18px;font-weight:800;color:var(--green);">${paid.toLocaleString()} ريال</div>
+                </div>
+
+                <div>
+                    <div style="font-size:12px;color:var(--text-light);">المتبقي</div>
+                    <div style="font-size:18px;font-weight:800;color:${remaining > 0 ? 'var(--red)' : 'var(--green)'};">
+                        ${remaining.toLocaleString()} ريال
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
 // ===== CLIENT PAYMENTS =====
 function clientPayments() {
   return `
+  ${paymentSummaryCard(db.clients.find(c => c.id == currentClientId) || {})}
     <div class="section-title">💳 حالة الدفع والفواتير</div>
 
     <!-- بطاقة العقد -->
@@ -2201,6 +2232,10 @@ function editClient(id) {
     document.getElementById('modalTitle').textContent = 'تعديل بيانات العميل';
 
     setTimeout(() => {
+      const box = document.getElementById('modalContent');
+if (box) {
+    box.insertAdjacentHTML('afterbegin', paymentSummaryCard(client));
+}
        document.getElementById('newClientId').value = client.id;
 document.getElementById('newClientId').setAttribute('data-editing', 'true');
         document.getElementById('newClientName').value = client.name || '';
