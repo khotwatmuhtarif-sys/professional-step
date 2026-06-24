@@ -2075,6 +2075,7 @@ function adminHome() {
 
 // ===== ADMIN CLIENTS =====
 function adminClients() {
+  const searchValue = document.getElementById('clientSearch')?.value || '';
   return `
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
       <div class="section-title" style="margin:0;">👥 جميع العملاء (${db.clients.length})</div>
@@ -2082,7 +2083,7 @@ function adminClients() {
     </div>
     <input
 id="clientSearch"
-type="text"
+type="text" value="${searchValue}"
 placeholder="بحث باسم العميل أو رقمه..."
 style="width:100%;margin-bottom:12px;padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.08);color:white;"
 oninput="renderPanel('all_clients')"
@@ -2094,7 +2095,7 @@ oninput="renderPanel('all_clients')"
         <tbody>
           ${db.clients
 .filter(c => {
-   const q = (document.getElementById('clientSearch')?.value || '').toLowerCase();
+   const q = searchValue.toLowerCase();
    return !q ||
           c.name.toLowerCase().includes(q) ||
           String(c.id).includes(q);
