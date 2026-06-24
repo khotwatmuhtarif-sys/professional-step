@@ -2786,6 +2786,15 @@ visitSchedule: generateVisitSchedule(
     status: 'active',
     username,
     password,
+    manualPayments: Array.from(document.querySelectorAll('#paymentsHistory > div')).map(item => {
+    const text = item.textContent.trim();
+    const parts = text.split(' - ');
+    return {
+        amount: Number(parts[0].replace(/[^\d.]/g, '')) || 0,
+        date: parts[1] || '',
+        status: 'مدفوعة'
+    };
+}),
     start: new Date().toISOString().split('T')[0],
     end: new Date(new Date().setFullYear(new Date().getFullYear()+1)).toISOString().split('T')[0]
   };
