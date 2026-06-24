@@ -2627,7 +2627,7 @@ async function saveNewClient() {
   const password = document.getElementById('previewPassword').textContent;
 
   const newClient = {
-    id: db.nextId,
+    id: parseInt(document.getElementById('newClientId').value.replace('#','')),
     name,
     type: document.getElementById('newClientType').value,
     phone,
@@ -2649,7 +2649,7 @@ visitSchedule: generateVisitSchedule(
     end: new Date(new Date().setFullYear(new Date().getFullYear()+1)).toISOString().split('T')[0]
   };
 
-  const existingIndex = db.clients.findIndex(c => c.id == newClient.id);
+  const existingIndex = db.clients.findIndex(c => String(c.id) === String(newClient.id));
 
 if (existingIndex !== -1) {
     newClient.username = db.clients[existingIndex].username;
