@@ -2200,7 +2200,8 @@ function editClient(id) {
     openModal('newClient');
 
     setTimeout(() => {
-        document.getElementById('newClientId').value = client.id || '';
+       document.getElementById('newClientId').value = client.id;
+document.getElementById('newClientId').setAttribute('data-editing', 'true');
         document.getElementById('newClientName').value = client.name || '';
         document.getElementById('newClientType').value = client.type || '';
         document.getElementById('newClientPhone').value = client.phone || '';
@@ -2623,11 +2624,14 @@ async function saveNewClient() {
   if (!name) { showToast('⚠️ أدخل اسم العميل'); return; }
   if (!phone) { showToast('⚠️ أدخل رقم الجوال'); return; }
 
-  const username = document.getElementById('previewUsername').textContent;
-  const password = document.getElementById('previewPassword').textContent;
+  const currentId = parseInt(String(document.getElementById('newClientId').value).replace('#',''));
+const oldClient = db.clients.find(c => String(c.id) === String(currentId));
+
+const username = oldClient?.username || document.getElementById('previewUsername').textContent;
+const password = oldClient?.password || document.getElementById('previewPassword').textContent;
 
   const newClient = {
-    id: parseInt(document.getElementById('newClientId').value.replace('#','')),
+    id: parseInt(String(document.getElementById('newClientId').value).replace('#','')),
     name,
     type: document.getElementById('newClientType').value,
     phone,
