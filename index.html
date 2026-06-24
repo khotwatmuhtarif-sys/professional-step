@@ -2534,21 +2534,37 @@ const modalContents = {
 <option>يدوي</option>
         </select>
       </div>
-      <div id="manualPaymentsBox" style="display:none; background:#f8f9fa; border-radius:12px; padding:12px; margin-bottom:12px;">
-        <div id="manualPaymentsList"></div>
+      <div id="manualPaymentsBox"
+     style="display:none;background:#f8f9fa;border-radius:12px;padding:12px;margin-top:10px;">
 
-<button type="button"
-        class="submit-btn"
-        style="margin-top:10px;"
-        onclick="addManualPaymentRow()">
-    + إضافة دفعة
-</button>
+    <label class="form-label">مبلغ الدفعة</label>
+    <input type="number"
+           class="form-input"
+           id="paymentAmount"
+           placeholder="مثال: 500">
 
-<div id="manualPaymentsSummary"
-     style="margin-top:10px;font-size:13px;">
-    المتبقي: 0 ريال
-</div>
+    <label class="form-label">تاريخ الدفعة</label>
+    <input type="date"
+           class="form-input"
+           id="paymentDate">
+
+    <button type="button"
+            class="submit-btn green"
+            style="margin-top:10px;"
+            onclick="registerPayment()">
+        تسجيل الدفعة
+    </button>
+
+    <div id="manualPaymentsSummary"
+         style="margin-top:10px;font-size:13px;">
+        إجمالي الدفعات: 0 ريال | المتبقي: 0 ريال
     </div>
+
+    <div id="paymentsHistory"
+         style="margin-top:10px;">
+    </div>
+
+</div>
       <div class="form-group">
         <label class="form-label">عدد الزيارات السنوية</label>
         <input type="number" class="form-input" id="newClientVisits" value="12">
@@ -2617,23 +2633,41 @@ function toggleManualPayments() {
 
     box.style.display = pay === 'يدوي' ? 'block' : 'none';
 }
-function addManualPaymentRow(amount = '', date = '') {
-    const list = document.getElementById('manualPaymentsList');
-    if (!list) return;
 
-    const row = document.createElement('div');
-    row.className = 'manual-payment-row';
-    row.style.marginBottom = '10px';
+function registerPayment() {
 
-    row.innerHTML = `
-        <input type="number" class="form-input manual-payment-amount" placeholder="مبلغ الدفعة" value="${amount}" oninput="updateManualPaymentsSummary()">
-        <input type="date" class="form-input manual-payment-date" value="${date}" onchange="updateManualPaymentsSummary()">
-        <button type="button" class="submit-btn red" style="margin-top:6px;" onclick="this.parentElement.remove(); updateManualPaymentsSummary();">
-            حذف الدفعة
-        </button>
-    `;
+    const amount =
+        Number(document.getElementById('paymentAmount').value || 0);
 
-    list.appendChild(row);
+    const date =
+        document.getElementById('paymentDate').value;
+
+    if (!amount || !date) {
+        alert('أدخل مبلغ الدفعة وتاريخها');
+        return;
+    }
+
+    const history =
+        document.getElementById('paymentsHistory');
+
+    const item =
+        document.createElement('div');
+
+    item.style.padding = '8px';
+    item.style.marginTop = '6px';
+    item.style.background = '#fff';
+    item.style.borderRadius = '8px';
+
+    item.innerHTML =
+        amount.toLocaleString() +
+        ' ريال - ' +
+        date;
+
+    history.appendChild(item);
+
+    document.getElementById('paymentAmount').value = '';
+    document.getElementById('paymentDate').value = '';
+
     updateManualPaymentsSummary();
 }
 
