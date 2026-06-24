@@ -2242,6 +2242,21 @@ document.getElementById('newClientId').setAttribute('data-editing', 'true');
         document.getElementById('newClientType').value = client.type || '';
         document.getElementById('newClientPhone').value = client.phone || '';
         document.getElementById('newClientPay').value = client.pay || '';
+        if ((client.manualPayments || []).length > 0) {
+    document.getElementById('newClientPay').value = 'يدوي';
+    toggleManualPayments();
+
+    const history = document.getElementById('paymentsHistory');
+    if (history) {
+        history.innerHTML = client.manualPayments.map(p => `
+            <div style="padding:8px;margin-top:6px;background:#fff;border-radius:8px;">
+                ${Number(p.amount || 0).toLocaleString()} ريال - ${p.date || ''}
+            </div>
+        `).join('');
+    }
+
+    updateManualPaymentsSummary();
+}
         document.getElementById('newClientVisits').value = client.visits || '';
         document.getElementById('contractStartDate').value =
         document.getElementById('previewUsername').textContent = client.username || '';
