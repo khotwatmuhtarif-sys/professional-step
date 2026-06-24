@@ -1387,7 +1387,7 @@ function clientHome() {
       </div>
       <div class="stat-card">
         <span class="stat-icon">📋</span>
-        <span class="stat-num">${(db.reports || []).filter(r => String(r.clientId || r.client) === String(currentClientId)).length}</span>
+        <span class="stat-num">0</span>
         <span class="stat-label">تقارير</span>
       </div>
     </div>
@@ -1489,8 +1489,6 @@ function clientReports() {
 
 // ===== CLIENT MAP =====
 function clientMap() {
-  return `
-    function clientMap() {
 return `
 <div class="section-title">🗺️ خريطة المصائد</div>
 
@@ -1499,46 +1497,8 @@ return `
 </div>
 `;
 }
-        </div>
-      </div>
-    </div>
-
-    <div class="stats-row cols-3" style="margin-top:16px;">
-      <div class="stat-card">
-        <span class="stat-icon">🟢</span>
-        <span class="stat-num green">9</span>
-        <span class="stat-label">سليمة</span>
-      </div>
-      <div class="stat-card">
-        <span class="stat-icon">🟡</span>
-        <span class="stat-num gold">2</span>
-        <span class="stat-label">متابعة</span>
-      </div>
-      <div class="stat-card">
-        <span class="stat-icon">🔴</span>
-        <span class="stat-num red">1</span>
-        <span class="stat-label">نشطة</span>
-      </div>
-    </div>
-
-    <div class="section-title">تفاصيل المحطات</div>
-    ${[
-      { num: 'M-01', loc: 'المطبخ — مدخل', status: 'active', label: 'سليمة' },
-      { num: 'M-02', loc: 'المستودع — جانب أيمن', status: 'done', label: 'نشطة ⚠️' },
-      { num: 'M-03', loc: 'الممر الخلفي', status: 'upcoming', label: 'تحتاج متابعة' },
-      { num: 'M-04', loc: 'غرفة التبريد', status: 'active', label: 'سليمة' },
-    ].map(t => `
-      <div class="visit-item">
-        <div class="visit-dot ${t.status}" style="border-radius:8px; font-size:13px; font-weight:700; color:var(--primary);">${t.num}</div>
-        <div class="visit-info">
-          <div class="visit-title">${t.loc}</div>
-          <div class="visit-date">آخر فحص: 15 مايو 2025</div>
-        </div>
-        <span class="visit-badge ${t.status}">${t.label}</span>
-      </div>
-    `).join('')}
-  `;
-}
+        
+    
 function paymentSummaryCard(client) {
     const value = Number(client.value || 0);
     const payments = client.manualPayments || client.payments || [];
