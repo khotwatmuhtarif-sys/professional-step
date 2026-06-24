@@ -2130,7 +2130,7 @@ oninput="filterClientsTable(this.value)"
 
   <button class="submit-btn"
     style="width:auto; padding:4px 10px; font-size:11px; margin-left:4px;"
-    onclick="openModal('addClient')">
+    onclick="editClient(${c.id})">
     تعديل
   </button>
 
@@ -2188,6 +2188,27 @@ function showClientSchedule(id) {
             </button>
         </div>
     `;
+}
+function editClient(id) {
+    const client = db.clients.find(c => c.id == id);
+
+    if (!client) {
+        showToast('العميل غير موجود');
+        return;
+    }
+
+    openModal('newClient');
+
+    setTimeout(() => {
+        document.getElementById('newClientId').value = client.id || '';
+        document.getElementById('newClientName').value = client.name || '';
+        document.getElementById('newClientType').value = client.type || '';
+        document.getElementById('newClientPhone').value = client.phone || '';
+        document.getElementById('newClientPay').value = client.pay || '';
+        document.getElementById('newClientVisits').value = client.visits || '';
+        document.getElementById('contractStartDate').value =
+            client.contractStartDate || client.start || '';
+    }, 100);
 }
 // ===== ADMIN REPORTS =====
 function adminReports() {
