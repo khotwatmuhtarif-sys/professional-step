@@ -2648,14 +2648,28 @@ visitSchedule: generateVisitSchedule(
     start: new Date().toISOString().split('T')[0],
     end: new Date(new Date().setFullYear(new Date().getFullYear()+1)).toISOString().split('T')[0]
   };
-  db.clients.push(newClient);
-  db.nextId++;
-  saveDB();
 
+  const existingIndex = db.clients.findIndex(c => c.id == newClient.id);
+
+if (existingIndex !== -1) {
+    newClient.username = db.clients[existingIndex].username;
+    newClient.password = db.clients[existingIndex].password;
+    db.clients[existingIndex] = {
+        ...db.clients[existingIndex],
+        ...newClient
+    };
+} else {
+    db.clients.push(newClient);
+    db.nextId++;
+}
+  saveDB();
+  
   // حفظ في Firebase
-  if (window.saveClientToFirebase) {
-    await window.saveClientToFirebase(newClient);
-  }
+  const clientToSave = existingIndex !== -1 ? db.clients[existingIndex] : newClient;
+
+if (window.saveClientToFirebase) {
+    await window.saveClientToFirebase(clientToSave);
+}
 
   closeModal();
   showToast(`✅ تم إنشاء حساب ${name} — يوزر: ${username}`);
