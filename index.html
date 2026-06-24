@@ -1382,12 +1382,12 @@ function clientHome() {
       </div>
       <div class="stat-card">
         <span class="stat-icon">🗺️</span>
-        <span class="stat-num gold">12</span>
+        <span class="stat-num gold">0</span>
         <span class="stat-label">محطة طعم</span>
       </div>
       <div class="stat-card">
         <span class="stat-icon">📋</span>
-        <span class="stat-num">4</span>
+        <span class="stat-num">${(db.reports || []).filter(r => String(r.clientId || r.client) === String(currentClientId)).length}</span>
         <span class="stat-label">تقارير</span>
       </div>
     </div>
@@ -1490,21 +1490,15 @@ function clientReports() {
 // ===== CLIENT MAP =====
 function clientMap() {
   return `
-    <div class="section-title">🗺️ خريطة مصائد الطعوم</div>
-    <div class="card" style="padding:0; overflow:hidden;">
-      <div class="map-container">
-        <div class="map-grid"></div>
-        <div class="trap-pin active" style="top:30%; right:25%"><div class="trap-pin-inner">🟢</div></div>
-        <div class="trap-pin active" style="top:50%; right:45%"><div class="trap-pin-inner">🟢</div></div>
-        <div class="trap-pin warning" style="top:20%; right:60%"><div class="trap-pin-inner">🟡</div></div>
-        <div class="trap-pin active" style="top:65%; right:30%"><div class="trap-pin-inner">🟢</div></div>
-        <div class="trap-pin danger" style="top:40%; right:70%"><div class="trap-pin-inner">🔴</div></div>
-        <div class="trap-pin active" style="top:75%; right:55%"><div class="trap-pin-inner">🟢</div></div>
-        <div class="trap-pin warning" style="top:55%; right:15%"><div class="trap-pin-inner">🟡</div></div>
-        <div class="map-legend">
-          🟢 سليمة (9)<br>
-          🟡 تحتاج متابعة (2)<br>
-          🔴 نشطة (1)
+    function clientMap() {
+return `
+<div class="section-title">🗺️ خريطة المصائد</div>
+
+<div class="card" style="padding:20px;text-align:center">
+خريطة المصائد غير مفعلة حالياً لهذا العميل
+</div>
+`;
+}
         </div>
       </div>
     </div>
@@ -2529,7 +2523,9 @@ const modalContents = {
     title: '⭐ تقييم آخر زيارة',
     html: `
       <div style="text-align:center; padding:16px 0;">
-        <p style="font-size:15px; margin-bottom:20px;">كيف تقيّم زيارة 15 مايو 2025؟</p>
+        <p style="font-size:15px; margin-bottom:20px;">
+كيف تقيم آخر زيارة تم تنفيذها؟
+</p>
         <div style="display:flex; justify-content:center; gap:12px; font-size:40px; margin-bottom:24px;">
           ${['😞','😐','🙂','😊','😍'].map((e,i) => `<span style="cursor:pointer; transition:transform 0.2s;" onmouseover="this.style.transform='scale(1.3)'" onmouseout="this.style.transform='scale(1)'" onclick="showToast('✅ شكراً على تقييمك!'); closeModal();">${e}</span>`).join('')}
         </div>
