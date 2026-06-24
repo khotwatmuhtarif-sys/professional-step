@@ -2075,6 +2075,14 @@ function adminHome() {
 
 // ===== ADMIN CLIENTS =====
 function adminClients() {
+  function filterClientsTable(value) {
+    const q = (value || '').toLowerCase();
+
+    document.querySelectorAll('#clientsTableBody tr').forEach(row => {
+        const text = row.innerText.toLowerCase();
+        row.style.display = text.includes(q) ? '' : 'none';
+    });
+}
   const searchValue = document.getElementById('clientSearch')?.value || '';
   return `
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
@@ -2086,20 +2094,14 @@ id="clientSearch"
 type="text" value="${searchValue}"
 placeholder="بحث باسم العميل أو رقمه..."
 style="width:100%;margin-bottom:12px;padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.08);color:white;"
-oninput="renderPanel('all_clients')"
+oninput="filterClientsTable(this.value)"
     <div style="overflow-x:auto;">
       <table class="data-table">
         <thead>
           <tr><th>رقم العقد</th><th>العميل</th><th>النوع</th><th>طريقة الدفع</th><th>الزيارات</th><th>الحالة</th><th>إجراء</th></tr>
         </thead>
-        <tbody>
+        <tbody id="clientsTableBody">
           ${db.clients
-.filter(c => {
-   const q = searchValue.toLowerCase();
-   return !q ||
-          c.name.toLowerCase().includes(q) ||
-          String(c.id).includes(q);
-})
 .map(c => `
             <tr>
               <td><strong style="color:var(--primary);">#${c.id}</strong></td>
