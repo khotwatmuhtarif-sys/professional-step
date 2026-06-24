@@ -1111,10 +1111,13 @@ html, body {
 let db = {
   clients: [],
   users: [
-    { username: 'admin', password: 'stepro@2025', role: 'admin', name: 'مدير النظام' },
-    { username: 'tech1', password: 'tech@1234', role: 'employee', name: 'الفني الأول' },
-    { username: 'tech2', password: 'tech@5678', role: 'employee', name: 'الفني الثاني' },
-  ],
+  { username: 'admin', password: 'stepro@2025', role: 'admin', name: 'مدير النظام' },
+
+  { username: 'raqib', password: 'tech@1234', role: 'employee', name: 'رقيب' },
+  { username: 'fahad', password: 'tech@1234', role: 'employee', name: 'فهد' },
+  { username: 'nayoun', password: 'tech@1234', role: 'employee', name: 'نايون' },
+  { username: 'shoaib', password: 'tech@1234', role: 'employee', name: 'شعيب' }
+],
   nextId: 1001
 };
 
@@ -3062,9 +3065,7 @@ function openReportDetails(id) {
     `).join('') : '<div style="color:var(--text-light); font-size:13px;">لا توجد صور مرفقة</div>'}
 </div>
             </div>
-<button class="submit-btn red" style="margin-top:16px; background:#dc2626;" onclick="deleteReport(${report.id})">
-    🗑 حذف التقرير
-</button>
+
             <button class="submit-btn" style="margin-top:16px;" onclick="renderPanel(currentPanel)">
                 رجوع
             </button>
