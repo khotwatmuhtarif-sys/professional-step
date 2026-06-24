@@ -2258,6 +2258,8 @@ document.getElementById('newClientId').setAttribute('data-editing', 'true');
     updateManualPaymentsSummary();
 }
         document.getElementById('newClientVisits').value = client.visits || '';
+        document.getElementById('visitFrequency').value = client.visitFrequency || 'monthly';
+        document.getElementById('newClientValue').value = client.value || 0;
         document.getElementById('contractStartDate').value =
         document.getElementById('previewUsername').textContent = client.username || '';
 document.getElementById('previewPassword').textContent = client.password || '';
