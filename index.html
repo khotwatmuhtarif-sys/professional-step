@@ -156,6 +156,39 @@ body {
   min-height: 100vh;
   direction: rtl;
 }
+html, body {
+    max-width:100%;
+    overflow-x:hidden;
+}
+
+.modal-content{
+    width:95vw !important;
+    max-width:95vw !important;
+    overflow-x:hidden;
+}
+
+@media (max-width:768px){
+
+    .stats-row,
+    .cols-2,
+    .cols-3,
+    .cols-4{
+        grid-template-columns:1fr !important;
+    }
+
+    table{
+        display:block;
+        overflow-x:auto;
+        white-space:nowrap;
+    }
+
+    input,
+    select,
+    textarea,
+    button{
+        max-width:100%;
+    }
+}
 
 /* ===== SCREENS ===== */
 .screen { display: none; min-height: 100vh; }
