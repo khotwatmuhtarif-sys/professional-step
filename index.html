@@ -2378,25 +2378,25 @@ const overdueCount = allVisits.filter(v => {
       <button class="submit-btn" style="width:auto; padding:8px 16px; font-size:13px;" onclick="openModal('scheduleVisit')">+ جدولة زيارة</button>
     </div>
     <div class="stats-row cols-4" style="margin-bottom:16px;">
-  <div class="stat-card">
+  <div class="stat-card" onclick="showVisitList('today')" style="cursor:pointer;">
     <span class="stat-icon">📅</span>
     <span class="stat-num green">${todayCount}</span>
     <span class="stat-label">زيارات اليوم</span>
   </div>
 
-  <div class="stat-card">
+  <div class="stat-card" onclick="showVisitList('tomorrow')" style="cursor:pointer;">
     <span class="stat-icon">➡️</span>
     <span class="stat-num">${tomorrowCount}</span>
     <span class="stat-label">زيارات الغد</span>
   </div>
 
-  <div class="stat-card">
+  <div class="stat-card" onclick="showVisitList('week')" style="cursor:pointer;">
     <span class="stat-icon">🗓️</span>
     <span class="stat-num gold">${weekCount}</span>
     <span class="stat-label">هذا الأسبوع</span>
   </div>
 
-  <div class="stat-card">
+  <div class="stat-card" onclick="showVisitList('overdue')" style="cursor:pointer;">
     <span class="stat-icon">⚠️</span>
     <span class="stat-num red">${overdueCount}</span>
     <span class="stat-label">متأخرة</span>
@@ -2416,7 +2416,59 @@ const overdueCount = allVisits.filter(v => {
     `).join('')}
   `;
 }
+function showVisitList(type) {
 
+    let visits = [];
+
+    const today = new Date();
+    const tomorrow = new Date();
+    tomorrow.setDate(today.getDate() + 1);
+
+    db.clients.forEach(client => {
+        (client.visitSchedule || []).forEach(v => {
+
+            const d = new Date(v.date);
+            let ok = false;
+
+            if (type === "today") {
+                ok = d.toDateString() === today.toDateString();
+            }
+
+            if (type === "tomorrow") {
+                ok = d.toDateString() === tomorrow.toDateString();
+            }
+
+            if (type === "week") {
+                const end = new Date();
+                end.setDate(today.getDate() + 7);
+                ok = d >= today && d <= end;
+            }
+
+            if (type === "overdue") {
+                ok = d < today && v.status !== "مكتمل";
+            }
+
+            if (ok) {
+                visits.push({
+                    client: client.name,
+                    tech: v.tech || "غير محدد",
+                    date: v.date,
+                    type: v.type || "زيارة دورية",
+                    status: v.status
+                });
+            }
+
+        });
+    });
+
+    alert(
+        visits.map(v =>
+            `${v.client}\n${v.date}\n${v.tech}`
+        ).join("\n\n")
+        || "لا توجد زيارات"
+    );
+
+}
 // ===== ADMIN SETTINGS =====
 function adminSettings() {
   return `
