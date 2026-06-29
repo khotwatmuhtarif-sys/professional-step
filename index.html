@@ -2402,31 +2402,7 @@ const overdueCount = allVisits.filter(v => {
     <span class="stat-label">متأخرة</span>
   </div>
 </div>
-<div class="stats-row cols-4" style="margin-bottom:16px;">
-  <div class="stat-card">
-    <span class="stat-icon">📅</span>
-    <span class="stat-num green">${todayCount}</span>
-    <span class="stat-label">زيارات اليوم</span>
-  </div>
 
-  <div class="stat-card">
-    <span class="stat-icon">➡️</span>
-    <span class="stat-num">${tomorrowCount}</span>
-    <span class="stat-label">زيارات الغد</span>
-  </div>
-
-  <div class="stat-card">
-    <span class="stat-icon">🗓️</span>
-    <span class="stat-num gold">${weekCount}</span>
-    <span class="stat-label">هذا الأسبوع</span>
-  </div>
-
-  <div class="stat-card">
-    <span class="stat-icon">⚠️</span>
-    <span class="stat-num red">${overdueCount}</span>
-    <span class="stat-label">متأخرة</span>
-  </div>
-</div>
     ${weekVisits
 .map(v => `
       <div class="visit-item">
