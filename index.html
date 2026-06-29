@@ -2335,12 +2335,100 @@ onclick="loadReportsFromFirebase().then(() => renderPanel('all_reports'))">
 }
 // ===== ADMIN VISITS =====
 function adminVisits() {
+  const allVisits = db.clients
+  .filter(c => c.visitSchedule && c.visitSchedule.length)
+  .flatMap(c =>
+    c.visitSchedule.map(v => ({
+      client: c.name,
+      tech: v.tech || "غير محدد",
+      time: v.date || "-",
+      type: v.type || "زيارة دورية",
+      status: v.status || "مجدولة"
+    }))
+  )
+  .sort((a, b) => new Date(a.time) - new Date(b.time));
+
+const today = new Date();
+const weekEnd = new Date();
+weekEnd.setDate(today.getDate() + 7);
+
+const weekVisits = allVisits.filter(v => {
+  const d = new Date(v.time);
+  return d >= today && d <= weekEnd;
+});
+const todayCount = weekVisits.filter(v => {
+    return new Date(v.time).toDateString() === new Date().toDateString();
+}).length;
+
+const tomorrow = new Date();
+tomorrow.setDate(tomorrow.getDate() + 1);
+
+const tomorrowCount = weekVisits.filter(v => {
+    return new Date(v.time).toDateString() === tomorrow.toDateString();
+}).length;
+
+const weekCount = weekVisits.length;
+
+const overdueCount = allVisits.filter(v => {
+    return new Date(v.time) < new Date() && v.status !== "مكتمل";
+}).length;
   return `
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
       <div class="section-title" style="margin:0;">📅 جدول الزيارات</div>
       <button class="submit-btn" style="width:auto; padding:8px 16px; font-size:13px;" onclick="openModal('scheduleVisit')">+ جدولة زيارة</button>
     </div>
-    ${[].map(v => `
+    <div class="stats-row cols-4" style="margin-bottom:16px;">
+  <div class="stat-card">
+    <span class="stat-icon">📅</span>
+    <span class="stat-num green">${todayCount}</span>
+    <span class="stat-label">زيارات اليوم</span>
+  </div>
+
+  <div class="stat-card">
+    <span class="stat-icon">➡️</span>
+    <span class="stat-num">${tomorrowCount}</span>
+    <span class="stat-label">زيارات الغد</span>
+  </div>
+
+  <div class="stat-card">
+    <span class="stat-icon">🗓️</span>
+    <span class="stat-num gold">${weekCount}</span>
+    <span class="stat-label">هذا الأسبوع</span>
+  </div>
+
+  <div class="stat-card">
+    <span class="stat-icon">⚠️</span>
+    <span class="stat-num red">${overdueCount}</span>
+    <span class="stat-label">متأخرة</span>
+  </div>
+</div>
+<div class="stats-row cols-4" style="margin-bottom:16px;">
+  <div class="stat-card">
+    <span class="stat-icon">📅</span>
+    <span class="stat-num green">${todayCount}</span>
+    <span class="stat-label">زيارات اليوم</span>
+  </div>
+
+  <div class="stat-card">
+    <span class="stat-icon">➡️</span>
+    <span class="stat-num">${tomorrowCount}</span>
+    <span class="stat-label">زيارات الغد</span>
+  </div>
+
+  <div class="stat-card">
+    <span class="stat-icon">🗓️</span>
+    <span class="stat-num gold">${weekCount}</span>
+    <span class="stat-label">هذا الأسبوع</span>
+  </div>
+
+  <div class="stat-card">
+    <span class="stat-icon">⚠️</span>
+    <span class="stat-num red">${overdueCount}</span>
+    <span class="stat-label">متأخرة</span>
+  </div>
+</div>
+    ${weekVisits
+.map(v => `
       <div class="visit-item">
         <div class="visit-dot ${v.status}">📅</div>
         <div class="visit-info">
