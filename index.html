@@ -1374,27 +1374,30 @@ function clientHome() {
 </div>
 </div>
     <div class="stats-row cols-4">
-      <div class="stat-card">
-        <span class="stat-icon">📅</span>
-        <span class="stat-num green">${getClientData("remaining")}</span>
-        <span class="stat-label">زيارات متبقية</span>
-      </div>
-      <div class="stat-card">
-        <span class="stat-icon">✅</span>
-        <span class="stat-num">${getClientData("used")}</span>
-        <span class="stat-label">زيارات منجزة</span>
-      </div>
-      <div class="stat-card">
-        <span class="stat-icon">🗺️</span>
-        <span class="stat-num gold">0</span>
-        <span class="stat-label">محطة طعم</span>
-      </div>
-      <div class="stat-card">
-        <span class="stat-icon">📋</span>
-        <span class="stat-num">0</span>
-        <span class="stat-label">تقارير</span>
-      </div>
-    </div>
+  <div class="stat-card">
+    <span class="stat-icon">📅</span>
+    <span class="stat-num green">${getClientData('remaining')}</span>
+    <span class="stat-label">زيارات متبقية</span>
+  </div>
+
+  <div class="stat-card">
+    <span class="stat-icon">✅</span>
+    <span class="stat-num">${getClientData('used')}</span>
+    <span class="stat-label">زيارات منجزة</span>
+  </div>
+
+  <div class="stat-card">
+    <span class="stat-icon">🟩</span>
+    <span class="stat-num gold">0</span>
+    <span class="stat-label">محطة طعم</span>
+  </div>
+
+  <div class="stat-card">
+    <span class="stat-icon">📋</span>
+    <span class="stat-num">${(db.reports || []).filter(r => String(r.clientId) === String(getClientData('id'))).length}</span>
+    <span class="stat-label">تقارير</span>
+  </div>
+</div>
 
     <div class="section-title">⚡ إجراءات سريعة</div>
     <div class="action-grid">
@@ -3053,6 +3056,12 @@ function openReportDetails(id) {
                 <div><b>الملاحظات:</b> ${report.notes || 'لا توجد'}</div>
                 <div><b>الآفات المرصودة:</b> ${(report.pests || []).length ? report.pests.join('، ') : 'غير مسجل'}</div>
                 <div><b>الحالة:</b> ${report.status || 'مكتمل'}</div>
+                ${report.rating ? `
+<div style="margin-top:12px;padding:12px;background:#fff8e1;border-radius:10px;">
+<b>⭐ تقييم العميل:</b> ${'⭐'.repeat(report.rating)}
+${report.ratingNote ? `<br><b>💬 الملاحظات:</b> ${report.ratingNote}` : ''}
+</div>
+` : ''}
                 <div style="margin-top:20px;">
     <b>الصور المرفقة:</b>
 </div>
@@ -3065,7 +3074,9 @@ function openReportDetails(id) {
     `).join('') : '<div style="color:var(--text-light); font-size:13px;">لا توجد صور مرفقة</div>'}
 </div>
             </div>
-
+<button class="submit-btn" style="margin-top:16px; background:#f59e0b;" onclick="openReportRating(${report.id})">
+⭐ تقييم هذه الزيارة
+</button>
             <button class="submit-btn" style="margin-top:16px;" onclick="renderPanel(currentPanel)">
                 رجوع
             </button>
@@ -3073,6 +3084,82 @@ function openReportDetails(id) {
     `;
 
     document.getElementById('appContent').innerHTML = details;
+}
+function openReportRating(reportId) {
+  const report = (db.reports || []).find(r => r.id == reportId);
+
+  if (!report) {
+    showToast('التقرير غير موجود');
+    return;
+  }
+
+  document.getElementById('appContent').innerHTML = `
+    <div class="card">
+      <div class="section-title">⭐ تقييم الزيارة</div>
+
+      <p style="font-size:14px; color:var(--text-light); margin-bottom:16px;">
+        قيّم زيارة: ${report.client || 'العميل'} - ${report.date || ''}
+      </p>
+
+      <div class="form-group">
+        <label class="form-label">التقييم</label>
+        <select class="form-select" id="reportRatingValue">
+          <option value="5">⭐⭐⭐⭐⭐ ممتاز</option>
+          <option value="4">⭐⭐⭐⭐ جيد جدًا</option>
+          <option value="3">⭐⭐⭐ جيد</option>
+          <option value="2">⭐⭐ مقبول</option>
+          <option value="1">⭐ ضعيف</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">ملاحظاتك</label>
+        <textarea id="reportRatingNote" class="form-textarea" placeholder="اكتب ملاحظتك اختياريًا"></textarea>
+      </div>
+
+      <button class="submit-btn" onclick="saveReportRating(${reportId})">
+        إرسال التقييم
+      </button>
+
+      <button class="submit-btn" style="margin-top:10px; background:#64748b;" onclick="openReportDetails(${reportId})">
+        رجوع للتقرير
+      </button>
+    </div>
+  `;
+}
+async function saveReportRating(reportId) {
+
+    const rating = Number(document.getElementById('reportRatingValue').value);
+    const note = document.getElementById('reportRatingNote').value.trim();
+
+    const report = (db.reports || []).find(r => r.id == reportId);
+
+    if (!report) {
+        showToast('التقرير غير موجود');
+        return;
+    }
+
+    report.rating = rating;
+    report.ratingNote = note;
+    report.ratingDate = new Date().toISOString();
+
+    saveDB();
+
+    try {
+        await firebase.database()
+            .ref('reports/' + reportId)
+            .update({
+                rating: rating,
+                ratingNote: note,
+                ratingDate: report.ratingDate
+            });
+    } catch (e) {
+        console.log(e);
+    }
+
+    showToast('✅ تم حفظ التقييم');
+    openReportDetails(reportId);
+
 }
 function openImagePreview(img) {
     document.getElementById('appContent').innerHTML = `
