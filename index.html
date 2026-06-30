@@ -2528,6 +2528,10 @@ tech: relatedReport ? (relatedReport.tech || relatedReport.employeeName || v.tec
         report: relatedReport
     };
 });
+const completedCount = visitsWithReports.filter(v => v.report).length;
+const totalCount = visitsWithReports.length;
+const remainingCount = totalCount - completedCount;
+const progressPercent = totalCount ? Math.round((completedCount / totalCount) * 100) : 0;
     document.getElementById("appContent").innerHTML = `
         <div class="section-title">📋 تفاصيل الزيارة</div>
 
@@ -2544,7 +2548,32 @@ tech: relatedReport ? (relatedReport.tech || relatedReport.employeeName || v.tec
             <p><b>نوع الزيارة:</b> ${visit.type || 'زيارة دورية'}</p>
             <p><b>الحالة:</b> ${visit.status}</p>
             <hr>
+<div style="background:#f8fafc;border-radius:14px;padding:14px;margin:18px 0;text-align:center;">
+    <div style="font-weight:bold;margin-bottom:8px;">📊 ملخص العقد</div>
 
+    <div style="display:flex;justify-content:space-around;gap:8px;font-size:14px;">
+        <div>
+            <b>${totalCount}</b><br>
+            إجمالي
+        </div>
+        <div>
+            <b style="color:#2e7d32;">${completedCount}</b><br>
+            منفذة
+        </div>
+        <div>
+            <b style="color:#ef6c00;">${remainingCount}</b><br>
+            متبقية
+        </div>
+        <div>
+            <b>${progressPercent}%</b><br>
+            الإنجاز
+        </div>
+    </div>
+
+    <div style="background:#e5e7eb;border-radius:20px;height:10px;margin-top:12px;overflow:hidden;">
+        <div style="background:#2e7d32;height:10px;width:${progressPercent}%;"></div>
+    </div>
+</div>
 ${visitsWithReports.length ? `
     <h4 style="margin-top:20px;">📋 جميع زيارات العميل</h4>
 
