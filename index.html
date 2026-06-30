@@ -2418,6 +2418,7 @@ const overdueCount = allVisits.filter(v => {
 }
 function showVisitList(type) {
 
+    let title = 'الزيارات';
     let visits = [];
 
     const today = new Date();
@@ -2431,43 +2432,66 @@ function showVisitList(type) {
             let ok = false;
 
             if (type === "today") {
+                title = 'زيارات اليوم';
                 ok = d.toDateString() === today.toDateString();
             }
 
             if (type === "tomorrow") {
+                title = 'زيارات الغد';
                 ok = d.toDateString() === tomorrow.toDateString();
             }
 
             if (type === "week") {
+                title = 'زيارات هذا الأسبوع';
                 const end = new Date();
                 end.setDate(today.getDate() + 7);
                 ok = d >= today && d <= end;
             }
 
             if (type === "overdue") {
+                title = 'الزيارات المتأخرة';
                 ok = d < today && v.status !== "مكتمل";
             }
 
             if (ok) {
                 visits.push({
+                    clientId: client.id,
                     client: client.name,
                     tech: v.tech || "غير محدد",
                     date: v.date,
                     type: v.type || "زيارة دورية",
-                    status: v.status
+                    status: v.status || "مجدولة"
                 });
             }
 
         });
     });
 
-    alert(
-        visits.map(v =>
-            `${v.client}\n${v.date}\n${v.tech}`
-        ).join("\n\n")
-        || "لا توجد زيارات"
-    );
+    document.getElementById('appContent').innerHTML = `
+        <div class="section-title">📅 ${title}</div>
 
+        ${visits.length ? visits.map(v => `
+            <div class="visit-item">
+                <div class="visit-dot upcoming">📅</div>
+
+                <div class="visit-info">
+                    <div class="visit-title">${v.client}</div>
+                    <div class="visit-date">${v.date} — ${v.type}</div>
+                    <div class="visit-date">الفني: ${v.tech}</div>
+                </div>
+
+                <span class="visit-badge upcoming">${v.status}</span>
+            </div>
+        `).join('') : `
+            <div class="card" style="text-align:center;padding:24px;">
+                لا توجد زيارات في هذا القسم.
+            </div>
+        `}
+
+        <button class="submit-btn" style="margin-top:16px;background:#64748b;" onclick="renderPanel('visits')">
+            رجوع لجدول الزيارات
+        </button>
+    `;
 }
 // ===== ADMIN SETTINGS =====
 function adminSettings() {
