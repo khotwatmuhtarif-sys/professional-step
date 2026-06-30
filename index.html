@@ -2543,10 +2543,11 @@ ${visitsWithReports.length ? `
     <table style="width:100%;border-collapse:collapse;margin-top:12px;">
         <thead>
             <tr style="background:#f3f6fb;">
-                <th style="padding:8px;">#</th>
-                <th style="padding:8px;">التاريخ</th>
-                <th style="padding:8px;">الحالة</th>
-                <th style="padding:8px;">التقرير</th>
+                <th>#</th>
+<th>التاريخ</th>
+<th>الفني</th>
+<th>الحالة</th>
+<th>التقرير</th>
             </tr>
         </thead>
 
@@ -2561,6 +2562,9 @@ ${visitsWithReports.length ? `
                 <td style="padding:8px;">
                     ${v.date}
                 </td>
+                <td style="padding:8px;">
+    ${v.tech}
+</td>
 
                 <td style="padding:8px;">
                     ${v.status}
@@ -2573,10 +2577,12 @@ ${visitsWithReports.length ? `
                         `<button class="submit-btn"
                             style="padding:6px 12px;font-size:12px;"
                             onclick="openReportDetails(${v.report.id})">
-                            فتح
+                           📄 عرض التقرير
                         </button>`
                         :
-                        `<span style="color:#999;">—</span>`
+                        `<span style="color:#e67e22;font-weight:bold;">
+⏳ لم يرفع
+</span>`
                     }
                 </td>
 
