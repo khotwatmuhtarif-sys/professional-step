@@ -2471,7 +2471,7 @@ function showVisitList(type) {
         <div class="section-title">📅 ${title}</div>
 
         ${visits.length ? visits.map(v => `
-            <div class="visit-item">
+            <div class="visit-item" onclick="openVisitDetails(${v.clientId}, '${v.date}')" style="cursor:pointer;">
                 <div class="visit-dot upcoming">📅</div>
 
                 <div class="visit-info">
@@ -2481,9 +2481,7 @@ function showVisitList(type) {
                 </div>
 
                 <span class="visit-badge upcoming">${v.status}</span>
-                <button class="submit-btn" style="margin-top:10px;font-size:13px;padding:8px;" onclick="currentClientId=${v.clientId}; renderPanel('client_details')">
-    👁️ عرض العميل
-</button>
+                
             </div>
         `).join('') : `
             <div class="card" style="text-align:center;padding:24px;">
@@ -2494,6 +2492,42 @@ function showVisitList(type) {
        <button class="submit-btn" style="margin-top:16px;background:#64748b;" onclick="renderPanel('all_visits')">
     رجوع لجدول الزيارات
 </button>
+    `;
+}
+function openVisitDetails(clientId, visitDate) {
+
+    const client = db.clients.find(c => String(c.id) === String(clientId));
+
+    if (!client) {
+        alert("لم يتم العثور على بيانات العميل");
+        return;
+    }
+
+    const visit = (client.visitSchedule || []).find(v => v.date === visitDate);
+
+    document.getElementById("appContent").innerHTML = `
+        <div class="section-title">📋 تفاصيل الزيارة</div>
+
+        <div class="card">
+            <h3>${client.name}</h3>
+
+            <p><b>النشاط:</b> ${client.type || "-"}</p>
+            <p><b>رقم الجوال:</b> ${client.phone || "-"}</p>
+            <p><b>عدد الزيارات:</b> ${client.visits || 0}</p>
+
+            <hr>
+
+            <p><b>تاريخ الزيارة:</b> ${visit.date}</p>
+            <p><b>نوع الزيارة:</b> ${visit.type}</p>
+            <p><b>الحالة:</b> ${visit.status}</p>
+
+            <button class="submit-btn"
+                style="margin-top:20px"
+                onclick="showVisitList('week')">
+                رجوع
+            </button>
+
+        </div>
     `;
 }
 // ===== ADMIN SETTINGS =====
