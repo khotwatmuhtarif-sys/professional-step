@@ -2507,16 +2507,20 @@ function openVisitDetails(clientId, visitDate) {
     const clientReports = (db.reports || [])
     .filter(r => String(r.clientId) === String(clientId))
     .sort((a, b) => new Date(a.createdAt || a.date) - new Date(b.createdAt || b.date));
-
+console.log(clientReports);
 const visitsWithReports = (client.visitSchedule || []).map((v, index) => {
-    const relatedReport = clientReports.find(r => r.date === v.date);
+    const relatedReport = clientReports.find(r =>
+    String(r.id) === String(v.reportId) ||
+    String(r.date).includes(String(v.date)) ||
+    String(r.createdAt || '').includes(String(v.date))
+);
 
     return {
         number: index + 1,
         date: v.date,
         type: v.type || 'زيارة دورية',
         tech: v.tech || 'غير محدد',
-        status: v.status || 'مجدولة',
+        status: relatedReport ? 'مكتمل' : (v.status || 'مجدولة'),
         report: relatedReport
     };
 });
