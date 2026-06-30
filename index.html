@@ -2504,6 +2504,11 @@ function openVisitDetails(clientId, visitDate) {
     }
 
     const visit = (client.visitSchedule || []).find(v => v.date === visitDate);
+    const clientReports = (db.reports || [])
+    .filter(r => String(r.clientId) === String(clientId))
+    .sort((a, b) => new Date(b.createdAt || b.date) - new Date(a.createdAt || a.date));
+
+const lastReport = clientReports[0];
 
     document.getElementById("appContent").innerHTML = `
         <div class="section-title">📋 تفاصيل الزيارة</div>
@@ -2518,8 +2523,21 @@ function openVisitDetails(clientId, visitDate) {
             <hr>
 
             <p><b>تاريخ الزيارة:</b> ${visit.date}</p>
-            <p><b>نوع الزيارة:</b> ${visit.type}</p>
+            <p><b>نوع الزيارة:</b> ${visit.type || 'زيارة دورية'}</p>
             <p><b>الحالة:</b> ${visit.status}</p>
+            <hr>
+
+${lastReport ? `
+    <h4>📄 آخر تقرير مرفوع</h4>
+    <p><b>التاريخ:</b> ${lastReport.date || '-'}</p>
+    <p><b>الفني:</b> ${lastReport.tech || '-'}</p>
+    <p><b>نوع التقرير:</b> ${lastReport.type || '-'}</p>
+    <button class="submit-btn" style="margin-top:10px;" onclick="openReportDetails(${lastReport.id})">
+        فتح آخر تقرير
+    </button>
+` : `
+    <p style="color:var(--text-light);margin-top:14px;">لا يوجد تقرير مرفوع لهذا العميل بعد.</p>
+`}
 
             <button class="submit-btn"
                 style="margin-top:20px"
