@@ -2506,10 +2506,20 @@ function openVisitDetails(clientId, visitDate) {
     const visit = (client.visitSchedule || []).find(v => v.date === visitDate);
     const clientReports = (db.reports || [])
     .filter(r => String(r.clientId) === String(clientId))
-    .sort((a, b) => new Date(b.createdAt || b.date) - new Date(a.createdAt || a.date));
+    .sort((a, b) => new Date(a.createdAt || a.date) - new Date(b.createdAt || b.date));
 
-const lastReport = clientReports[0];
+const visitsWithReports = (client.visitSchedule || []).map((v, index) => {
+    const relatedReport = clientReports.find(r => r.date === v.date);
 
+    return {
+        number: index + 1,
+        date: v.date,
+        type: v.type || 'زيارة دورية',
+        tech: v.tech || 'غير محدد',
+        status: v.status || 'مجدولة',
+        report: relatedReport
+    };
+});
     document.getElementById("appContent").innerHTML = `
         <div class="section-title">📋 تفاصيل الزيارة</div>
 
@@ -2527,16 +2537,59 @@ const lastReport = clientReports[0];
             <p><b>الحالة:</b> ${visit.status}</p>
             <hr>
 
-${lastReport ? `
-    <h4>📄 آخر تقرير مرفوع</h4>
-    <p><b>التاريخ:</b> ${lastReport.date || '-'}</p>
-    <p><b>الفني:</b> ${lastReport.tech || '-'}</p>
-    <p><b>نوع التقرير:</b> ${lastReport.type || '-'}</p>
-    <button class="submit-btn" style="margin-top:10px;" onclick="openReportDetails(${lastReport.id})">
-        فتح آخر تقرير
-    </button>
+${visitsWithReports.length ? `
+    <h4 style="margin-top:20px;">📋 جميع زيارات العميل</h4>
+
+    <table style="width:100%;border-collapse:collapse;margin-top:12px;">
+        <thead>
+            <tr style="background:#f3f6fb;">
+                <th style="padding:8px;">#</th>
+                <th style="padding:8px;">التاريخ</th>
+                <th style="padding:8px;">الحالة</th>
+                <th style="padding:8px;">التقرير</th>
+            </tr>
+        </thead>
+
+        <tbody>
+
+        ${visitsWithReports.map(v => `
+            <tr style="border-bottom:1px solid #eee;">
+                <td style="padding:8px;text-align:center;">
+                    ${v.number}
+                </td>
+
+                <td style="padding:8px;">
+                    ${v.date}
+                </td>
+
+                <td style="padding:8px;">
+                    ${v.status}
+                </td>
+
+                <td style="padding:8px;text-align:center;">
+                    ${
+                        v.report
+                        ?
+                        `<button class="submit-btn"
+                            style="padding:6px 12px;font-size:12px;"
+                            onclick="openReportDetails(${v.report.id})">
+                            فتح
+                        </button>`
+                        :
+                        `<span style="color:#999;">—</span>`
+                    }
+                </td>
+
+            </tr>
+        `).join("")}
+
+        </tbody>
+    </table>
+
 ` : `
-    <p style="color:var(--text-light);margin-top:14px;">لا يوجد تقرير مرفوع لهذا العميل بعد.</p>
+<p style="margin-top:15px;color:#999;text-align:center;">
+لا يوجد أي تقرير مرفوع حتى الآن.
+</p>
 `}
 
             <button class="submit-btn"
