@@ -2509,11 +2509,15 @@ function openVisitDetails(clientId, visitDate) {
     .sort((a, b) => new Date(a.createdAt || a.date) - new Date(b.createdAt || b.date));
 console.log(clientReports);
 const visitsWithReports = (client.visitSchedule || []).map((v, index) => {
-    const relatedReport = clientReports.find(r =>
-    String(r.id) === String(v.reportId) ||
-    String(r.date).includes(String(v.date)) ||
-    String(r.createdAt || '').includes(String(v.date))
-);
+    let relatedReport = null;
+
+if (v.reportId) {
+    relatedReport = clientReports.find(r => String(r.id) === String(v.reportId));
+}
+
+if (!relatedReport) {
+    relatedReport = clientReports[index] || null;
+}
 
     return {
         number: index + 1,
