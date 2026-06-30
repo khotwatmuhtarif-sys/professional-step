@@ -2523,7 +2523,7 @@ if (!relatedReport) {
         number: index + 1,
         date: v.date,
         type: v.type || 'زيارة دورية',
-        tech: v.tech || 'غير محدد',
+tech: relatedReport ? (relatedReport.tech || relatedReport.employeeName || v.tech || 'غير محدد') : (v.tech || 'غير محدد'),
         status: relatedReport ? 'مكتمل' : (v.status || 'مجدولة'),
         report: relatedReport
     };
