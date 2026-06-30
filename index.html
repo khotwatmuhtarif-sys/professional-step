@@ -2821,6 +2821,28 @@ const modalContents = {
       <div class="form-group"><label class="form-label">طريقة الدفع</label><select class="form-select"><option>شهري</option><option>ربع سنوي</option><option>نصف سنوي</option><option>سنوي</option></select></div>
       <div class="form-group"><label class="form-label">رقم التواصل</label><input type="text" class="form-input" placeholder="05xxxxxxxx"></div>
       <div class="form-group"><label class="form-label">عدد الزيارات السنوية</label><input type="number" class="form-input" value="12"></div>
+      <div class="form-group">
+<label class="form-label">قيمة العقد (ريال)</label>
+<input type="number"
+class="form-input"
+id="contractAmount"
+placeholder="12000"
+oninput="renderPaymentSchedulePreview()">
+</div>
+
+<div class="form-group">
+<label class="form-label">طريقة الدفع</label>
+<select class="form-select" id="paymentPlan"
+onchange="renderPaymentSchedulePreview()">
+<option value="annual">سنوي</option>
+<option value="semi">نصف سنوي</option>
+<option value="quarter">ربع سنوي</option>
+<option value="monthly">شهري</option>
+<option value="manual">يدوي</option>
+</select>
+</div>
+
+<div id="paymentSchedulePreview" style="margin-top:12px;"></div>
       <div class="form-group"><label class="form-label">قيمة العقد (ريال)</label><input type="number" class="form-input" placeholder="0"></div>
       <button class="submit-btn green" onclick="showToast('✅ تم إضافة العميل برقم عقد #1048!'); closeModal();">حفظ العميل</button>
     `
@@ -3074,6 +3096,112 @@ function generateVisitSchedule(startDate, visitsCount, frequency) {
 
     return schedule;
 }
+function generatePaymentScheduleData() {
+
+    const amount = parseFloat(document.getElementById("contractAmount")?.value) || 0;
+    const plan = document.getElementById("paymentPlan")?.value || "manual";
+    const startDate = document.getElementById("contractStartDate")?.value || new Date().toISOString().split("T")[0];
+
+    if (!amount) return [];
+
+    let count = 1;
+
+    switch(plan){
+        case "monthly":
+            count = 12;
+            break;
+
+        case "quarter":
+            count = 4;
+            break;
+
+        case "semi":
+            count = 2;
+            break;
+
+        case "annual":
+            count = 1;
+            break;
+
+        default:
+            return [];
+    }
+
+    const paymentValue = +(amount / count).toFixed(2);
+
+    const payments = [];
+
+    for(let i=0;i<count;i++){
+
+        const d = new Date(startDate);
+
+        if(plan==="monthly")
+            d.setMonth(d.getMonth()+i);
+
+        if(plan==="quarter")
+            d.setMonth(d.getMonth()+i*3);
+
+        if(plan==="semi")
+            d.setMonth(d.getMonth()+i*6);
+
+        if(plan==="annual")
+            d.setFullYear(d.getFullYear()+i);
+
+        payments.push({
+            number:i+1,
+            amount:paymentValue,
+            dueDate:d.toISOString().split("T")[0],
+            status:"غير مدفوعة",
+            paidDate:"",
+            invoice:"",
+            note:""
+        });
+
+    }
+
+    return payments;
+}
+function renderPaymentSchedulePreview(){
+
+    const container = document.getElementById("paymentSchedulePreview");
+    if(!container) return;
+
+    const payments = generatePaymentScheduleData();
+
+    if(!payments.length){
+        container.innerHTML = "";
+        return;
+    }
+
+    let html = `
+    <div class="card" style="margin-top:15px">
+        <h3>💰 جدول الدفعات</h3>
+
+        <table style="width:100%;border-collapse:collapse">
+            <tr>
+                <th>#</th>
+                <th>القيمة</th>
+                <th>الاستحقاق</th>
+                <th>الحالة</th>
+            </tr>
+    `;
+
+    payments.forEach(p=>{
+        html += `
+        <tr>
+            <td>${p.number}</td>
+            <td>${p.amount} ريال</td>
+            <td>${p.dueDate}</td>
+            <td style="color:#d35400">${p.status}</td>
+        </tr>`;
+    });
+
+    html += `
+        </table>
+    </div>`;
+
+    container.innerHTML = html;
+}
 async function saveNewClient() {
   const name = document.getElementById('newClientName').value.trim();
   const phone = document.getElementById('newClientPhone').value.trim();
@@ -3102,6 +3230,9 @@ visitSchedule: generateVisitSchedule(
 ),
     used: 0,
     value: parseInt(document.getElementById('newClientValue').value) || 0,
+    contractAmount: parseInt(document.getElementById('contractAmount')?.value) || 0,
+paymentPlan: document.getElementById('paymentPlan')?.value || 'manual',
+payments: generatePaymentScheduleData(),
     status: 'active',
     username,
     password,
