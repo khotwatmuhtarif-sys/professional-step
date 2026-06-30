@@ -2481,6 +2481,9 @@ function showVisitList(type) {
                 </div>
 
                 <span class="visit-badge upcoming">${v.status}</span>
+                <button class="submit-btn" style="margin-top:10px;font-size:13px;padding:8px;" onclick="currentClientId=${v.clientId}; renderPanel('client_details')">
+    👁️ عرض العميل
+</button>
             </div>
         `).join('') : `
             <div class="card" style="text-align:center;padding:24px;">
