@@ -2904,7 +2904,7 @@ onchange="renderPaymentSchedulePreview()">
       </div>
       <div class="form-group">
         <label class="form-label">طريقة الدفع *</label>
-        <select class="form-select" id="newClientPay" onchange="toggleManualPayments()">
+        <select class="form-select" id="newClientPay" onchange="toggleManualPayments(); renderPaymentSchedulePreview();">
           <option>شهري</option><option>ربع سنوي</option>
           <option>نصف سنوي</option><option>سنوي</option>
           <option>ثلث سنوي</option>
@@ -2962,8 +2962,10 @@ onchange="renderPaymentSchedulePreview()">
   </select>
 </div>
         <label class="form-label">قيمة العقد (ريال)</label>
-        <input type="number" class="form-input" id="newClientValue" placeholder="0">
+        <input type="number" class="form-input" id="newClientValue" placeholder="0" oninput="renderPaymentSchedulePreview()">
       </div>
+
+      <div id="paymentSchedulePreview" style="margin-top:12px;margin-bottom:16px;"></div>
 
       <div style="background:linear-gradient(135deg,#e8f5e9,#e3f2fd); border-radius:12px; padding:16px; margin-bottom:16px;">
         <div style="font-size:13px; font-weight:700; color:var(--primary); margin-bottom:8px;">🔐بيانات دخول العميل الحالية</div>
@@ -2999,6 +3001,7 @@ function openModal(type) {
     const pwEl = document.getElementById('previewPassword');
     if (unEl) unEl.textContent = username;
     if (pwEl) pwEl.textContent = password;
+    setTimeout(renderPaymentSchedulePreview, 100);
   }
 }
 
@@ -3098,70 +3101,59 @@ function generateVisitSchedule(startDate, visitsCount, frequency) {
     return schedule;
 }
 function generatePaymentScheduleData() {
+    const amount = parseFloat(
+        document.getElementById("newClientValue")?.value ||
+        document.getElementById("contractAmount")?.value ||
+        0
+    ) || 0;
 
-    const inputs = document.querySelectorAll(".modal-overlay.active input");
-const selects = document.querySelectorAll(".modal-overlay.active select");
+    const payText = (
+        document.getElementById("newClientPay")?.selectedOptions?.[0]?.textContent ||
+        document.getElementById("paymentPlan")?.selectedOptions?.[0]?.textContent ||
+        "يدوي"
+    ).trim();
 
-const amount = parseFloat(inputs[inputs.length - 1]?.value) || 0;
-const planText = Array.from(selects).find(s =>
-    s.selectedOptions[0]?.textContent.includes("شهري") ||
-    s.selectedOptions[0]?.textContent.includes("ربع") ||
-    s.selectedOptions[0]?.textContent.includes("نصف") ||
-    s.selectedOptions[0]?.textContent.includes("سنوي")
-)?.selectedOptions[0]?.textContent || "يدوي";
-
-let plan = "manual";
-if (planText.includes("شهري")) plan = "monthly";
-if (planText.includes("ربع")) plan = "quarter";
-if (planText.includes("نصف")) plan = "semi";
-if (planText.includes("سنوي") && !planText.includes("نصف") && !planText.includes("ربع")) plan = "annual";
-
-const startDate = new Date().toISOString().split("T")[0];
+    const startDate = (
+        document.getElementById("contractStartDate")?.value ||
+        new Date().toISOString().split("T")[0]
+    );
 
     if (!amount) return [];
 
-    let count = 1;
+    let plan = "manual";
+    if (payText.includes("شهري")) plan = "monthly";
+    if (payText.includes("ربع")) plan = "quarter";
+    if (payText.includes("نصف")) plan = "semi";
+    if (payText.includes("سنوي") && !payText.includes("نصف") && !payText.includes("ربع") && !payText.includes("ثلث")) plan = "annual";
 
+    let count = 1;
     switch(plan){
         case "monthly":
             count = 12;
             break;
-
         case "quarter":
             count = 4;
             break;
-
         case "semi":
             count = 2;
             break;
-
         case "annual":
             count = 1;
             break;
-
         default:
             return [];
     }
 
     const paymentValue = +(amount / count).toFixed(2);
-
     const payments = [];
 
     for(let i=0;i<count;i++){
-
         const d = new Date(startDate);
 
-        if(plan==="monthly")
-            d.setMonth(d.getMonth()+i);
-
-        if(plan==="quarter")
-            d.setMonth(d.getMonth()+i*3);
-
-        if(plan==="semi")
-            d.setMonth(d.getMonth()+i*6);
-
-        if(plan==="annual")
-            d.setFullYear(d.getFullYear()+i);
+        if(plan === "monthly") d.setMonth(d.getMonth()+i);
+        if(plan === "quarter") d.setMonth(d.getMonth()+i*3);
+        if(plan === "semi") d.setMonth(d.getMonth()+i*6);
+        if(plan === "annual") d.setFullYear(d.getFullYear()+i);
 
         payments.push({
             number:i+1,
@@ -3172,26 +3164,27 @@ const startDate = new Date().toISOString().split("T")[0];
             invoice:"",
             note:""
         });
-
     }
 
     return payments;
 }
 function renderPaymentSchedulePreview(){
-
     let container = document.getElementById("paymentSchedulePreview");
 
-if (!container) {
-    const amountInput = Array.from(document.querySelectorAll(".modal-overlay.active input"))
-        .find(i => i.placeholder === "12000");
+    if (!container) {
+        const amountInput =
+            document.getElementById("newClientValue") ||
+            document.getElementById("contractAmount");
 
-    if (amountInput) {
-        container = document.createElement("div");
-        container.id = "paymentSchedulePreview";
-        container.style.marginTop = "12px";
-        amountInput.closest(".form-group").after(container);
+        if (amountInput) {
+            container = document.createElement("div");
+            container.id = "paymentSchedulePreview";
+            container.style.marginTop = "12px";
+            container.style.marginBottom = "16px";
+            amountInput.closest(".form-group").after(container);
+        }
     }
-}
+
     if(!container) return;
 
     const payments = generatePaymentScheduleData();
@@ -3201,26 +3194,31 @@ if (!container) {
         return;
     }
 
+    let total = payments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
     let html = `
     <div class="card" style="margin-top:15px">
-        <h3>💰 جدول الدفعات</h3>
+        <h3 style="margin-bottom:10px;">💰 جدول الدفعات التلقائي</h3>
+        <div style="font-size:13px;color:var(--text-light);margin-bottom:10px;">
+            إجمالي العقد: ${total.toLocaleString()} ريال — عدد الدفعات: ${payments.length}
+        </div>
 
-        <table style="width:100%;border-collapse:collapse">
-            <tr>
-                <th>#</th>
-                <th>القيمة</th>
-                <th>الاستحقاق</th>
-                <th>الحالة</th>
+        <table style="width:100%;border-collapse:collapse;text-align:center">
+            <tr style="background:#f3f6fb">
+                <th style="padding:8px">#</th>
+                <th style="padding:8px">القيمة</th>
+                <th style="padding:8px">الاستحقاق</th>
+                <th style="padding:8px">الحالة</th>
             </tr>
     `;
 
     payments.forEach(p=>{
         html += `
-        <tr>
-            <td>${p.number}</td>
-            <td>${p.amount} ريال</td>
-            <td>${p.dueDate}</td>
-            <td style="color:#d35400">${p.status}</td>
+        <tr style="border-bottom:1px solid #eee">
+            <td style="padding:8px">${p.number}</td>
+            <td style="padding:8px">${Number(p.amount).toLocaleString()} ريال</td>
+            <td style="padding:8px">${p.dueDate}</td>
+            <td style="padding:8px;color:#d35400;font-weight:700">${p.status}</td>
         </tr>`;
     });
 
@@ -3230,7 +3228,6 @@ if (!container) {
 
     container.innerHTML = html;
 }
-setTimeout(renderPaymentSchedulePreview, 100);
 async function saveNewClient() {
   const name = document.getElementById('newClientName').value.trim();
   const phone = document.getElementById('newClientPhone').value.trim();
@@ -3259,8 +3256,8 @@ visitSchedule: generateVisitSchedule(
 ),
     used: 0,
     value: parseInt(document.getElementById('newClientValue').value) || 0,
-    contractAmount: parseInt(document.getElementById('contractAmount')?.value) || 0,
-paymentPlan: document.getElementById('paymentPlan')?.value || 'manual',
+    contractAmount: parseInt(document.getElementById('newClientValue')?.value) || 0,
+paymentPlan: document.getElementById('newClientPay')?.value || 'manual',
 payments: generatePaymentScheduleData(),
     status: 'active',
     username,
