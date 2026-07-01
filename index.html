@@ -3103,7 +3103,12 @@ function generatePaymentScheduleData() {
 const selects = document.querySelectorAll(".modal-overlay.active select");
 
 const amount = parseFloat(inputs[inputs.length - 1]?.value) || 0;
-const planText = selects[1]?.selectedOptions[0]?.textContent || "يدوي";
+const planText = Array.from(selects).find(s =>
+    s.selectedOptions[0]?.textContent.includes("شهري") ||
+    s.selectedOptions[0]?.textContent.includes("ربع") ||
+    s.selectedOptions[0]?.textContent.includes("نصف") ||
+    s.selectedOptions[0]?.textContent.includes("سنوي")
+)?.selectedOptions[0]?.textContent || "يدوي";
 
 let plan = "manual";
 if (planText.includes("شهري")) plan = "monthly";
