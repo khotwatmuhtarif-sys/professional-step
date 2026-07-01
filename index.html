@@ -2828,6 +2828,7 @@ class="form-input"
 id="contractAmount"
 placeholder="12000"
 oninput="renderPaymentSchedulePreview()">
+
 </div>
 
 <div class="form-group">
@@ -2841,8 +2842,8 @@ onchange="renderPaymentSchedulePreview()">
 <option value="manual">يدوي</option>
 </select>
 </div>
-
 <div id="paymentSchedulePreview" style="margin-top:12px;"></div>
+
 
             <button class="submit-btn green" onclick="showToast('✅ تم إضافة العميل برقم عقد #1048!'); closeModal();">حفظ العميل</button>
     `
@@ -3202,6 +3203,7 @@ function renderPaymentSchedulePreview(){
 
     container.innerHTML = html;
 }
+setTimeout(renderPaymentSchedulePreview, 100);
 async function saveNewClient() {
   const name = document.getElementById('newClientName').value.trim();
   const phone = document.getElementById('newClientPhone').value.trim();
