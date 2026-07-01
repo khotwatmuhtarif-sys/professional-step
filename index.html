@@ -3179,7 +3179,19 @@ const startDate = new Date().toISOString().split("T")[0];
 }
 function renderPaymentSchedulePreview(){
 
-    const container = document.getElementById("paymentSchedulePreview");
+    let container = document.getElementById("paymentSchedulePreview");
+
+if (!container) {
+    const amountInput = Array.from(document.querySelectorAll(".modal-overlay.active input"))
+        .find(i => i.placeholder === "12000");
+
+    if (amountInput) {
+        container = document.createElement("div");
+        container.id = "paymentSchedulePreview";
+        container.style.marginTop = "12px";
+        amountInput.closest(".form-group").after(container);
+    }
+}
     if(!container) return;
 
     const payments = generatePaymentScheduleData();
