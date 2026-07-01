@@ -3099,9 +3099,19 @@ function generateVisitSchedule(startDate, visitsCount, frequency) {
 }
 function generatePaymentScheduleData() {
 
-    const amount = parseFloat(document.getElementById("contractAmount")?.value) || 0;
-    const plan = document.getElementById("paymentPlan")?.value || "manual";
-    const startDate = document.getElementById("contractStartDate")?.value || new Date().toISOString().split("T")[0];
+    const inputs = document.querySelectorAll(".modal-overlay.active input");
+const selects = document.querySelectorAll(".modal-overlay.active select");
+
+const amount = parseFloat(inputs[inputs.length - 1]?.value) || 0;
+const planText = selects[1]?.selectedOptions[0]?.textContent || "يدوي";
+
+let plan = "manual";
+if (planText.includes("شهري")) plan = "monthly";
+if (planText.includes("ربع")) plan = "quarter";
+if (planText.includes("نصف")) plan = "semi";
+if (planText.includes("سنوي") && !planText.includes("نصف") && !planText.includes("ربع")) plan = "annual";
+
+const startDate = new Date().toISOString().split("T")[0];
 
     if (!amount) return [];
 
