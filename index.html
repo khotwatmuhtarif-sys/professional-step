@@ -4624,5 +4624,197 @@ async function deleteClientVisit(clientId, visitIndex, returnType='schedule'){
 }
 
 </script>
+
+<!-- ===== v1.6 Professional Step ERP patch: client visits/payments/reports/manual schedule/pdf/search ===== -->
+<style>
+.next-visit-card{background:linear-gradient(135deg,#fff1f2,#ffffff)!important;border:2px solid #ef4444!important;color:#7f1d1d}.next-visit-card .next-date{color:#dc2626;font-size:22px;font-weight:900}.client-alert-card{background:#fff8e1;border:2px solid #f59e0b;cursor:pointer}.client-visit-table{width:100%;border-collapse:collapse}.client-visit-table th{background:#f1f5f9;color:#1a3a5c;padding:10px;font-size:12px}.client-visit-table td{border-bottom:1px solid #e5e7eb;padding:10px;font-size:12px}.mini-btn{border:none;border-radius:10px;padding:7px 10px;font-family:Cairo,sans-serif;font-weight:700;cursor:pointer;background:#1a3a5c;color:white}.mini-btn.red{background:#dc2626}.mini-btn.gray{background:#64748b}.mini-btn.green{background:#2e7d32}.manual-visit-row{display:flex;gap:8px;align-items:center;margin:8px 0}.manual-visit-row input{flex:1}.payment-actions{display:grid!important;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}.payment-card .file-chip{max-width:100%;}
+</style>
+<script>
+(function(){
+const SUPPORT_WHATSAPP='966545421853';
+function h(v){return String(v??'').replace(/[&<>'"]/g,s=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[s]));}
+function clientNow(){return (db.clients||[]).find(c=>String(c.id)===String(currentClientId))||{};}
+function reportsForClient(id=currentClientId){return (db.reports||[]).filter(r=>String(r.clientId)===String(id)).sort((a,b)=>(b.id||0)-(a.id||0));}
+function visitSchedule(c){return Array.isArray(c.visitSchedule)?c.visitSchedule:[];}
+function nextVisit(c){return visitSchedule(c).find(v=>!['منفذة','مكتمل','تمت المراجعة'].includes(v.status||''))||null;}
+function reportForVisit(c,v,i){return (db.reports||[]).find(r=>String(r.clientId)===String(c.id)&&((r.visitNumber&&Number(r.visitNumber)===Number(v.number||i+1))||r.date===v.executionDate||r.date===v.date));}
+window.exportCurrentViewPDF=function(title='تقرير خطوة محترف'){setTimeout(()=>{document.title=title;window.print();},100)};
+window.openWhatsAppReschedule=function(){const c=clientNow(); const v=nextVisit(c); const msg=`السلام عليكم، أرغب بإعادة جدولة الزيارة القادمة لعقد رقم ${c.id||''} (${c.name||''})، الزيارة رقم ${v?.number||''} بتاريخ ${v?.date||''}`; window.open(`https://wa.me/${SUPPORT_WHATSAPP}?text=${encodeURIComponent(msg)}`,'_blank');};
+
+const oldGetPanelHTML=window.getPanelHTML||getPanelHTML;
+window.getPanelHTML=function(id){ if(id==='client_visits') return clientVisitSchedulePanel(); return oldGetPanelHTML(id); };
+getPanelHTML=window.getPanelHTML;
+
+window.clientHome=function(){const c=clientNow(); const reps=reportsForClient(c.id); const unread=reps.find(r=>!r.rating&&r.status!=='تمت مراجعة العميل'); const v=nextVisit(c); const idx=visitSchedule(c).indexOf(v); const used=Number(c.used||0), visits=Number(c.visits||visitSchedule(c).length||0), remaining=Math.max(visits-used,0), percent=visits?Math.round(used/visits*100):0; return `
+${unread?`<div class="card client-alert-card" onclick="openReportDetails(${unread.id})">🔔 لديك تقرير زيارة جديد بانتظار المراجعة. <b>اضغط هنا لعرض التقرير</b></div>`:''}
+<div class="welcome-header"><h2>أهلاً بك 👋</h2><p style="font-size:18px;font-weight:800;color:white">${h(c.name||'عميلنا العزيز')}</p><p>عقدك نشط — ${remaining} زيارات متبقية</p><span class="contract-badge">✅ عقد #${h(c.id||'')} نشط حتى ${h(c.end||'')}</span></div>
+<div class="card" style="margin-bottom:16px"><div class="section-title">📅 معلومات العقد</div>${[['إجمالي الزيارات',visits],['الزيارات المنفذة',used],['الزيارات المتبقية',remaining],['بداية العقد',c.contractStartDate||c.start||'-'],['نهاية العقد',c.end||'-']].map(x=>`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #eee"><span>${x[0]}</span><strong>${x[1]}</strong></div>`).join('')}<div style="display:flex;justify-content:space-between;padding:8px 0"><span style="color:#dc2626;font-weight:900">الزيارة القادمة</span><strong style="color:#dc2626">${v? h(v.date):'لا يوجد'}</strong></div></div>
+<div class="stats-row cols-4"><div class="stat-card"><span class="stat-icon">📅</span><span class="stat-num green">${remaining}</span><span class="stat-label">زيارات متبقية</span></div><div class="stat-card"><span class="stat-icon">✅</span><span class="stat-num">${used}</span><span class="stat-label">زيارات منجزة</span></div><div class="stat-card" onclick="renderPanel('client_visits')"><span class="stat-icon">📆</span><span class="stat-num gold">${visits}</span><span class="stat-label">جدول الزيارات</span></div><div class="stat-card"><span class="stat-icon">📋</span><span class="stat-num">${reps.length}</span><span class="stat-label">تقارير</span></div></div>
+${paymentSummaryCard(c)}
+<div class="section-title">⚡ إجراءات سريعة</div><div class="action-grid"><div class="action-btn emergency" onclick="openModal('emergency')"><span class="btn-icon">🚨</span><span class="btn-label">طوارئ</span><span class="btn-sub">زيارة مجانية</span></div><div class="action-btn" onclick="openModal('complaint')"><span class="btn-icon">📣</span><span class="btn-label">شكوى</span><span class="btn-sub">أو اقتراح</span></div><div class="action-btn" onclick="renderPanel('reports')"><span class="btn-icon">📋</span><span class="btn-label">تقاريري</span><span class="btn-sub">${reps.length} تقارير</span></div><div class="action-btn" onclick="renderPanel('map')"><span class="btn-icon">🗺️</span><span class="btn-label">المصائد</span><span class="btn-sub">خريطة تفاعلية</span></div><div class="action-btn" onclick="renderPanel('payments')"><span class="btn-icon">💳</span><span class="btn-label">الدفع</span><span class="btn-sub">دفعاتي والتحويل</span></div><div class="action-btn" onclick="renderPanel('client_visits')"><span class="btn-icon">📆</span><span class="btn-label">زياراتي</span><span class="btn-sub">الجدول الكامل</span></div></div>
+<div class="section-title">📅 الزيارة القادمة</div><div class="card next-visit-card"><div style="display:flex;align-items:center;gap:16px"><div style="font-size:50px">📅</div><div style="flex:1"><div style="font-weight:900;color:#991b1b">موعد الزيارة القادمة</div><div>الزيارة رقم ${v?(v.number||idx+1):'-'}</div><div class="next-date">${v?h(v.date):'لا يوجد موعد مجدول'}</div><div style="font-size:13px">الفني: ${h(v?.tech||'سيتم تحديد الفني')}</div></div></div><button class="submit-btn" style="margin-top:12px;background:#dc2626" onclick="openWhatsAppReschedule()">🔄 إعادة الجدولة عبر واتساب</button></div>
+<div class="section-title">📊 رصيد الزيارات</div><div class="card"><div style="display:flex;justify-content:space-between;margin-bottom:8px"><span style="font-size:13px;font-weight:700">المستخدم: ${used} من ${visits}</span><span style="font-size:13px;color:var(--green);font-weight:700">متبقي: ${remaining}</span></div><div class="progress-wrap"><div class="progress-bar" style="width:${percent}%"></div></div></div>`;};
+clientHome=window.clientHome;
+
+window.clientReports=function(){const reps=reportsForClient();return `<div class="section-title">📄 تقاريري الدورية</div><button class="submit-btn" style="margin-bottom:12px" onclick="exportCurrentViewPDF('تقارير العميل')">⬇️ تصدير PDF</button>${reps.length?reps.map(r=>`<div class="report-card" onclick="openReportDetails(${r.id})"><div class="report-icon">📄</div><div class="report-info"><div class="report-title">${h(r.client)} — ${h(r.type)}</div><div class="report-date">الفني: ${h(r.tech)} | ${h(r.date)}</div></div><span class="visit-badge done">${h(r.status||'مكتمل')}</span><span class="report-arrow">›</span></div>`).join(''):'<div class="card">لا توجد تقارير مرفوعة حتى الآن</div>'}`;}; clientReports=window.clientReports;
+
+window.clientVisitSchedulePanel=function(){const c=clientNow(); const vs=visitSchedule(c); return `<div class="section-title">📆 جدول زياراتي</div><button class="submit-btn" style="margin-bottom:12px" onclick="exportCurrentViewPDF('جدول زيارات العميل')">⬇️ تحميل جدول الزيارات PDF</button><div class="card" style="overflow-x:auto"><table class="client-visit-table"><thead><tr><th>#</th><th>الموعد الافتراضي</th><th>موعد التنفيذ</th><th>الحالة</th><th>التقرير</th></tr></thead><tbody>${vs.length?vs.map((v,i)=>{const r=reportForVisit(c,v,i);return `<tr><td>${v.number||i+1}</td><td>${h(v.date||'-')}</td><td>${h(v.executionDate||v.doneDate||v.completedAt||'-')}</td><td>${paymentStatusBadge(v.status||'مجدولة')}</td><td>${r?`<button class="mini-btn" onclick="openReportDetails(${r.id})">عرض التقرير</button>`:'لم يرفع'}</td></tr>`}).join(''):'<tr><td colspan="5">لا يوجد جدول زيارات محفوظ</td></tr>'}</tbody></table></div><button class="submit-btn" style="background:#64748b" onclick="renderPanel('home')">رجوع</button>`;};
+
+window.clientPayments=function(){const c=clientNow(); const stats=getPaymentStats(c); return `${paymentSummaryCard(c)}<div class="section-title">💳 دفعاتي</div>${renderBankDetailsCard()}${stats.remaining>0?`<button class="submit-btn green" style="margin-bottom:14px" onclick="openPayRemainingModal()">💰 دفع جميع المتبقي (${stats.remaining.toLocaleString()} ريال)</button>`:''}<div class="section-title">📑 جدول الدفعات</div>${stats.payments.length?stats.payments.map(p=>`<div class="payment-card ${p.status==='مدفوعة'?'paid':'unpaid'}"><span class="payment-icon">${p.status==='مدفوعة'?'✅':p.status==='بانتظار المراجعة'?'⏳':'⚠️'}</span><div class="payment-info"><div class="payment-title">الدفعة رقم ${h(p.number||'-')}</div><div class="payment-date">استحقاق: ${h(p.dueDate||'-')} ${p.paidDate?'| دفع: '+h(p.paidDate):''}</div><div>${paymentStatusBadge(p.status||'غير مدفوعة')}</div>${p.receiptName?`<div class="file-chip">📎 ${h(p.receiptName)}</div>`:''}${p.invoiceName?`<div class="file-chip">🧾 ${h(p.invoiceName)}</div>`:''}${p.note?`<div style="font-size:12px;color:var(--text-light);margin-top:4px">ملاحظة: ${h(p.note)}</div>`:''}<div class="payment-actions">${p.status!=='مدفوعة'?`<button class="submit-btn" onclick="clientUploadReceipt(${p.number})">📎 ${p.receipt?'استبدال الإيصال':'رفع إيصال التحويل'}</button>`:''}${p.receipt?`<button class="submit-btn gray" style="background:#64748b" onclick="openAttachment('${p.receipt}','${h(p.receiptName||'receipt')}')">👁️ عرض الإيصال</button>`:''}${p.receipt&&p.status!=='مدفوعة'?`<button class="submit-btn red" onclick="clientDeleteReceipt(${p.number})">🗑 حذف الإيصال</button>`:''}${p.invoice?`<button class="submit-btn green" onclick="openAttachment('${p.invoice}','${h(p.invoiceName||'invoice')}')">🧾 عرض الفاتورة</button>`:''}</div></div><span class="payment-amount">${Number(p.amount||0).toLocaleString()} ر</span></div>`).join(''):'<div class="card" style="text-align:center">لا يوجد جدول دفعات محفوظ لهذا العميل</div>'}`;}; clientPayments=window.clientPayments;
+
+window.clientDeleteReceipt=async function(num){const c=clientNow(); const p=normalizePayments(c).find(x=>Number(x.number)===Number(num)); if(!p)return; if(!confirm('هل أنت متأكد من حذف إيصال التحويل؟'))return; p.receipt='';p.receiptName=''; if(p.status==='بانتظار المراجعة') p.status='غير مدفوعة'; p.note='تم حذف الإيصال من العميل'; await persistClientPayments(c); showToast('تم حذف الإيصال'); renderPanel('payments');};
+window.openPayRemainingModal=function(){const c=clientNow(), s=getPaymentStats(c), unpaid=s.payments.filter(p=>p.status!=='مدفوعة'); document.getElementById('modalTitle').textContent='دفع جميع المتبقي'; document.getElementById('modalContent').innerHTML=`<div class="card"><h3>💰 إجمالي المتبقي: ${s.remaining.toLocaleString()} ريال</h3><div style="font-size:13px;color:var(--text-light)">الدفعات المشمولة: ${unpaid.map(p=>'#'+p.number).join('، ')}</div></div>${renderBankDetailsCard()}<button class="submit-btn green" onclick="clientPayAllRemaining()">📎 رفع إيصال تحويل المبلغ المتبقي</button><button class="submit-btn" style="background:#64748b;margin-top:10px" onclick="closeModal()">رجوع</button>`; document.getElementById('modalOverlay').classList.add('active');};
+
+window.employeeUpload=function(){return `<div class="section-title">📤 رفع تقرير زيارة</div><div class="card"><div class="form-group"><label class="form-label">ابحث عن العميل</label><input class="form-input" id="reportClientSearch" placeholder="اكتب اسم العميل أو رقم العقد" oninput="filterReportClients()"></div><div class="form-group"><label class="form-label">اختر العميل</label><select class="form-select" id="reportClientSelect">${(db.clients||[]).map(c=>`<option value="${c.id}">${h(c.name)} — #${h(c.id)} — ${h(c.phone||'')}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">نوع الخدمة</label><select class="form-select" id="serviceType"><option>زيارة دورية</option><option>طوارئ</option><option>متابعة</option><option>فحص مصائد الطعوم</option><option>مكافحة صراصير</option><option>مكافحة نمل أبيض</option><option>مكافحة قوارض</option><option>مكافحة طيور</option><option>تقرير متابعة ميدانية (ورقي)</option></select></div><div class="form-group"><label class="form-label">المواد المستخدمة</label><input type="text" class="form-input" id="materialsInput"></div><div class="form-group"><label class="form-label">ملاحظات الزيارة</label><textarea class="form-textarea" id="notesInput"></textarea></div>${['executionImages|صور التنفيذ|executionFilesText','pestImages|صور الآفات|pestFilesText','paperReportImages|صورة تقرير المتابعة الورقي|paperFilesText','baitMapImages|صورة خريطة الطعوم|baitMapFilesText','rodentStationImages|صور محطات ومصائد القوارض|rodentStationFilesText'].map(x=>{let [id,lbl,txt]=x.split('|');return `<div class="form-group"><label class="form-label">📸 ${lbl}</label><input type="file" id="${id}" accept="image/*" multiple style="display:none" onchange="showFileNames('${id}','${txt}')"><div class="pest-upload-area" onclick="document.getElementById('${id}').click()"><div style="font-size:32px">📸</div><div>${lbl}</div><div id="${txt}" style="font-size:12px;color:var(--text-light)">لم يتم اختيار صور</div></div></div>`}).join('')}<button class="submit-btn" onclick="saveVisitReport()">📋 رفع التقرير</button></div>`}; employeeUpload=window.employeeUpload;
+window.filterReportClients=function(){const q=(document.getElementById('reportClientSearch')?.value||'').toLowerCase().trim(); const sel=document.getElementById('reportClientSelect'); if(!sel)return; sel.innerHTML=(db.clients||[]).filter(c=>!q||String(c.name||'').toLowerCase().includes(q)||String(c.id||'').includes(q)||String(c.phone||'').includes(q)||String(c.username||'').toLowerCase().includes(q)).map(c=>`<option value="${c.id}">${h(c.name)} — #${h(c.id)} — ${h(c.phone||'')}</option>`).join('')||'<option value="">لا توجد نتائج</option>';};
+
+const oldOpenModal=window.openModal||openModal; window.openModal=function(type){oldOpenModal(type); if(type==='newClient') setTimeout(initManualVisitFields,80);}; openModal=window.openModal;
+window.initManualVisitFields=function(){const freq=document.getElementById('visitFrequency'); if(!freq)return; freq.setAttribute('onchange','toggleManualVisitFields()'); if(!document.getElementById('manualVisitBox')){const box=document.createElement('div'); box.id='manualVisitBox'; box.className='form-group'; box.style.display='none'; box.innerHTML=`<label class="form-label">📅 الزيارات اليدوية</label><div id="manualVisitRows"></div><button type="button" class="mini-btn" onclick="addManualVisitRow()">➕ إضافة تاريخ زيارة</button><div id="manualVisitCounter" style="font-size:12px;color:var(--text-light);margin-top:6px"></div>`; freq.closest('.form-group')?.after(box);} toggleManualVisitFields();};
+window.toggleManualVisitFields=function(){const freq=document.getElementById('visitFrequency')?.value; const box=document.getElementById('manualVisitBox'); if(!box)return; box.style.display=freq==='manual'?'block':'none'; if(freq==='manual'&&!document.querySelector('.manual-visit-date')) addManualVisitRow();};
+window.addManualVisitRow=function(){const max=Number(document.getElementById('newClientVisits')?.value||0)||999; const rows=document.getElementById('manualVisitRows'); if(!rows)return; const count=rows.querySelectorAll('.manual-visit-date').length; if(count>=max) return showToast('وصلت للعدد المحدد من الزيارات'); const d=document.createElement('div'); d.className='manual-visit-row'; d.innerHTML=`<input type="date" class="form-input manual-visit-date"><button type="button" class="mini-btn red" onclick="this.parentElement.remove();updateManualVisitCounter()">حذف</button>`; rows.appendChild(d); updateManualVisitCounter();};
+window.updateManualVisitCounter=function(){const max=Number(document.getElementById('newClientVisits')?.value||0)||0; const count=document.querySelectorAll('.manual-visit-date').length; const el=document.getElementById('manualVisitCounter'); if(el)el.textContent=`تمت إضافة ${count} من ${max} زيارات`;};
+const oldGenerate=window.generateVisitSchedule||generateVisitSchedule; window.generateVisitSchedule=function(startDate, visitsCount, frequency){if(frequency==='manual'){const dates=Array.from(document.querySelectorAll('.manual-visit-date')).map(i=>i.value).filter(Boolean); return dates.slice(0,visitsCount).map((date,i)=>({id:Date.now()+i,number:i+1,date,status:'مجدولة',reportId:null}));} return oldGenerate(startDate,visitsCount,frequency);}; generateVisitSchedule=window.generateVisitSchedule;
+})();
+</script>
+
+
+
+<!-- ===== v1.7 Professional Step ERP patch: technician accounts + customer service log + next-visit notes ===== -->
+<style>
+.tech-log-search{margin-bottom:12px}.tech-log-table{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden}.tech-log-table th{background:#1a3a5c;color:#fff;padding:10px;font-size:12px;text-align:right}.tech-log-table td{border-bottom:1px solid #e5e7eb;padding:10px;font-size:12px;vertical-align:middle}.tech-log-table tr:hover td{background:#f8fafc}.tech-note-card{background:#fff7ed;border:1px solid #fdba74;border-radius:14px;padding:14px;margin:12px 0;color:#7c2d12}.tech-note-card b{color:#9a3412}.tech-note-mini{font-size:12px;color:#9a3412;margin-top:6px}.tech-note-empty{background:#f8fafc;border:1px dashed #cbd5e1;border-radius:12px;padding:12px;color:#64748b;text-align:center}.tech-log-actions{display:flex;gap:6px;flex-wrap:wrap}.tech-log-actions .mini-btn{font-size:11px;padding:6px 9px}.tech-report-block{border:1px solid #e5e7eb;border-radius:14px;padding:14px;margin:12px 0;background:#fff}.tech-report-block.latest{border-color:#1a3a5c;box-shadow:0 4px 18px rgba(26,58,92,.09)}.employee-nav{grid-template-columns:repeat(5,1fr)!important}@media(max-width:600px){.tech-log-table{font-size:11px}.tech-log-table th,.tech-log-table td{padding:8px 6px}.tech-log-actions{display:grid;grid-template-columns:1fr}.employee-nav{grid-template-columns:repeat(5,1fr)!important}.nav-item{font-size:9px}}
+</style>
+<script>
+(function(){
+function esc(v){return String(v??'').replace(/[&<>'"]/g,s=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[s]));}
+function ensureTechnicians(){
+  if(!db.users) db.users=[];
+  const techs=[
+    {username:'fahad',password:'tech@1234',role:'employee',name:'فهد'},
+    {username:'neon',password:'tech@1234',role:'employee',name:'نيون'},
+    {username:'nayoun',password:'tech@1234',role:'employee',name:'نيون'},
+    {username:'abbas',password:'tech@1234',role:'employee',name:'عباس'},
+    {username:'raqib',password:'tech@1234',role:'employee',name:'رقيب'},
+    {username:'tech2',password:'tech@1234',role:'employee',name:'فني ثاني'}
+  ];
+  techs.forEach(t=>{ if(!db.users.some(u=>u.username===t.username)) db.users.push(t); });
+  try{saveDB();}catch(e){}
+}
+ensureTechnicians();
+
+function reportsByClient(clientId){return (db.reports||[]).filter(r=>String(r.clientId)===String(clientId)).sort((a,b)=>(b.id||0)-(a.id||0));}
+function clientById(id){return (db.clients||[]).find(c=>String(c.id)===String(id));}
+function getVisitNumberForReport(client, report){
+  if(report?.visitNumber) return report.visitNumber;
+  const vs=Array.isArray(client?.visitSchedule)?client.visitSchedule:[];
+  const idx=vs.findIndex(v=>String(v.reportId||'')===String(report?.id||''));
+  return idx>=0 ? (vs[idx].number || idx+1) : '-';
+}
+function latestTechNote(client){
+  const notes=Array.isArray(client?.techNotes)?client.techNotes:[];
+  return notes.slice().sort((a,b)=>(b.id||0)-(a.id||0))[0]||null;
+}
+async function persistClient(client){
+  try{saveDB();}catch(e){}
+  if(window.saveClientToFirebase && client) await window.saveClientToFirebase(client);
+}
+
+// تحديث شريط الفني: إضافة سجل العميل
+function patchEmployeeNav(){
+  if(typeof navs==='object' && navs.employee){
+    navs.employee=[
+      { id:'home', icon:'🏠', label:'الرئيسية' },
+      { id:'visits', icon:'📅', label:'الزيارات' },
+      { id:'report_upload', icon:'📤', label:'رفع تقرير' },
+      { id:'client_history', icon:'📋', label:'سجل العميل' },
+      { id:'clients_list', icon:'👥', label:'العملاء' }
+    ];
+  }
+}
+patchEmployeeNav();
+
+const oldGetPanelHTML = window.getPanelHTML || getPanelHTML;
+window.getPanelHTML=function(id){
+  if(id==='client_history' || (currentRole==='employee' && id==='clients_list')) return employeeClientHistory();
+  return oldGetPanelHTML(id);
+};
+getPanelHTML=window.getPanelHTML;
+
+window.employeeHome=function(){
+  const myReports=(db.reports||[]).filter(r=>(r.tech||r.employeeName||'')===(currentUser?.name||''));
+  return `<div class="welcome-header"><h2>أهلاً، ${esc(currentUser?.name||'الفني')} 👷</h2><p>يمكنك رفع تقرير أو مراجعة سجل أي عميل قبل الزيارة</p></div>
+  <div class="stats-row cols-3"><div class="stat-card"><span class="stat-icon">📋</span><span class="stat-num">${(db.clients||[]).length}</span><span class="stat-label">عملاء متاحون</span></div><div class="stat-card"><span class="stat-icon">✅</span><span class="stat-num green">${myReports.length}</span><span class="stat-label">تقاريري</span></div><div class="stat-card"><span class="stat-icon">📝</span><span class="stat-num gold">${(db.clients||[]).reduce((n,c)=>n+(Array.isArray(c.techNotes)?c.techNotes.length:0),0)}</span><span class="stat-label">ملاحظات فنية</span></div></div>
+  <div class="action-grid"><div class="action-btn" onclick="renderPanel('report_upload')"><span class="btn-icon">📤</span><span class="btn-label">رفع تقرير</span><span class="btn-sub">زيارة جديدة</span></div><div class="action-btn" onclick="renderPanel('client_history')"><span class="btn-icon">📋</span><span class="btn-label">سجل العميل</span><span class="btn-sub">تقارير وملاحظات</span></div><div class="action-btn" onclick="renderPanel('clients_list')"><span class="btn-icon">🔍</span><span class="btn-label">بحث العملاء</span><span class="btn-sub">قبل الزيارة</span></div></div>`;
+};
+employeeHome=window.employeeHome;
+
+window.employeeClientHistory=function(){
+  const clients=db.clients||[];
+  return `<div class="section-title">📋 سجل العميل للفني</div>
+  <div class="card"><div class="form-group tech-log-search"><label class="form-label">🔍 ابحث باسم العميل أو رقم العقد أو الجوال</label><input class="form-input" id="techClientLogSearch" placeholder="مثال: السنبلة / 1001 / رقم الجوال" oninput="filterTechClientLog()"></div>
+  <div style="overflow-x:auto"><table class="tech-log-table"><thead><tr><th>رقم العقد</th><th>العميل</th><th>آخر تقرير</th><th>ملاحظة للفني القادم</th><th>إجراءات</th></tr></thead><tbody id="techClientLogRows">${clients.map(c=>techClientRow(c)).join('') || '<tr><td colspan="5">لا يوجد عملاء</td></tr>'}</tbody></table></div></div>`;
+};
+employeeClients=window.employeeClientHistory;
+window.techClientRow=function(c){
+  const reps=reportsByClient(c.id); const last=reps[0]; const note=latestTechNote(c);
+  return `<tr data-search="${esc((c.name||'')+' '+(c.englishName||'')+' '+(c.id||'')+' '+(c.phone||'')+' '+(c.username||''))}"><td>#${esc(c.id)}</td><td><b>${esc(c.name)}</b><div style="font-size:11px;color:#64748b">${esc(c.location||c.city||'')}</div></td><td>${last?`الزيارة ${esc(getVisitNumberForReport(c,last))}<br><span style="color:#64748b">${esc(last.date||'')}</span>`:'لا يوجد'}</td><td>${note?`<b>${esc(note.note).slice(0,60)}${String(note.note).length>60?'…':''}</b><div class="tech-note-mini">من: ${esc(note.by||'-')} | ${esc(note.date||'')}</div>`:'<span style="color:#94a3b8">لا توجد ملاحظة</span>'}</td><td><div class="tech-log-actions"><button class="mini-btn" onclick="openClientServiceLog(${c.id})">📋 السجل</button>${last?`<button class="mini-btn green" onclick="openReportDetails(${last.id})">📄 آخر تقرير</button>`:''}<button class="mini-btn gray" onclick="addNextTechNote(${c.id}, ${last?last.id:'null'})">📝 ملاحظة</button></div></td></tr>`;
+};
+window.filterTechClientLog=function(){
+  const q=(document.getElementById('techClientLogSearch')?.value||'').toLowerCase().trim();
+  document.querySelectorAll('#techClientLogRows tr').forEach(tr=>{tr.style.display=(!q || (tr.getAttribute('data-search')||'').toLowerCase().includes(q))?'':'none';});
+};
+
+window.openClientServiceLog=function(clientId){
+  const c=clientById(clientId); if(!c)return showToast('العميل غير موجود');
+  const reps=reportsByClient(clientId); const note=latestTechNote(c);
+  document.getElementById('modalTitle').textContent='سجل العميل — '+(c.name||'');
+  document.getElementById('modalContent').innerHTML=`<div class="card"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><div><b>العميل:</b> ${esc(c.name||'')}</div><div><b>رقم العقد:</b> #${esc(c.id||'')}</div><div><b>عدد التقارير:</b> ${reps.length}</div></div></div>
+  ${note?`<div class="tech-note-card"><b>📌 آخر ملاحظة للفني القادم</b><div style="margin-top:8px;font-size:15px">${esc(note.note)}</div><div class="tech-note-mini">كتبها: ${esc(note.by||'-')} | ${esc(note.date||'')} ${note.fromVisit?`| تخص الزيارة ${esc(note.fromVisit)}`:''}</div><button class="mini-btn green" style="margin-top:10px" onclick="markTechNoteRead(${c.id},${note.id})">تمت قراءة الملاحظة</button></div>`:'<div class="tech-note-empty">لا توجد ملاحظة انتقالية للفني القادم</div>'}
+  <button class="submit-btn" style="margin:12px 0" onclick="addNextTechNote(${c.id}, ${reps[0]?reps[0].id:'null'})">📝 إضافة ملاحظة للفني القادم</button>
+  <div class="section-title">📄 تقارير الزيارات السابقة</div>${reps.length?reps.map((r,i)=>`<div class="tech-report-block ${i===0?'latest':''}"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>الزيارة ${esc(getVisitNumberForReport(c,r))}</b><span>${esc(r.date||'')}</span><span>الفني: ${esc(r.tech||r.employeeName||'-')}</span></div><div style="margin-top:8px;color:#475569">${esc(r.notes||'لا توجد ملاحظات في التقرير')}</div><div class="tech-log-actions" style="margin-top:10px"><button class="mini-btn green" onclick="openReportDetails(${r.id})">📄 عرض التقرير</button><button class="mini-btn gray" onclick="addNextTechNote(${c.id},${r.id})">📝 ملاحظة للزيارة القادمة</button></div></div>`).join(''):'<div class="card">لا توجد تقارير لهذا العميل</div>'}`;
+  document.getElementById('modalOverlay').classList.add('active');
+};
+
+window.addNextTechNote=async function(clientId, reportId=null){
+  const c=clientById(clientId); if(!c)return showToast('العميل غير موجود');
+  const report=(db.reports||[]).find(r=>String(r.id)===String(reportId));
+  const visitNo=report?getVisitNumberForReport(c,report):'';
+  const msg=prompt('اكتب ملاحظة للفني في الزيارة القادمة:', report?.nextTechNote||'');
+  if(!msg || !msg.trim())return;
+  if(!Array.isArray(c.techNotes)) c.techNotes=[];
+  const note={id:Date.now(),clientId:c.id,fromReportId:reportId||null,fromVisit:visitNo||null,note:msg.trim(),by:currentUser?.name||'فني',date:new Date().toLocaleDateString('ar-SA'),createdAt:new Date().toISOString(),read:false};
+  c.techNotes.unshift(note);
+  if(report){report.nextTechNote=msg.trim(); report.nextTechNoteBy=currentUser?.name||'فني'; report.nextTechNoteAt=note.createdAt;}
+  await persistClient(c);
+  showToast('✅ تم حفظ الملاحظة للفني القادم');
+  openClientServiceLog(clientId);
+};
+window.markTechNoteRead=async function(clientId,noteId){
+  const c=clientById(clientId); const n=(c?.techNotes||[]).find(x=>String(x.id)===String(noteId)); if(!n)return;
+  n.read=true; n.readBy=currentUser?.name||'فني'; n.readAt=new Date().toISOString(); await persistClient(c); showToast('تم تسجيل قراءة الملاحظة'); openClientServiceLog(clientId);
+};
+
+// إظهار آخر ملاحظة انتقالية عند اختيار العميل في رفع التقرير
+function nextNoteCardFor(clientId){const c=clientById(clientId); const note=latestTechNote(c); return note?`<div class="tech-note-card"><b>📌 ملاحظة من الفني السابق</b><div style="margin-top:8px">${esc(note.note)}</div><div class="tech-note-mini">كتبها: ${esc(note.by||'-')} | ${esc(note.date||'')}</div></div>`:'<div class="tech-note-empty">لا توجد ملاحظة سابقة لهذا العميل</div>';}
+window.renderSelectedClientNextNote=function(){const id=document.getElementById('reportClientSelect')?.value; const box=document.getElementById('selectedClientNextNote'); if(box)box.innerHTML=nextNoteCardFor(id);};
+const oldEmployeeUpload=window.employeeUpload||employeeUpload;
+window.employeeUpload=function(){
+  const html=oldEmployeeUpload();
+  return html.replace('<div class="form-group"><label class="form-label">نوع الخدمة</label>', '<div id="selectedClientNextNote" style="margin-bottom:12px"></div><div class="form-group"><label class="form-label">نوع الخدمة</label>').replace('id="reportClientSelect"', 'id="reportClientSelect" onchange="renderSelectedClientNextNote()"');
+};
+employeeUpload=window.employeeUpload;
+const oldFilterReportClients=window.filterReportClients;
+window.filterReportClients=function(){ if(oldFilterReportClients) oldFilterReportClients(); setTimeout(renderSelectedClientNextNote,50); };
+const oldInitPanelJS=window.initPanelJS||initPanelJS;
+window.initPanelJS=function(panelId){ if(oldInitPanelJS) oldInitPanelJS(panelId); if(panelId==='report_upload') setTimeout(renderSelectedClientNextNote,80); };
+initPanelJS=window.initPanelJS;
+
+// حفظ الملاحظة الانتقالية من نموذج التقرير نفسه إن وجد لاحقاً
+const oldSaveVisitReport=window.saveVisitReport||saveVisitReport;
+window.saveVisitReport=async function(){ return oldSaveVisitReport(); };
+saveVisitReport=window.saveVisitReport;
+
+})();
+</script>
+
 </body>
 </html>
