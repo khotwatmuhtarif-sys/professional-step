@@ -1414,6 +1414,8 @@ function clientHome() {
   </div>
 </div>
 
+    ${paymentSummaryCard(db.clients.find(c => String(c.id) === String(currentClientId)) || {})}
+
     <div class="section-title">⚡ إجراءات سريعة</div>
     <div class="action-grid">
       <div class="action-btn emergency" onclick="openModal('emergency')">
@@ -1439,7 +1441,7 @@ function clientHome() {
       <div class="action-btn" onclick="renderPanel('payments')">
         <span class="btn-icon">💳</span>
         <span class="btn-label">الدفع</span>
-        <span class="btn-sub">حالة الفاتورة</span>
+        <span class="btn-sub">دفعاتي والتحويل</span>
       </div>
       <div class="action-btn" onclick="openModal('rate')">
         <span class="btn-icon">⭐</span>
@@ -1521,138 +1523,244 @@ return `
 }
         
     
-function paymentSummaryCard(client) {
-    const value = Number(client.value || 0);
-    const payments = client.manualPayments || client.payments || [];
-    const paid = payments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
-    const remaining = value - paid;
 
+function normalizePayments(client) {
+    if (!client) return [];
+
+    let payments = Array.isArray(client.payments) ? client.payments : [];
+
+    if (!payments.length && Array.isArray(client.manualPayments) && client.manualPayments.length) {
+        payments = client.manualPayments.map((p, idx) => ({
+            number: idx + 1,
+            amount: Number(p.amount || 0),
+            dueDate: p.date || '',
+            status: p.status || 'مدفوعة',
+            paidDate: p.date || '',
+            receipt: p.receipt || '',
+            receiptName: p.receiptName || '',
+            invoice: p.invoice || '',
+            invoiceName: p.invoiceName || '',
+            note: p.note || 'دفعة يدوية'
+        }));
+        client.payments = payments;
+    }
+
+    return payments;
+}
+
+function getContractValue(client) {
+    return Number(client?.contractAmount || client?.value || 0);
+}
+
+function getPaymentStats(client) {
+    const payments = normalizePayments(client);
+    const contractValue = getContractValue(client);
+    const paid = payments
+        .filter(p => p.status === 'مدفوعة')
+        .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+    const pendingReview = payments
+        .filter(p => p.status === 'بانتظار المراجعة')
+        .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+    const remaining = Math.max(contractValue - paid, 0);
+    const unpaidCount = payments.filter(p => p.status !== 'مدفوعة').length;
+    const paidCount = payments.filter(p => p.status === 'مدفوعة').length;
+    const percent = contractValue ? Math.min(100, Math.round((paid / contractValue) * 100)) : 0;
+
+    return { payments, contractValue, paid, pendingReview, remaining, unpaidCount, paidCount, percent };
+}
+
+function paymentStatusBadge(status) {
+    if (status === 'مدفوعة') {
+        return `<span class="status-badge active">✅ مدفوعة</span>`;
+    }
+    if (status === 'بانتظار المراجعة') {
+        return `<span class="status-badge pending">⏳ بانتظار المراجعة</span>`;
+    }
+    return `<span class="status-badge expired">⚠️ غير مدفوعة</span>`;
+}
+
+function paymentSummaryCard(client) {
+    const stats = getPaymentStats(client);
     return `
         <div class="card" style="background:linear-gradient(135deg,#e8f5e9,#ffffff); border:1px solid #d7eadb;">
-            <div class="section-title">💳 بطاقة متابعة العميل</div>
+            <div class="section-title">💳 ملخص التحصيل</div>
 
-            <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:10px;">
+            <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-top:10px; text-align:center;">
                 <div>
                     <div style="font-size:12px;color:var(--text-light);">قيمة العقد</div>
-                    <div style="font-size:18px;font-weight:800;">${value.toLocaleString()} ريال</div>
+                    <div style="font-size:18px;font-weight:800;">${stats.contractValue.toLocaleString()} ريال</div>
                 </div>
 
                 <div>
-                    <div style="font-size:12px;color:var(--text-light);">إجمالي المدفوع</div>
-                    <div style="font-size:18px;font-weight:800;color:var(--green);">${paid.toLocaleString()} ريال</div>
+                    <div style="font-size:12px;color:var(--text-light);">المدفوع</div>
+                    <div style="font-size:18px;font-weight:800;color:var(--green);">${stats.paid.toLocaleString()} ريال</div>
+                </div>
+
+                <div>
+                    <div style="font-size:12px;color:var(--text-light);">بانتظار المراجعة</div>
+                    <div style="font-size:18px;font-weight:800;color:var(--gold);">${stats.pendingReview.toLocaleString()} ريال</div>
                 </div>
 
                 <div>
                     <div style="font-size:12px;color:var(--text-light);">المتبقي</div>
-                    <div style="font-size:18px;font-weight:800;color:${remaining > 0 ? 'var(--red)' : 'var(--green)'};">
-                        ${remaining.toLocaleString()} ريال
+                    <div style="font-size:18px;font-weight:800;color:${stats.remaining > 0 ? 'var(--red)' : 'var(--green)'};">
+                        ${stats.remaining.toLocaleString()} ريال
                     </div>
+                </div>
+            </div>
+
+            <div class="progress-wrap" style="margin-top:14px;">
+                <div class="progress-bar" style="width:${stats.percent}%"></div>
+            </div>
+            <div style="font-size:12px;color:var(--text-light);text-align:center;margin-top:6px;">نسبة التحصيل: ${stats.percent}%</div>
+        </div>
+    `;
+}
+
+function renderBankDetailsCard() {
+    return `
+        <div class="card" style="background:#f8fafc;border:1px solid #dbeafe;">
+            <div class="section-title">🏦 بيانات التحويل البنكي</div>
+            <div style="font-size:13px;line-height:2;">
+                <div><b>اسم المستفيد:</b> مؤسسة خطوة محترف للتشغيل والصيانة</div>
+                <div><b>البنك:</b> يتم تحديثه من الإدارة</div>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                    <b>الآيبان:</b>
+                    <span id="ibanText" style="direction:ltr;background:white;border:1px solid var(--border);border-radius:8px;padding:4px 8px;">SA00 0000 0000 0000 0000 0000</span>
+                    <button class="submit-btn" style="width:auto;padding:6px 10px;font-size:12px;" onclick="copyIban()">نسخ الآيبان</button>
                 </div>
             </div>
         </div>
     `;
 }
-// ===== CLIENT PAYMENTS =====
+
+function copyIban() {
+    const iban = document.getElementById('ibanText')?.innerText || '';
+    if (navigator.clipboard) navigator.clipboard.writeText(iban);
+    showToast('✅ تم نسخ الآيبان');
+}
+
 function clientPayments() {
-  return `
-  ${paymentSummaryCard(db.clients.find(c => c.id == currentClientId) || {})}
-    <div class="section-title">💳 حالة الدفع والفواتير</div>
+    const client = db.clients.find(c => String(c.id) === String(currentClientId)) || {};
+    const stats = getPaymentStats(client);
+    const remainingPayments = stats.payments.filter(p => p.status !== 'مدفوعة');
 
-    <!-- بطاقة العقد -->
-    <div class="card" style="background:linear-gradient(135deg,#1a3a5c,#2a5080); color:white; border:none; margin-bottom:16px;">
-      <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
-        <div>
-          <div style="font-size:12px; color:rgba(255,255,255,0.6); margin-bottom:4px;">رقم العقد</div>
-          <div style="font-size:22px; font-weight:900; letter-spacing:2px;">#${getClientData("id")}</div>
-        </div>
-        <div style="text-align:left;">
-          <div style="font-size:12px; color:rgba(255,255,255,0.6); margin-bottom:4px;">نوع الدفع</div>
-          <div style="background:rgba(76,175,80,0.3); border:1px solid rgba(76,175,80,0.5); border-radius:20px; padding:4px 12px; font-size:13px; font-weight:700; color:#a5d6a7;">ربع سنوي 📅</div>
-        </div>
-      </div>
-      <div style="display:flex; justify-content:space-between; align-items:center; padding-top:12px; border-top:1px solid rgba(255,255,255,0.15);">
-        <div>
-          <div style="font-size:12px; color:rgba(255,255,255,0.6);">قيمة العقد السنوي</div>
-          <div style="font-size:20px; font-weight:900;">7,200 ريال</div>
-        </div>
-        <div style="text-align:left;">
-          <div style="font-size:12px; color:rgba(255,255,255,0.6);">الدفعة كل ربع سنة</div>
-          <div style="font-size:18px; font-weight:700; color:#a5d6a7;">1,800 ريال</div>
-        </div>
-      </div>
-    </div>
+    return `
+        ${paymentSummaryCard(client)}
 
-    <!-- نوع الدفع -->
-    <div class="section-title">🔄 طريقة الدفع</div>
-    <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:16px;">
-      ${[
-        { label: 'شهري', icon: '📆', desc: '600 ر/شهر', active: false },
-        { label: 'ربع سنوي', icon: '📅', desc: '1,800 ر', active: true },
-        { label: 'نصف سنوي', icon: '🗓️', desc: '3,600 ر', active: false },
-        { label: 'سنوي', icon: '📋', desc: '7,200 ر', active: false },
-      ].map(t => `
-        <div style="background:${t.active ? 'linear-gradient(135deg,#2e7d32,#4caf50)' : 'var(--bg)'}; border:2px solid ${t.active ? 'var(--green)' : 'var(--border)'}; border-radius:10px; padding:10px 6px; text-align:center;">
-          <div style="font-size:20px;">${t.icon}</div>
-          <div style="font-size:11px; font-weight:700; color:${t.active ? 'white' : 'var(--text)'}; margin:4px 0;">${t.label}</div>
-          <div style="font-size:10px; color:${t.active ? 'rgba(255,255,255,0.8)' : 'var(--text-light)'};">${t.desc}</div>
-        </div>
-      `).join('')}
-    </div>
+        <div class="section-title">💳 دفعاتي</div>
 
-    <div class="section-title">📑 سجل الدفعات</div>
+        ${renderBankDetailsCard()}
 
-    <div class="payment-card paid">
-      <span class="payment-icon">✅</span>
-      <div class="payment-info">
-        <div class="payment-title">الدفعة الأولى — يناير 2025</div>
-        <div class="payment-date">تاريخ الدفع: 5 يناير 2025 | الربع الأول</div>
-      </div>
-      <span class="payment-amount">1,800 ر</span>
-    </div>
+        ${stats.remaining > 0 ? `
+            <button class="submit-btn green" style="margin-bottom:14px;" onclick="clientPayAllRemaining()">
+                💰 دفع جميع المتبقي (${stats.remaining.toLocaleString()} ريال)
+            </button>
+        ` : `
+            <div class="card" style="background:#e8f5e9;text-align:center;color:var(--green);font-weight:bold;">✅ لا توجد مبالغ مستحقة حالياً</div>
+        `}
 
-    <div class="payment-card paid">
-      <span class="payment-icon">✅</span>
-      <div class="payment-info">
-        <div class="payment-title">الدفعة الثانية — أبريل 2025</div>
-        <div class="payment-date">تاريخ الدفع: 3 أبريل 2025 | الربع الثاني</div>
-      </div>
-      <span class="payment-amount">1,800 ر</span>
-    </div>
+        <div class="section-title">📑 جدول الدفعات</div>
+        ${stats.payments.length ? stats.payments.map(p => `
+            <div class="payment-card ${p.status === 'مدفوعة' ? 'paid' : 'unpaid'}">
+                <span class="payment-icon">${p.status === 'مدفوعة' ? '✅' : p.status === 'بانتظار المراجعة' ? '⏳' : '⚠️'}</span>
+                <div class="payment-info">
+                    <div class="payment-title">الدفعة رقم ${p.number || '-'}</div>
+                    <div class="payment-date">استحقاق: ${p.dueDate || '-'} ${p.paidDate ? '| دفع: ' + p.paidDate : ''}</div>
+                    <div style="margin-top:4px;">${paymentStatusBadge(p.status || 'غير مدفوعة')}</div>
+                    ${p.receiptName ? `<div style="font-size:12px;color:var(--text-light);margin-top:4px;">📎 إيصال مرفق: ${p.receiptName}</div>` : ''}
+                    ${p.invoiceName ? `<div style="font-size:12px;color:var(--green);margin-top:4px;font-weight:bold;">🧾 فاتورة متاحة: ${p.invoiceName}</div>` : ''}
+                    ${p.note ? `<div style="font-size:12px;color:var(--text-light);margin-top:4px;">ملاحظة: ${p.note}</div>` : ''}
+                    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">
+                    ${p.status !== 'مدفوعة' ? `
+                        <button class="submit-btn" style="width:auto;padding:8px 10px;font-size:12px;" onclick="clientUploadReceipt(${p.number})">
+                            📎 رفع إيصال التحويل
+                        </button>
+                    ` : ''}
+                    ${p.receipt ? `
+                        <button class="submit-btn" style="width:auto;padding:8px 10px;font-size:12px;background:#64748b;" onclick="openAttachment('${p.receipt}', '${p.receiptName || 'receipt'}')">
+                            👁️ عرض الإيصال
+                        </button>
+                    ` : ''}
+                    ${p.invoice ? `
+                        <button class="submit-btn green" style="width:auto;padding:8px 10px;font-size:12px;" onclick="openAttachment('${p.invoice}', '${p.invoiceName || 'invoice'}')">
+                            🧾 عرض الفاتورة
+                        </button>
+                    ` : ''}
+                    </div>
+                </div>
+                <span class="payment-amount">${Number(p.amount || 0).toLocaleString()} ر</span>
+            </div>
+        `).join('') : `
+            <div class="card" style="text-align:center;">لا يوجد جدول دفعات محفوظ لهذا العميل</div>
+        `}
+    `;
+}
 
-    <div class="payment-card unpaid">
-      <span class="payment-icon">⚠️</span>
-      <div class="payment-info">
-        <div class="payment-title">الدفعة الثالثة — يوليو 2025</div>
-        <div class="payment-date">موعد الاستحقاق: 1 يوليو 2025 | الربع الثالث</div>
-      </div>
-      <span class="payment-amount">1,800 ر</span>
-    </div>
+function clientUploadReceipt(paymentNumber) {
+    const client = db.clients.find(c => String(c.id) === String(currentClientId));
+    if (!client) return showToast('العميل غير موجود');
+    const payment = normalizePayments(client).find(p => Number(p.number) === Number(paymentNumber));
+    if (!payment) return showToast('الدفعة غير موجودة');
 
-    <div class="payment-card" style="background:#f3f4f6; border:1px solid #d1d5db;">
-      <span class="payment-icon">🔒</span>
-      <div class="payment-info">
-        <div class="payment-title">الدفعة الرابعة — أكتوبر 2025</div>
-        <div class="payment-date">موعد الاستحقاق: 1 أكتوبر 2025 | الربع الرابع</div>
-      </div>
-      <span class="payment-amount" style="color:var(--text-light);">1,800 ر</span>
-    </div>
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = 'image/*,application/pdf';
+    fileInput.onchange = () => {
+        const file = fileInput.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+            payment.receipt = reader.result;
+            payment.receiptName = file.name;
+            payment.status = 'بانتظار المراجعة';
+            payment.note = payment.note || 'تم رفع إيصال من العميل';
+            saveDB();
+            if (typeof saveClientToFirebase === 'function') saveClientToFirebase(client);
+            showToast('✅ تم رفع الإيصال وبانتظار اعتماد الإدارة');
+            renderPanel('payments');
+        };
+        reader.readAsDataURL(file);
+    };
+    fileInput.click();
+}
 
-    <div class="card" style="background:#e8f5e9; border:1px solid #a5d6a7; margin-top:8px;">
-      <div style="display:flex; justify-content:space-between; align-items:center;">
-        <div>
-          <div style="font-size:13px; font-weight:700; color:var(--green);">إجمالي العقد السنوي</div>
-          <div style="font-size:12px; color:var(--text-light);">12 زيارة — يناير حتى ديسمبر 2025</div>
-        </div>
-        <div style="text-align:left;">
-          <div style="font-size:11px; color:var(--text-light);">المدفوع: 3,600 ر</div>
-          <div style="font-size:20px; font-weight:900; color:var(--primary);">7,200 ر</div>
-        </div>
-      </div>
-    </div>
-  `;
+function clientPayAllRemaining() {
+    const client = db.clients.find(c => String(c.id) === String(currentClientId));
+    if (!client) return;
+    const stats = getPaymentStats(client);
+    if (!stats.remaining) return showToast('لا يوجد مبلغ متبقٍ');
+
+    if (!confirm('سيتم تسجيل طلب دفع جميع الدفعات المتبقية. هل تريد رفع إيصال التحويل الآن؟')) return;
+
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = 'image/*,application/pdf';
+    fileInput.onchange = () => {
+        const file = fileInput.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+            normalizePayments(client).forEach(p => {
+                if (p.status !== 'مدفوعة') {
+                    p.status = 'بانتظار المراجعة';
+                    p.receipt = reader.result;
+                    p.receiptName = file.name;
+                    p.note = 'طلب سداد جميع المتبقي';
+                }
+            });
+            saveDB();
+            if (typeof saveClientToFirebase === 'function') saveClientToFirebase(client);
+            showToast('✅ تم رفع إيصال دفع جميع المتبقي');
+            renderPanel('payments');
+        };
+        reader.readAsDataURL(file);
+    };
+    fileInput.click();
 }
 
 // ===== EMPLOYEE HOME =====
+
 function employeeHome() {
   return `
     <div class="welcome-header">
@@ -2003,11 +2111,24 @@ function adminHome() {
   const annual = clients.filter(c => c.pay === 'سنوي').length;
   
   const totalRevenue = clients.reduce((sum, c) => sum + (c.value || 0), 0);
+  const paymentStatsAll = clients.map(c => getPaymentStats(c));
+  const collectedTotal = paymentStatsAll.reduce((sum, s) => sum + s.paid, 0);
+  const pendingReviewTotal = paymentStatsAll.reduce((sum, s) => sum + s.pendingReview, 0);
+  const remainingTotal = paymentStatsAll.reduce((sum, s) => sum + s.remaining, 0);
+  const overduePaymentsCount = clients.reduce((count, c) => count + normalizePayments(c).filter(p => p.status !== 'مدفوعة' && p.dueDate && new Date(p.dueDate) < new Date()).length, 0);
 
   return `
     <div class="welcome-header">
       <h2>لوحة التحكم 📊</h2>
       <p>نظرة عامة شاملة على أداء المؤسسة</p>
+    </div>
+
+    <div class="section-title">💰 مؤشرات التحصيل</div>
+    <div class="stats-row cols-4">
+      <div class="stat-card" style="border-top:3px solid var(--green);"><span class="stat-icon">✅</span><span class="stat-num green">${collectedTotal.toLocaleString()}</span><span class="stat-label">محصل ريال</span></div>
+      <div class="stat-card" style="border-top:3px solid var(--gold);"><span class="stat-icon">⏳</span><span class="stat-num gold">${pendingReviewTotal.toLocaleString()}</span><span class="stat-label">بانتظار مراجعة</span></div>
+      <div class="stat-card" style="border-top:3px solid var(--red);"><span class="stat-icon">💸</span><span class="stat-num red">${remainingTotal.toLocaleString()}</span><span class="stat-label">متبقي ريال</span></div>
+      <div class="stat-card" style="border-top:3px solid var(--orange);"><span class="stat-icon">⚠️</span><span class="stat-num orange">${overduePaymentsCount}</span><span class="stat-label">دفعات متأخرة</span></div>
     </div>
 
     <div class="section-title">📋 إحصائيات العقود</div>
@@ -2168,6 +2289,12 @@ oninput="filterClientsTable(this.value)"
     الجدول
   </button>
 
+  <button class="submit-btn green"
+    style="width:auto; padding:4px 10px; font-size:11px; margin-left:4px;"
+    onclick="adminOpenClientPayments(${c.id})">
+    الدفعات
+  </button>
+
   <button class="submit-btn"
     style="width:auto; padding:4px 10px; font-size:11px; margin-left:4px;"
     onclick="editClient(${c.id})">
@@ -2229,6 +2356,138 @@ function showClientSchedule(id) {
         </div>
     `;
 }
+
+function adminOpenClientPayments(id) {
+    const client = db.clients.find(c => String(c.id) === String(id));
+    if (!client) return showToast('العميل غير موجود');
+    const stats = getPaymentStats(client);
+
+    document.getElementById('appContent').innerHTML = `
+        <div class="section-title">💳 إدارة دفعات العميل</div>
+        <div class="card">
+            <h3>${client.name}</h3>
+            <p style="color:var(--text-light);">رقم العقد: #${client.id} — طريقة الدفع: ${client.pay || client.paymentPlan || '-'}</p>
+        </div>
+        ${paymentSummaryCard(client)}
+        <div class="section-title">📑 جدول الدفعات</div>
+        ${stats.payments.length ? stats.payments.map(p => `
+            <div class="payment-card ${p.status === 'مدفوعة' ? 'paid' : 'unpaid'}">
+                <span class="payment-icon">${p.status === 'مدفوعة' ? '✅' : p.status === 'بانتظار المراجعة' ? '⏳' : '⚠️'}</span>
+                <div class="payment-info">
+                    <div class="payment-title">الدفعة رقم ${p.number} — ${Number(p.amount || 0).toLocaleString()} ريال</div>
+                    <div class="payment-date">استحقاق: ${p.dueDate || '-'} ${p.paidDate ? '| دفع: ' + p.paidDate : ''}</div>
+                    <div style="margin-top:4px;">${paymentStatusBadge(p.status || 'غير مدفوعة')}</div>
+                    ${p.receiptName ? `<div style="font-size:12px;color:var(--text-light);margin-top:4px;">📎 إيصال العميل: ${p.receiptName}</div>` : ''}
+                    ${p.invoiceName ? `<div style="font-size:12px;color:var(--green);margin-top:4px;font-weight:bold;">🧾 فاتورة مرفوعة: ${p.invoiceName}</div>` : ''}
+                    ${p.note ? `<div style="font-size:12px;color:var(--text-light);margin-top:4px;">ملاحظة: ${p.note}</div>` : ''}
+                    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;">
+                        <button class="submit-btn green" style="width:auto;padding:6px 10px;font-size:12px;" onclick="adminMarkPaymentPaid(${client.id}, ${p.number})">اعتماد كمدفوعة</button>
+                        <button class="submit-btn red" style="width:auto;padding:6px 10px;font-size:12px;" onclick="adminMarkPaymentUnpaid(${client.id}, ${p.number})">غير مدفوعة</button>
+                        <button class="submit-btn" style="width:auto;padding:6px 10px;font-size:12px;" onclick="adminEditPaymentNote(${client.id}, ${p.number})">ملاحظة/إيصال</button>
+                        ${p.receipt ? `<button class="submit-btn" style="width:auto;padding:6px 10px;font-size:12px;background:#64748b;" onclick="openAttachment('${p.receipt}', '${p.receiptName || 'receipt'}')">👁️ إيصال العميل</button>` : ''}
+                        <button class="submit-btn" style="width:auto;padding:6px 10px;font-size:12px;background:#0f766e;" onclick="adminUploadPaymentInvoice(${client.id}, ${p.number})">🧾 رفع فاتورة</button>
+                        ${p.invoice ? `<button class="submit-btn" style="width:auto;padding:6px 10px;font-size:12px;background:#334155;" onclick="openAttachment('${p.invoice}', '${p.invoiceName || 'invoice'}')">عرض الفاتورة</button>` : ''}
+                    </div>
+                </div>
+            </div>
+        `).join('') : `
+            <div class="card" style="text-align:center;">لا يوجد جدول دفعات لهذا العميل</div>
+        `}
+        <button class="submit-btn" style="margin-top:16px;background:#64748b;" onclick="renderPanel('all_clients')">رجوع للعملاء</button>
+    `;
+}
+
+async function persistClientPayments(client) {
+    saveDB();
+    if (typeof saveClientToFirebase === 'function') {
+        try { await saveClientToFirebase(client); } catch(e) { console.log(e); }
+    }
+}
+
+async function adminMarkPaymentPaid(clientId, paymentNumber) {
+    const client = db.clients.find(c => String(c.id) === String(clientId));
+    if (!client) return;
+    const payment = normalizePayments(client).find(p => Number(p.number) === Number(paymentNumber));
+    if (!payment) return;
+    const paidDate = prompt('تاريخ الدفع الفعلي:', new Date().toISOString().split('T')[0]);
+    if (paidDate === null) return;
+    const note = prompt('رقم الإيصال أو ملاحظة مختصرة:', payment.note || '');
+    payment.status = 'مدفوعة';
+    payment.paidDate = paidDate || new Date().toISOString().split('T')[0];
+    payment.note = note || payment.note || '';
+    await persistClientPayments(client);
+    showToast('✅ تم اعتماد الدفعة كمدفوعة');
+    adminOpenClientPayments(clientId);
+}
+
+async function adminMarkPaymentUnpaid(clientId, paymentNumber) {
+    const client = db.clients.find(c => String(c.id) === String(clientId));
+    if (!client) return;
+    const payment = normalizePayments(client).find(p => Number(p.number) === Number(paymentNumber));
+    if (!payment) return;
+    if (!confirm('هل تريد تحويل هذه الدفعة إلى غير مدفوعة؟')) return;
+    payment.status = 'غير مدفوعة';
+    payment.paidDate = '';
+    await persistClientPayments(client);
+    showToast('تم تحديث حالة الدفعة');
+    adminOpenClientPayments(clientId);
+}
+
+async function adminEditPaymentNote(clientId, paymentNumber) {
+    const client = db.clients.find(c => String(c.id) === String(clientId));
+    if (!client) return;
+    const payment = normalizePayments(client).find(p => Number(p.number) === Number(paymentNumber));
+    if (!payment) return;
+    const note = prompt('اكتب رقم الإيصال أو الملاحظة:', payment.note || '');
+    if (note === null) return;
+    payment.note = note;
+    await persistClientPayments(client);
+    showToast('✅ تم حفظ الملاحظة');
+    adminOpenClientPayments(clientId);
+}
+
+function openAttachment(dataUrl, filename='attachment') {
+    if (!dataUrl) return showToast('لا يوجد مرفق محفوظ');
+    try {
+        const w = window.open('', '_blank');
+        if (!w) return showToast('اسمح بفتح النوافذ المنبثقة لعرض المرفق');
+        if (String(dataUrl).startsWith('data:application/pdf')) {
+            w.document.write(`<title>${filename}</title><iframe src="${dataUrl}" style="width:100%;height:100vh;border:0;"></iframe>`);
+        } else {
+            w.document.write(`<title>${filename}</title><div style="text-align:center;background:#111;min-height:100vh;padding:20px;"><img src="${dataUrl}" style="max-width:100%;height:auto;background:#fff;" /></div>`);
+        }
+    } catch(e) {
+        console.log(e);
+        showToast('تعذر فتح المرفق');
+    }
+}
+
+async function adminUploadPaymentInvoice(clientId, paymentNumber) {
+    const client = db.clients.find(c => String(c.id) === String(clientId));
+    if (!client) return showToast('العميل غير موجود');
+    const payment = normalizePayments(client).find(p => Number(p.number) === Number(paymentNumber));
+    if (!payment) return showToast('الدفعة غير موجودة');
+
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = 'image/*,application/pdf';
+    fileInput.onchange = async () => {
+        const file = fileInput.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = async () => {
+            payment.invoice = reader.result;
+            payment.invoiceName = file.name;
+            payment.note = payment.note || 'تم رفع فاتورة من الإدارة';
+            await persistClientPayments(client);
+            showToast('✅ تم رفع الفاتورة للعميل');
+            adminOpenClientPayments(clientId);
+        };
+        reader.readAsDataURL(file);
+    };
+    fileInput.click();
+}
+
 function editClient(id) {
     const client = db.clients.find(c => c.id == id);
 
@@ -2268,7 +2527,9 @@ document.getElementById('newClientId').setAttribute('data-editing', 'true');
 }
         document.getElementById('newClientVisits').value = client.visits || '';
         document.getElementById('visitFrequency').value = client.visitFrequency || 'monthly';
-        document.getElementById('newClientValue').value = client.value || 0;
+        document.getElementById('newClientValue').value = client.contractAmount || client.value || 0;
+        if (document.getElementById('newClientPay')) document.getElementById('newClientPay').value = client.paymentPlan || client.pay || 'شهري';
+        renderPaymentSchedulePreview();
         document.getElementById('contractStartDate').value =
         document.getElementById('previewUsername').textContent = client.username || '';
 document.getElementById('previewPassword').textContent = client.password || '';
@@ -2507,7 +2768,6 @@ function openVisitDetails(clientId, visitDate) {
     const clientReports = (db.reports || [])
     .filter(r => String(r.clientId) === String(clientId))
     .sort((a, b) => new Date(a.createdAt || a.date) - new Date(b.createdAt || b.date));
-console.log(clientReports);
 const visitsWithReports = (client.visitSchedule || []).map((v, index) => {
     let relatedReport = null;
 
@@ -2904,7 +3164,7 @@ onchange="renderPaymentSchedulePreview()">
       </div>
       <div class="form-group">
         <label class="form-label">طريقة الدفع *</label>
-        <select class="form-select" id="newClientPay" onchange="toggleManualPayments(); renderPaymentSchedulePreview();">
+        <select class="form-select" id="newClientPay" onchange="toggleManualPayments(); renderPaymentSchedulePreview()">
           <option>شهري</option><option>ربع سنوي</option>
           <option>نصف سنوي</option><option>سنوي</option>
           <option>ثلث سنوي</option>
@@ -2962,10 +3222,10 @@ onchange="renderPaymentSchedulePreview()">
   </select>
 </div>
         <label class="form-label">قيمة العقد (ريال)</label>
-        <input type="number" class="form-input" id="newClientValue" placeholder="0" oninput="renderPaymentSchedulePreview()">
+        <input type="number" class="form-input" id="newClientValue" placeholder="0" oninput="renderPaymentSchedulePreview(); updateManualPaymentsSummary()">
       </div>
 
-      <div id="paymentSchedulePreview" style="margin-top:12px;margin-bottom:16px;"></div>
+      <div id="paymentSchedulePreview" style="margin-top:12px;margin-bottom:12px;"></div>
 
       <div style="background:linear-gradient(135deg,#e8f5e9,#e3f2fd); border-radius:12px; padding:16px; margin-bottom:16px;">
         <div style="font-size:13px; font-weight:700; color:var(--primary); margin-bottom:8px;">🔐بيانات دخول العميل الحالية</div>
@@ -3001,7 +3261,7 @@ function openModal(type) {
     const pwEl = document.getElementById('previewPassword');
     if (unEl) unEl.textContent = username;
     if (pwEl) pwEl.textContent = password;
-    setTimeout(renderPaymentSchedulePreview, 100);
+    setTimeout(() => { toggleManualPayments(); renderPaymentSchedulePreview(); }, 50);
   }
 }
 
@@ -3100,134 +3360,84 @@ function generateVisitSchedule(startDate, visitsCount, frequency) {
 
     return schedule;
 }
+
 function generatePaymentScheduleData() {
-    const amount = parseFloat(
-        document.getElementById("newClientValue")?.value ||
-        document.getElementById("contractAmount")?.value ||
-        0
-    ) || 0;
+    const amount = Number(document.getElementById('newClientValue')?.value || 0);
+    const planText = document.getElementById('newClientPay')?.value || 'يدوي';
+    const startDate = document.getElementById('contractStartDate')?.value || new Date().toISOString().split('T')[0];
 
-    const payText = (
-        document.getElementById("newClientPay")?.selectedOptions?.[0]?.textContent ||
-        document.getElementById("paymentPlan")?.selectedOptions?.[0]?.textContent ||
-        "يدوي"
-    ).trim();
-
-    const startDate = (
-        document.getElementById("contractStartDate")?.value ||
-        new Date().toISOString().split("T")[0]
-    );
-
-    if (!amount) return [];
-
-    let plan = "manual";
-    if (payText.includes("شهري")) plan = "monthly";
-    if (payText.includes("ربع")) plan = "quarter";
-    if (payText.includes("نصف")) plan = "semi";
-    if (payText.includes("سنوي") && !payText.includes("نصف") && !payText.includes("ربع") && !payText.includes("ثلث")) plan = "annual";
+    if (!amount || planText === 'يدوي') return [];
 
     let count = 1;
-    switch(plan){
-        case "monthly":
-            count = 12;
-            break;
-        case "quarter":
-            count = 4;
-            break;
-        case "semi":
-            count = 2;
-            break;
-        case "annual":
-            count = 1;
-            break;
-        default:
-            return [];
-    }
+    let stepMonths = 12;
+
+    if (planText.includes('شهري')) { count = 12; stepMonths = 1; }
+    else if (planText.includes('ربع')) { count = 4; stepMonths = 3; }
+    else if (planText.includes('ثلث')) { count = 3; stepMonths = 4; }
+    else if (planText.includes('نصف')) { count = 2; stepMonths = 6; }
+    else if (planText.includes('سنوي')) { count = 1; stepMonths = 12; }
 
     const paymentValue = +(amount / count).toFixed(2);
     const payments = [];
 
-    for(let i=0;i<count;i++){
+    for (let i = 0; i < count; i++) {
         const d = new Date(startDate);
-
-        if(plan === "monthly") d.setMonth(d.getMonth()+i);
-        if(plan === "quarter") d.setMonth(d.getMonth()+i*3);
-        if(plan === "semi") d.setMonth(d.getMonth()+i*6);
-        if(plan === "annual") d.setFullYear(d.getFullYear()+i);
-
+        d.setMonth(d.getMonth() + (i * stepMonths));
         payments.push({
-            number:i+1,
-            amount:paymentValue,
-            dueDate:d.toISOString().split("T")[0],
-            status:"غير مدفوعة",
-            paidDate:"",
-            invoice:"",
-            note:""
+            number: i + 1,
+            amount: paymentValue,
+            dueDate: d.toISOString().split('T')[0],
+            status: 'غير مدفوعة',
+            paidDate: '',
+            receipt: '',
+            receiptName: '',
+            invoice: '',
+            invoiceName: '',
+            note: ''
         });
     }
 
     return payments;
 }
-function renderPaymentSchedulePreview(){
-    let container = document.getElementById("paymentSchedulePreview");
 
-    if (!container) {
-        const amountInput =
-            document.getElementById("newClientValue") ||
-            document.getElementById("contractAmount");
-
-        if (amountInput) {
-            container = document.createElement("div");
-            container.id = "paymentSchedulePreview";
-            container.style.marginTop = "12px";
-            container.style.marginBottom = "16px";
-            amountInput.closest(".form-group").after(container);
-        }
-    }
-
-    if(!container) return;
+function renderPaymentSchedulePreview() {
+    const container = document.getElementById('paymentSchedulePreview');
+    if (!container) return;
 
     const payments = generatePaymentScheduleData();
+    const amount = Number(document.getElementById('newClientValue')?.value || 0);
+    const plan = document.getElementById('newClientPay')?.value || 'يدوي';
 
-    if(!payments.length){
-        container.innerHTML = "";
+    if (!amount || plan === 'يدوي' || !payments.length) {
+        container.innerHTML = plan === 'يدوي'
+            ? '<div class="card" style="background:#fff8e1;border:1px solid #facc15;font-size:13px;">💡 طريقة الدفع يدوية: سجّل الدفعات من صندوق الدفعات اليدوية عند الحاجة.</div>'
+            : '';
         return;
     }
 
-    let total = payments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
-
-    let html = `
-    <div class="card" style="margin-top:15px">
-        <h3 style="margin-bottom:10px;">💰 جدول الدفعات التلقائي</h3>
-        <div style="font-size:13px;color:var(--text-light);margin-bottom:10px;">
-            إجمالي العقد: ${total.toLocaleString()} ريال — عدد الدفعات: ${payments.length}
+    container.innerHTML = `
+        <div class="card" style="margin-top:12px;background:#f8fafc;">
+            <div class="section-title">💰 جدول الدفعات المتوقع</div>
+            <table style="width:100%;border-collapse:collapse;text-align:center;font-size:13px;">
+                <tr style="background:#eef2ff;">
+                    <th style="padding:8px;">#</th>
+                    <th style="padding:8px;">القيمة</th>
+                    <th style="padding:8px;">الاستحقاق</th>
+                    <th style="padding:8px;">الحالة</th>
+                </tr>
+                ${payments.map(p => `
+                    <tr style="border-bottom:1px solid #e5e7eb;">
+                        <td style="padding:8px;">${p.number}</td>
+                        <td style="padding:8px;">${Number(p.amount).toLocaleString()} ريال</td>
+                        <td style="padding:8px;">${p.dueDate}</td>
+                        <td style="padding:8px;color:#d35400;font-weight:bold;">${p.status}</td>
+                    </tr>
+                `).join('')}
+            </table>
         </div>
-
-        <table style="width:100%;border-collapse:collapse;text-align:center">
-            <tr style="background:#f3f6fb">
-                <th style="padding:8px">#</th>
-                <th style="padding:8px">القيمة</th>
-                <th style="padding:8px">الاستحقاق</th>
-                <th style="padding:8px">الحالة</th>
-            </tr>
     `;
-
-    payments.forEach(p=>{
-        html += `
-        <tr style="border-bottom:1px solid #eee">
-            <td style="padding:8px">${p.number}</td>
-            <td style="padding:8px">${Number(p.amount).toLocaleString()} ريال</td>
-            <td style="padding:8px">${p.dueDate}</td>
-            <td style="padding:8px;color:#d35400;font-weight:700">${p.status}</td>
-        </tr>`;
-    });
-
-    html += `
-        </table>
-    </div>`;
-
-    container.innerHTML = html;
 }
+
 async function saveNewClient() {
   const name = document.getElementById('newClientName').value.trim();
   const phone = document.getElementById('newClientPhone').value.trim();
@@ -3256,9 +3466,9 @@ visitSchedule: generateVisitSchedule(
 ),
     used: 0,
     value: parseInt(document.getElementById('newClientValue').value) || 0,
-    contractAmount: parseInt(document.getElementById('newClientValue')?.value) || 0,
-paymentPlan: document.getElementById('newClientPay')?.value || 'manual',
-payments: generatePaymentScheduleData(),
+    contractAmount: parseInt(document.getElementById('newClientValue').value) || 0,
+    paymentPlan: document.getElementById('newClientPay')?.value || 'يدوي',
+    payments: generatePaymentScheduleData(),
     status: 'active',
     username,
     password,
@@ -3276,6 +3486,15 @@ payments: generatePaymentScheduleData(),
   };
 
   const existingIndex = db.clients.findIndex(c => String(c.id) === String(newClient.id));
+
+  if (existingIndex !== -1 && Array.isArray(db.clients[existingIndex].payments) && db.clients[existingIndex].payments.length) {
+      const oldPayments = db.clients[existingIndex].payments;
+      if (!newClient.payments.length) {
+          newClient.payments = oldPayments;
+      } else {
+          newClient.payments = newClient.payments.map((p, idx) => ({ ...p, ...(oldPayments[idx] || {}) }));
+      }
+  }
 
 if (existingIndex !== -1) {
     newClient.username = db.clients[existingIndex].username;
