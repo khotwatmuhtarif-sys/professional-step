@@ -1431,7 +1431,7 @@ function clientHome() {
       <div class="action-btn" onclick="renderPanel('reports')">
         <span class="btn-icon">📋</span>
         <span class="btn-label">تقاريري</span>
-        <span class="btn-sub">4 تقارير</span>
+        <span class="btn-sub">${(db.reports || []).filter(r => String(r.clientId) === String(currentClientId)).length} تقارير</span>
       </div>
       <div class="action-btn" onclick="renderPanel('map')">
         <span class="btn-icon">🗺️</span>
@@ -1513,13 +1513,42 @@ function clientReports() {
 
 // ===== CLIENT MAP =====
 function clientMap() {
-return `
-<div class="section-title">🗺️ خريطة المصائد</div>
+    const clientReports = (db.reports || [])
+        .filter(r => String(r.clientId) === String(currentClientId))
+        .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
 
-<div class="card" style="padding:20px;text-align:center">
-خريطة المصائد غير مفعلة حالياً لهذا العميل
-</div>
-`;
+    const mapImages = clientReports.flatMap(r => (r.baitMapImages || []).map(img => ({...img, reportDate: r.date, tech: r.tech})));
+    const stationImages = clientReports.flatMap(r => (r.rodentStationImages || []).map(img => ({...img, reportDate: r.date, tech: r.tech})));
+
+    const imageGallery = (items, emptyText) => items.length ? `
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin-top:10px;">
+            ${items.map(img => `
+                <div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:8px;text-align:center;">
+                    <img src="${img.data}" onclick="openImagePreview('${img.data}')" style="width:100%;height:100px;object-fit:cover;border-radius:10px;cursor:pointer;">
+                    <div style="font-size:11px;color:var(--text-light);margin-top:6px;line-height:1.5;">
+                        ${img.name || 'صورة'}<br>
+                        ${img.reportDate || ''} ${img.tech ? '— ' + img.tech : ''}
+                    </div>
+                </div>
+            `).join('')}
+        </div>
+    ` : `<div class="card" style="text-align:center;color:var(--text-light);">${emptyText}</div>`;
+
+    return `
+        <div class="section-title">🗺️ خريطة المصائد والطعوم</div>
+
+        <div class="card">
+            <div style="font-weight:bold;color:var(--primary);margin-bottom:6px;">📍 صورة خريطة الطعوم</div>
+            <div style="font-size:12px;color:var(--text-light);margin-bottom:10px;">تظهر هنا آخر الصور المرفوعة من الفني لخريطة توزيع محطات الطعوم والمصائد.</div>
+            ${imageGallery(mapImages, 'لم يتم رفع صورة خريطة الطعوم لهذا العميل حتى الآن.')}
+        </div>
+
+        <div class="card">
+            <div style="font-weight:bold;color:var(--primary);margin-bottom:6px;">📸 صور محطات ومصائد القوارض</div>
+            <div style="font-size:12px;color:var(--text-light);margin-bottom:10px;">تظهر هنا صور محطات الطعوم ومصائد القوارض بعد رفعها من الفني.</div>
+            ${imageGallery(stationImages, 'لم يتم رفع صور محطات أو مصائد القوارض لهذا العميل حتى الآن.')}
+        </div>
+    `;
 }
         
     
@@ -1623,11 +1652,15 @@ function renderBankDetailsCard() {
             <div class="section-title">🏦 بيانات التحويل البنكي</div>
             <div style="font-size:13px;line-height:2;">
                 <div><b>اسم المستفيد:</b> مؤسسة خطوة محترف للتشغيل والصيانة</div>
-                <div><b>البنك:</b> يتم تحديثه من الإدارة</div>
+                <div><b>البنك:</b> مصرف الراجحي</div>
+                <div><b>رقم الحساب:</b> <span style="direction:ltr;display:inline-block;">689608016094698</span></div>
                 <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                     <b>الآيبان:</b>
-                    <span id="ibanText" style="direction:ltr;background:white;border:1px solid var(--border);border-radius:8px;padding:4px 8px;">SA00 0000 0000 0000 0000 0000</span>
+                    <span id="ibanText" style="direction:ltr;background:white;border:1px solid var(--border);border-radius:8px;padding:4px 8px;">SA5180000689608016094698</span>
                     <button class="submit-btn" style="width:auto;padding:6px 10px;font-size:12px;" onclick="copyIban()">نسخ الآيبان</button>
+                </div>
+                <div style="margin-top:8px;padding:8px;background:#fff8e1;border-radius:8px;color:#92400e;font-weight:bold;">
+                    يرجى إرسال الإيصال بعد التحويل حتى يتم اعتماد الدفعة.
                 </div>
             </div>
         </div>
@@ -1635,7 +1668,7 @@ function renderBankDetailsCard() {
 }
 
 function copyIban() {
-    const iban = document.getElementById('ibanText')?.innerText || '';
+    const iban = 'SA5180000689608016094698';
     if (navigator.clipboard) navigator.clipboard.writeText(iban);
     showToast('✅ تم نسخ الآيبان');
 }
@@ -1715,8 +1748,7 @@ function clientUploadReceipt(paymentNumber) {
             payment.receiptName = file.name;
             payment.status = 'بانتظار المراجعة';
             payment.note = payment.note || 'تم رفع إيصال من العميل';
-            saveDB();
-            if (typeof saveClientToFirebase === 'function') saveClientToFirebase(client);
+            persistClientPayments(client);
             showToast('✅ تم رفع الإيصال وبانتظار اعتماد الإدارة');
             renderPanel('payments');
         };
@@ -1749,8 +1781,7 @@ function clientPayAllRemaining() {
                     p.note = 'طلب سداد جميع المتبقي';
                 }
             });
-            saveDB();
-            if (typeof saveClientToFirebase === 'function') saveClientToFirebase(client);
+            persistClientPayments(client);
             showToast('✅ تم رفع إيصال دفع جميع المتبقي');
             renderPanel('payments');
         };
@@ -1906,6 +1937,32 @@ ${db.clients.map(c => `
         </div>
     </div>
 </div>
+
+<div class="form-group">
+    <label class="form-label">🗺️ صورة خريطة الطعوم</label>
+    <input type="file" id="baitMapImages" accept="image/*" multiple style="display:none"
+           onchange="showFileNames('baitMapImages','baitMapFilesText')">
+    <div class="pest-upload-area" onclick="document.getElementById('baitMapImages').click()">
+        <div style="font-size:36px;">🗺️</div>
+        <div style="font-size:14px; font-weight:600;">رفع صورة خريطة الطعوم</div>
+        <div id="baitMapFilesText" style="font-size:12px; color:var(--text-light); margin-top:6px;">
+            لم يتم اختيار صور
+        </div>
+    </div>
+</div>
+
+<div class="form-group">
+    <label class="form-label">📸 صور محطات ومصائد القوارض</label>
+    <input type="file" id="rodentStationImages" accept="image/*" multiple style="display:none"
+           onchange="showFileNames('rodentStationImages','rodentStationFilesText')">
+    <div class="pest-upload-area" onclick="document.getElementById('rodentStationImages').click()">
+        <div style="font-size:36px;">📸</div>
+        <div style="font-size:14px; font-weight:600;">رفع صور محطات الطعوم ومصائد القوارض</div>
+        <div id="rodentStationFilesText" style="font-size:12px; color:var(--text-light); margin-top:6px;">
+            لم يتم اختيار صور
+        </div>
+    </div>
+</div>
      <button class="submit-btn" onclick="saveVisitReport()">
      </form>
 📋 رفع التقرير
@@ -2017,6 +2074,8 @@ showToast('⏳ جاري ضغط الصور ورفع التقرير...');
 const executionImages = await readImages('executionImages', 3);
 const pestImages = await readImages('pestImages', 3);
 const paperReportImages = await readImages('paperReportImages', 2);
+const baitMapImages = await readImages('baitMapImages', 2);
+const rodentStationImages = await readImages('rodentStationImages', 6);
 const fullReport = {
   id: reportId,
   clientId: parseInt(clientId),
@@ -2029,10 +2088,14 @@ const fullReport = {
   executionImages,
 pestImages,
 paperReportImages,
+baitMapImages,
+rodentStationImages,
 images: [
     ...executionImages.map(img => img.data),
     ...pestImages.map(img => img.data),
-    ...paperReportImages.map(img => img.data)
+    ...paperReportImages.map(img => img.data),
+    ...baitMapImages.map(img => img.data),
+    ...rodentStationImages.map(img => img.data)
 ],
   date: new Date().toLocaleDateString('ar-SA'),
   status: 'مكتمل',
@@ -2048,6 +2111,8 @@ console.log(fullReport);
 document.getElementById('executionFilesText').textContent = 'لم يتم اختيار صور';
 document.getElementById('pestFilesText').textContent = 'لم يتم اختيار صور';
 document.getElementById('paperFilesText').textContent = 'لم يتم اختيار صور';
+if (document.getElementById('baitMapFilesText')) document.getElementById('baitMapFilesText').textContent = 'لم يتم اختيار صور';
+if (document.getElementById('rodentStationFilesText')) document.getElementById('rodentStationFilesText').textContent = 'لم يتم اختيار صور';
 
 const client = db.clients.find(c => c.id == parseInt(clientId));
 
@@ -2382,6 +2447,7 @@ function adminOpenClientPayments(id) {
                     ${p.note ? `<div style="font-size:12px;color:var(--text-light);margin-top:4px;">ملاحظة: ${p.note}</div>` : ''}
                     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;">
                         <button class="submit-btn green" style="width:auto;padding:6px 10px;font-size:12px;" onclick="adminMarkPaymentPaid(${client.id}, ${p.number})">اعتماد كمدفوعة</button>
+                        ${p.status === 'بانتظار المراجعة' ? `<button class="submit-btn red" style="width:auto;padding:6px 10px;font-size:12px;" onclick="adminRejectPaymentReceipt(${client.id}, ${p.number})">رفض الإيصال</button>` : ''}
                         <button class="submit-btn red" style="width:auto;padding:6px 10px;font-size:12px;" onclick="adminMarkPaymentUnpaid(${client.id}, ${p.number})">غير مدفوعة</button>
                         <button class="submit-btn" style="width:auto;padding:6px 10px;font-size:12px;" onclick="adminEditPaymentNote(${client.id}, ${p.number})">ملاحظة/إيصال</button>
                         ${p.receipt ? `<button class="submit-btn" style="width:auto;padding:6px 10px;font-size:12px;background:#64748b;" onclick="openAttachment('${p.receipt}', '${p.receiptName || 'receipt'}')">👁️ إيصال العميل</button>` : ''}
@@ -2409,7 +2475,8 @@ async function adminMarkPaymentPaid(clientId, paymentNumber) {
     if (!client) return;
     const payment = normalizePayments(client).find(p => Number(p.number) === Number(paymentNumber));
     if (!payment) return;
-    const paidDate = prompt('تاريخ الدفع الفعلي:', new Date().toISOString().split('T')[0]);
+    if (payment.status === 'مدفوعة' && !confirm('هذه الدفعة معتمدة مسبقاً. هل تريد تحديث بيانات اعتمادها؟')) return;
+    const paidDate = prompt('تاريخ الدفع الفعلي:', payment.paidDate || new Date().toISOString().split('T')[0]);
     if (paidDate === null) return;
     const note = prompt('رقم الإيصال أو ملاحظة مختصرة:', payment.note || '');
     payment.status = 'مدفوعة';
@@ -2428,8 +2495,23 @@ async function adminMarkPaymentUnpaid(clientId, paymentNumber) {
     if (!confirm('هل تريد تحويل هذه الدفعة إلى غير مدفوعة؟')) return;
     payment.status = 'غير مدفوعة';
     payment.paidDate = '';
+    payment.note = payment.note || '';
     await persistClientPayments(client);
     showToast('تم تحديث حالة الدفعة');
+    adminOpenClientPayments(clientId);
+}
+
+async function adminRejectPaymentReceipt(clientId, paymentNumber) {
+    const client = db.clients.find(c => String(c.id) === String(clientId));
+    if (!client) return;
+    const payment = normalizePayments(client).find(p => Number(p.number) === Number(paymentNumber));
+    if (!payment) return;
+    const reason = prompt('سبب رفض الإيصال أو الملاحظة للعميل:', payment.note || 'الإيصال غير واضح');
+    if (reason === null) return;
+    payment.status = 'غير مدفوعة';
+    payment.note = reason || 'تم رفض الإيصال';
+    await persistClientPayments(client);
+    showToast('تم رفض الإيصال وإرجاع الدفعة إلى غير مدفوعة');
     adminOpenClientPayments(clientId);
 }
 
@@ -3085,7 +3167,7 @@ const modalContents = {
 <label class="form-label">قيمة العقد (ريال)</label>
 <input type="number"
 class="form-input"
-id="contractAmount"
+id="legacyContractAmount"
 placeholder="12000"
 oninput="renderPaymentSchedulePreview()">
 
@@ -3093,7 +3175,7 @@ oninput="renderPaymentSchedulePreview()">
 
 <div class="form-group">
 <label class="form-label">طريقة الدفع</label>
-<select class="form-select" id="paymentPlan"
+<select class="form-select" id="legacyPaymentPlan"
 onchange="renderPaymentSchedulePreview()">
 <option value="annual">سنوي</option>
 <option value="semi">نصف سنوي</option>
@@ -3102,7 +3184,7 @@ onchange="renderPaymentSchedulePreview()">
 <option value="manual">يدوي</option>
 </select>
 </div>
-<div id="paymentSchedulePreview" style="margin-top:12px;"></div>
+<div id="legacyPaymentSchedulePreview" style="margin-top:12px;"></div>
 
 
             <button class="submit-btn green" onclick="showToast('✅ تم إضافة العميل برقم عقد #1048!'); closeModal();">حفظ العميل</button>
@@ -3298,10 +3380,14 @@ function registerPayment() {
     item.style.background = '#fff';
     item.style.borderRadius = '8px';
 
-    item.innerHTML =
-        amount.toLocaleString() +
-        ' ريال - ' +
-        date;
+    item.innerHTML = `
+        <input type="hidden" class="manual-payment-amount" value="${amount}">
+        <input type="hidden" class="manual-payment-date" value="${date}">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
+            <span>${amount.toLocaleString()} ريال - ${date}</span>
+            <button type="button" onclick="this.closest('div[style*=padding]').remove(); updateManualPaymentsSummary();" style="border:none;background:#fee2e2;color:#b91c1c;border-radius:8px;padding:4px 8px;cursor:pointer;">حذف</button>
+        </div>
+    `;
 
     history.appendChild(item);
 
@@ -3473,17 +3559,34 @@ visitSchedule: generateVisitSchedule(
     username,
     password,
     manualPayments: Array.from(document.querySelectorAll('#paymentsHistory > div')).map(item => {
-    const text = item.textContent.trim();
-    const parts = text.split(' - ');
-    return {
-        amount: Number(parts[0].replace(/[^\d.]/g, '')) || 0,
-        date: parts[1] || '',
-        status: 'مدفوعة'
-    };
-}),
+        const amountInput = item.querySelector('.manual-payment-amount');
+        const dateInput = item.querySelector('.manual-payment-date');
+        const text = item.textContent.trim();
+        const parts = text.split(' - ');
+        return {
+            amount: Number(amountInput?.value || parts[0].replace(/[^\d.]/g, '')) || 0,
+            date: dateInput?.value || parts[1] || '',
+            status: 'مدفوعة'
+        };
+    }),
     start: new Date().toISOString().split('T')[0],
     end: new Date(new Date().setFullYear(new Date().getFullYear()+1)).toISOString().split('T')[0]
   };
+
+  if ((!newClient.payments || !newClient.payments.length) && Array.isArray(newClient.manualPayments) && newClient.manualPayments.length) {
+      newClient.payments = newClient.manualPayments.map((p, idx) => ({
+          number: idx + 1,
+          amount: Number(p.amount || 0),
+          dueDate: p.date || '',
+          status: p.status || 'مدفوعة',
+          paidDate: p.date || '',
+          receipt: '',
+          receiptName: '',
+          invoice: '',
+          invoiceName: '',
+          note: 'دفعة يدوية مسجلة عند إنشاء العميل'
+      }));
+  }
 
   const existingIndex = db.clients.findIndex(c => String(c.id) === String(newClient.id));
 
@@ -3755,6 +3858,20 @@ ${report.ratingNote ? `<br><b>💬 الملاحظات:</b> ${report.ratingNote}`
      style="width:120px; height:120px; object-fit:cover; border-radius:10px; border:1px solid #ddd;">
     `).join('') : '<div style="color:var(--text-light); font-size:13px;">لا توجد صور مرفقة</div>'}
 </div>
+
+${(report.baitMapImages || []).length ? `
+<div style="margin-top:20px;"><b>🗺️ صور خريطة الطعوم:</b></div>
+<div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
+    ${(report.baitMapImages || []).map(img => `<img src="${img.data}" onclick="openImagePreview('${img.data}')" style="width:120px;height:120px;object-fit:cover;border-radius:10px;border:1px solid #ddd;">`).join('')}
+</div>
+` : ''}
+
+${(report.rodentStationImages || []).length ? `
+<div style="margin-top:20px;"><b>📸 صور محطات ومصائد القوارض:</b></div>
+<div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
+    ${(report.rodentStationImages || []).map(img => `<img src="${img.data}" onclick="openImagePreview('${img.data}')" style="width:120px;height:120px;object-fit:cover;border-radius:10px;border:1px solid #ddd;">`).join('')}
+</div>
+` : ''}
             </div>
 ${!report.rating ? `
 <button class="submit-btn"
