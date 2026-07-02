@@ -1029,6 +1029,100 @@ html, body {
 }
 
 .pest-item .pest-emoji { font-size: 28px; display: block; margin-bottom: 6px; }
+
+/* ===== v1.5 cleanup: delete confirmations + payment cards ===== */
+.payment-card{
+  display:block !important;
+  position:relative;
+  overflow:hidden;
+}
+.payment-card .payment-icon{
+  float:left;
+  font-size:28px !important;
+  opacity:.85;
+}
+.payment-card .payment-amount{
+  display:block;
+  margin-top:8px;
+  font-size:18px !important;
+}
+.payment-actions{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(130px,1fr));
+  gap:8px;
+  margin-top:12px;
+}
+.payment-actions .submit-btn{
+  width:100% !important;
+  padding:8px 10px !important;
+  font-size:12px !important;
+}
+.file-chip{
+  display:inline-block;
+  max-width:100%;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  direction:ltr;
+  vertical-align:middle;
+  background:#f8fafc;
+  border:1px solid #e2e8f0;
+  border-radius:8px;
+  padding:4px 8px;
+  margin-top:4px;
+  font-size:12px;
+}
+.admin-mini-actions{
+  display:flex;
+  gap:6px;
+  flex-wrap:wrap;
+  margin-top:8px;
+}
+.admin-mini-actions .submit-btn{
+  width:auto !important;
+  padding:6px 10px !important;
+  font-size:11px !important;
+}
+.danger-soft{
+  background:#fff1f2 !important;
+  border-color:#fecdd3 !important;
+}
+.report-thumb-wrap{
+  position:relative;
+  display:inline-block;
+}
+.report-thumb-wrap img{
+  width:120px;
+  height:120px;
+  object-fit:cover;
+  border-radius:10px;
+  border:1px solid #ddd;
+}
+.report-thumb-del{
+  position:absolute;
+  top:4px;
+  left:4px;
+  border:0;
+  border-radius:50%;
+  width:26px;
+  height:26px;
+  background:#e53935;
+  color:white;
+  cursor:pointer;
+  font-weight:bold;
+}
+.visit-admin-actions{
+  display:flex;
+  gap:6px;
+  flex-wrap:wrap;
+  margin-top:8px;
+}
+.visit-admin-actions .submit-btn{
+  width:auto !important;
+  padding:6px 10px !important;
+  font-size:11px !important;
+}
+
 </style>
 </head>
 <body>
@@ -3997,6 +4091,538 @@ async function deleteReport(id) {
         console.log(e);
     }
 }
+
+
+/* ===== v1.5 Safety + Payment + Visits Patch ===== */
+function escapeHtml(value){
+  return String(value ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
+}
+function shortFileName(name, max=34){
+  name = String(name || '');
+  return name.length > max ? name.slice(0, max-3) + '...' : name;
+}
+function confirmDelete(title, details){
+  const msg = `${title}\n\n${details || 'هذا الإجراء لا يمكن التراجع عنه.'}\n\nهل أنت متأكد؟`;
+  return confirm(msg);
+}
+async function persistReport(report){
+  saveDB();
+  try{
+    if (typeof firebase !== 'undefined' && firebase.database && report && report.id){
+      await firebase.database().ref('reports/' + report.id).set(report);
+    }
+  }catch(e){ console.log(e); }
+}
+async function removeReportFromFirebase(id){
+  try{
+    if (typeof firebase !== 'undefined' && firebase.database){
+      await firebase.database().ref('reports/' + id).remove();
+    }
+  }catch(e){ console.log(e); }
+}
+
+async function deleteClient(id) {
+  const client = (db.clients || []).find(c => String(c.id) === String(id));
+  if (!client) return showToast('العميل غير موجود');
+  if (!confirmDelete('حذف العميل: ' + (client.name || ('#' + id)), 'سيتم حذف بيانات العميل من القائمة وقد تفقد سجله المرتبط.')) return;
+
+  db.clients = (db.clients || []).filter(c => String(c.id) !== String(id));
+  saveDB();
+
+  if (window.deleteClientFromFirebase) {
+    await window.deleteClientFromFirebase(id);
+  }
+
+  showToast('🗑️ تم حذف العميل');
+  renderPanel('all_clients');
+}
+
+async function deleteReport(id) {
+  const report = (db.reports || []).find(r => String(r.id) === String(id));
+  if (!report) return showToast('التقرير غير موجود');
+  if (!confirmDelete('حذف التقرير', `العميل: ${report.client || '-'}\nالتاريخ: ${report.date || '-'}\nسيتم حذف الصور والمرفقات داخل هذا التقرير.`)) return;
+
+  db.reports = (db.reports || []).filter(r => String(r.id) !== String(id));
+  saveDB();
+  await removeReportFromFirebase(id);
+  showToast('🗑️ تم حذف التقرير');
+  renderPanel('all_reports');
+}
+
+function adminAllReports() {
+  if (typeof loadReportsFromFirebase === 'function') loadReportsFromFirebase();
+  const allReports = (db.reports || []).sort((a, b) => (b.id || 0) - (a.id || 0));
+
+  return `
+    <div class="section-title">📊 جميع التقارير</div>
+    <button class="submit-btn" style="margin-bottom:12px;" onclick="loadReportsFromFirebase().then(() => renderPanel('all_reports'))">
+      🔄 تحديث التقارير
+    </button>
+
+    ${allReports.length ? allReports.map(r => `
+      <div class="report-card" onclick="openReportDetails(${r.id})">
+        <div class="report-icon">📄</div>
+        <div class="report-info">
+          <div class="report-title">${escapeHtml(r.client)} — ${escapeHtml(r.type)}</div>
+          <div class="report-date">الفني: ${escapeHtml(r.tech)} | ${escapeHtml(r.date)}</div>
+        </div>
+        <span class="visit-badge done">${escapeHtml(r.status || 'مكتمل')}</span>
+        <button class="submit-btn red" style="width:auto;padding:6px 10px;font-size:11px;" onclick="event.stopPropagation(); deleteReport(${r.id})">حذف</button>
+      </div>
+    `).join('') : `<div class="card" style="text-align:center;">لا توجد تقارير</div>`}
+  `;
+}
+
+async function deleteReportImage(reportId, field, index){
+  const report = (db.reports || []).find(r => String(r.id) === String(reportId));
+  if (!report) return showToast('التقرير غير موجود');
+  if (!confirmDelete('حذف صورة من التقرير', 'سيتم حذف هذه الصورة فقط من التقرير.')) return;
+
+  if (!Array.isArray(report[field])) return showToast('لا توجد صور في هذا القسم');
+  report[field].splice(index, 1);
+
+  if (field !== 'images') {
+    report.images = [
+      ...(report.executionImages || []).map(img => img.data || img),
+      ...(report.pestImages || []).map(img => img.data || img),
+      ...(report.paperReportImages || []).map(img => img.data || img),
+      ...(report.baitMapImages || []).map(img => img.data || img),
+      ...(report.rodentStationImages || []).map(img => img.data || img)
+    ].filter(Boolean);
+  }
+
+  await persistReport(report);
+  showToast('🗑️ تم حذف الصورة');
+  openReportDetails(reportId);
+}
+
+function renderReportImages(report, field, title){
+  const arr = report[field] || [];
+  if (!arr.length) return '';
+  return `
+    <div style="margin-top:20px;"><b>${title}</b></div>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
+      ${arr.map((img, idx) => {
+        const data = img.data || img;
+        return `
+          <span class="report-thumb-wrap">
+            <img src="${data}" onclick="openImagePreview('${data}')">
+            ${currentRole === 'admin' ? `<button class="report-thumb-del" onclick="event.stopPropagation(); deleteReportImage(${report.id}, '${field}', ${idx})">×</button>` : ''}
+          </span>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function openReportDetails(id) {
+  const report = (db.reports || []).find(r => String(r.id) === String(id));
+  if (!report) return showToast('التقرير غير موجود');
+
+  const details = `
+    <div class="card" style="margin-bottom:16px;">
+      <div class="section-title">📄 تفاصيل التقرير</div>
+
+      <div style="line-height:2.1; font-size:15px;">
+        <div><b>العميل:</b> ${escapeHtml(report.client || 'غير محدد')}</div>
+        <div><b>الفني:</b> ${escapeHtml(report.tech || 'غير محدد')}</div>
+        <div><b>نوع الزيارة:</b> ${escapeHtml(report.type || 'زيارة فنية')}</div>
+        <div><b>التاريخ:</b> ${escapeHtml(report.date || '-')}</div>
+        <div><b>المواد المستخدمة:</b> ${escapeHtml(report.materials || 'غير مسجل')}</div>
+        <div><b>الملاحظات:</b> ${escapeHtml(report.notes || 'لا توجد')}</div>
+        <div><b>الآفات المرصودة:</b> ${(report.pests || []).length ? escapeHtml((report.pests || []).join('، ')) : 'غير مسجل'}</div>
+        <div><b>الحالة:</b> ${escapeHtml(report.status || 'مكتمل')}</div>
+
+        ${report.rating ? `
+          <div style="margin-top:12px;padding:12px;background:#fff8e1;border-radius:10px;">
+            <b>⭐ تقييم العميل:</b> ${'⭐'.repeat(report.rating)}
+            ${report.ratingNote ? `<br><b>💬 الملاحظات:</b> ${escapeHtml(report.ratingNote)}` : ''}
+          </div>
+        ` : ''}
+
+        ${renderReportImages(report, 'executionImages', '📸 صور التنفيذ:')}
+        ${renderReportImages(report, 'pestImages', '🐜 صور الآفات المرصودة:')}
+        ${renderReportImages(report, 'paperReportImages', '📄 صور التقرير الورقي:')}
+        ${renderReportImages(report, 'baitMapImages', '🗺️ صور خريطة الطعوم:')}
+        ${renderReportImages(report, 'rodentStationImages', '📸 صور محطات ومصائد القوارض:')}
+        ${!(report.executionImages || report.pestImages || report.paperReportImages || report.baitMapImages || report.rodentStationImages || report.images || []).length ? '<div style="color:var(--text-light);font-size:13px;margin-top:12px;">لا توجد صور مرفقة</div>' : ''}
+      </div>
+
+      ${!report.rating ? `
+        <button class="submit-btn" style="margin-top:16px;background:#f59e0b;" onclick="openReportRating(${report.id})">⭐ تقييم هذه الزيارة</button>
+      ` : `
+        <div style="margin-top:16px;padding:12px;background:#ecfdf5;border-radius:10px;text-align:center;color:#15803d;font-weight:bold;">✅ تم تقييم هذه الزيارة</div>
+      `}
+
+      ${currentRole === 'admin' ? `
+        <button class="submit-btn red" style="margin-top:10px;" onclick="deleteReport(${report.id})">🗑️ حذف التقرير</button>
+      ` : ''}
+
+      <button class="submit-btn" style="margin-top:10px;background:#64748b;" onclick="renderPanel(currentPanel)">رجوع</button>
+    </div>
+  `;
+  document.getElementById('appContent').innerHTML = details;
+}
+
+function renderPaymentFileRow(label, name, viewFn, deleteFn, color='var(--text-light)'){
+  if (!name) return '';
+  return `
+    <div style="margin-top:6px;color:${color};font-weight:${color.includes('green') ? 'bold' : '600'};">
+      ${label}: <span class="file-chip" title="${escapeHtml(name)}">${escapeHtml(shortFileName(name))}</span>
+    </div>
+  `;
+}
+
+function clientPayments() {
+  const client = db.clients.find(c => String(c.id) === String(currentClientId)) || {};
+  const stats = getPaymentStats(client);
+
+  return `
+    ${paymentSummaryCard(client)}
+    <div class="section-title">💳 دفعاتي</div>
+    ${renderBankDetailsCard()}
+
+    ${stats.remaining > 0 ? `
+      <button class="submit-btn green" style="margin-bottom:14px;" onclick="clientPayAllRemaining()">💰 دفع جميع المتبقي (${stats.remaining.toLocaleString()} ريال)</button>
+    ` : `
+      <div class="card" style="background:#e8f5e9;text-align:center;color:var(--green);font-weight:bold;">✅ لا توجد مبالغ مستحقة حالياً</div>
+    `}
+
+    <div class="section-title">📑 جدول الدفعات</div>
+    ${stats.payments.length ? stats.payments.map(p => `
+      <div class="payment-card ${p.status === 'مدفوعة' ? 'paid' : 'unpaid'} ${p.status === 'غير مدفوعة' ? 'danger-soft' : ''}">
+        <span class="payment-icon">${p.status === 'مدفوعة' ? '✅' : p.status === 'بانتظار المراجعة' ? '⏳' : '⚠️'}</span>
+        <div class="payment-info">
+          <div class="payment-title">الدفعة رقم ${p.number || '-'} — ${Number(p.amount || 0).toLocaleString()} ريال</div>
+          <div class="payment-date">استحقاق: ${p.dueDate || '-'} ${p.paidDate ? '| دفع: ' + p.paidDate : ''}</div>
+          <div style="margin-top:6px;">${paymentStatusBadge(p.status || 'غير مدفوعة')}</div>
+          ${p.receiptName ? renderPaymentFileRow('📎 إيصال مرفق', p.receiptName) : ''}
+          ${p.invoiceName ? renderPaymentFileRow('🧾 فاتورة متاحة', p.invoiceName, '', '', 'var(--green)') : ''}
+          ${p.note ? `<div style="font-size:12px;color:var(--text-light);margin-top:6px;">ملاحظة: ${escapeHtml(p.note)}</div>` : ''}
+
+          <div class="payment-actions">
+            ${p.status !== 'مدفوعة' ? `<button class="submit-btn" onclick="clientUploadReceipt(${p.number})">📎 رفع إيصال التحويل</button>` : ''}
+            ${p.receipt ? `<button class="submit-btn" style="background:#64748b;" onclick="openAttachment('${p.receipt}', '${escapeHtml(p.receiptName || 'receipt')}')">👁️ عرض الإيصال</button>` : ''}
+            ${p.receipt && p.status !== 'مدفوعة' ? `<button class="submit-btn red" onclick="clientDeleteReceipt(${p.number})">🗑️ حذف الإيصال</button>` : ''}
+            ${p.invoice ? `<button class="submit-btn green" onclick="openAttachment('${p.invoice}', '${escapeHtml(p.invoiceName || 'invoice')}')">🧾 عرض الفاتورة</button>` : ''}
+          </div>
+        </div>
+      </div>
+    `).join('') : `<div class="card" style="text-align:center;">لا يوجد جدول دفعات محفوظ لهذا العميل</div>`}
+  `;
+}
+
+async function clientDeleteReceipt(paymentNumber){
+  const client = db.clients.find(c => String(c.id) === String(currentClientId));
+  if (!client) return showToast('العميل غير موجود');
+  const payment = normalizePayments(client).find(p => Number(p.number) === Number(paymentNumber));
+  if (!payment || !payment.receipt) return showToast('لا يوجد إيصال');
+  if (!confirmDelete('حذف إيصال التحويل', 'سيتم حذف الإيصال المرفوع لهذه الدفعة.')) return;
+
+  payment.receipt = '';
+  payment.receiptName = '';
+  if (payment.status === 'بانتظار المراجعة') payment.status = 'غير مدفوعة';
+  payment.note = payment.note || 'تم حذف الإيصال من العميل';
+  await persistClientPayments(client);
+  showToast('🗑️ تم حذف الإيصال');
+  renderPanel('payments');
+}
+
+function adminOpenClientPayments(id) {
+  const client = db.clients.find(c => String(c.id) === String(id));
+  if (!client) return showToast('العميل غير موجود');
+  const stats = getPaymentStats(client);
+
+  document.getElementById('appContent').innerHTML = `
+    <div class="section-title">💳 إدارة دفعات العميل</div>
+    <div class="card">
+      <h3>${escapeHtml(client.name)}</h3>
+      <p style="color:var(--text-light);">رقم العقد: #${client.id} — طريقة الدفع: ${escapeHtml(client.pay || client.paymentPlan || '-')}</p>
+    </div>
+    ${paymentSummaryCard(client)}
+    <div class="section-title">📑 جدول الدفعات</div>
+
+    ${stats.payments.length ? stats.payments.map(p => `
+      <div class="payment-card ${p.status === 'مدفوعة' ? 'paid' : 'unpaid'} ${p.status === 'غير مدفوعة' ? 'danger-soft' : ''}">
+        <span class="payment-icon">${p.status === 'مدفوعة' ? '✅' : p.status === 'بانتظار المراجعة' ? '⏳' : '⚠️'}</span>
+        <div class="payment-info">
+          <div class="payment-title">الدفعة رقم ${p.number} — ${Number(p.amount || 0).toLocaleString()} ريال</div>
+          <div class="payment-date">استحقاق: ${p.dueDate || '-'} ${p.paidDate ? '| دفع: ' + p.paidDate : ''}</div>
+          <div style="margin-top:6px;">${paymentStatusBadge(p.status || 'غير مدفوعة')}</div>
+          ${p.receiptName ? renderPaymentFileRow('📎 إيصال العميل', p.receiptName) : ''}
+          ${p.invoiceName ? renderPaymentFileRow('🧾 فاتورة مرفوعة', p.invoiceName, '', '', 'var(--green)') : ''}
+          ${p.note ? `<div style="font-size:12px;color:var(--text-light);margin-top:6px;">ملاحظة: ${escapeHtml(p.note)}</div>` : ''}
+
+          <div class="payment-actions">
+            <button class="submit-btn green" onclick="adminMarkPaymentPaid(${client.id}, ${p.number})">✅ اعتماد كمدفوعة</button>
+            <button class="submit-btn red" onclick="adminMarkPaymentUnpaid(${client.id}, ${p.number})">↩️ غير مدفوعة</button>
+            <button class="submit-btn" style="background:#c9a227;" onclick="adminSetPaymentPending(${client.id}, ${p.number})">⏳ بانتظار المراجعة</button>
+            ${p.status === 'بانتظار المراجعة' ? `<button class="submit-btn red" onclick="adminRejectPaymentReceipt(${client.id}, ${p.number})">رفض الإيصال</button>` : ''}
+            <button class="submit-btn" onclick="adminEditPaymentNote(${client.id}, ${p.number})">ملاحظة/إيصال</button>
+            ${p.receipt ? `<button class="submit-btn" style="background:#64748b;" onclick="openAttachment('${p.receipt}', '${escapeHtml(p.receiptName || 'receipt')}')">👁️ عرض إيصال العميل</button>` : ''}
+            ${p.receipt ? `<button class="submit-btn red" onclick="adminDeletePaymentReceipt(${client.id}, ${p.number})">🗑️ حذف الإيصال</button>` : ''}
+            <button class="submit-btn" style="background:#0f766e;" onclick="adminUploadPaymentInvoice(${client.id}, ${p.number})">🧾 رفع/استبدال فاتورة</button>
+            ${p.invoice ? `<button class="submit-btn" style="background:#334155;" onclick="openAttachment('${p.invoice}', '${escapeHtml(p.invoiceName || 'invoice')}')">عرض الفاتورة</button>` : ''}
+            ${p.invoice ? `<button class="submit-btn red" onclick="adminDeletePaymentInvoice(${client.id}, ${p.number})">🗑️ حذف الفاتورة</button>` : ''}
+            <button class="submit-btn red" style="background:#7f1d1d;" onclick="adminDeletePaymentRow(${client.id}, ${p.number})">حذف الدفعة</button>
+          </div>
+        </div>
+      </div>
+    `).join('') : `<div class="card" style="text-align:center;">لا يوجد جدول دفعات لهذا العميل</div>`}
+
+    <button class="submit-btn" style="margin-top:16px;background:#64748b;" onclick="renderPanel('all_clients')">رجوع للعملاء</button>
+  `;
+}
+
+async function adminSetPaymentPending(clientId, paymentNumber){
+  const client = db.clients.find(c => String(c.id) === String(clientId));
+  if (!client) return;
+  const payment = normalizePayments(client).find(p => Number(p.number) === Number(paymentNumber));
+  if (!payment) return;
+  if (!confirm('هل تريد تغيير الحالة إلى بانتظار المراجعة؟')) return;
+  payment.status = 'بانتظار المراجعة';
+  payment.paidDate = '';
+  await persistClientPayments(client);
+  showToast('تم تحديث الحالة');
+  adminOpenClientPayments(clientId);
+}
+
+async function adminDeletePaymentInvoice(clientId, paymentNumber){
+  const client = db.clients.find(c => String(c.id) === String(clientId));
+  if (!client) return;
+  const payment = normalizePayments(client).find(p => Number(p.number) === Number(paymentNumber));
+  if (!payment || !payment.invoice) return showToast('لا توجد فاتورة');
+  if (!confirmDelete('حذف الفاتورة', 'سيتم حذف الفاتورة من شاشة المدير والعميل.')) return;
+  payment.invoice = '';
+  payment.invoiceName = '';
+  payment.invoiceDeletedAt = new Date().toISOString();
+  await persistClientPayments(client);
+  showToast('🗑️ تم حذف الفاتورة');
+  adminOpenClientPayments(clientId);
+}
+
+async function adminDeletePaymentReceipt(clientId, paymentNumber){
+  const client = db.clients.find(c => String(c.id) === String(clientId));
+  if (!client) return;
+  const payment = normalizePayments(client).find(p => Number(p.number) === Number(paymentNumber));
+  if (!payment || !payment.receipt) return showToast('لا يوجد إيصال');
+  if (!confirmDelete('حذف إيصال التحويل', 'سيتم حذف الإيصال من هذه الدفعة.')) return;
+  payment.receipt = '';
+  payment.receiptName = '';
+  if (payment.status === 'بانتظار المراجعة') payment.status = 'غير مدفوعة';
+  await persistClientPayments(client);
+  showToast('🗑️ تم حذف الإيصال');
+  adminOpenClientPayments(clientId);
+}
+
+async function adminDeletePaymentRow(clientId, paymentNumber){
+  const client = db.clients.find(c => String(c.id) === String(clientId));
+  if (!client) return;
+  const payments = normalizePayments(client);
+  const payment = payments.find(p => Number(p.number) === Number(paymentNumber));
+  if (!payment) return;
+  if (!confirmDelete('حذف الدفعة رقم ' + paymentNumber, 'سيتم حذف هذه الدفعة من جدول دفعات العميل.')) return;
+  client.payments = payments.filter(p => Number(p.number) !== Number(paymentNumber)).map((p, idx) => ({...p, number: idx + 1}));
+  await persistClientPayments(client);
+  showToast('🗑️ تم حذف الدفعة');
+  adminOpenClientPayments(clientId);
+}
+
+async function adminMarkPaymentPaid(clientId, paymentNumber) {
+  const client = db.clients.find(c => String(c.id) === String(clientId));
+  if (!client) return;
+  const payment = normalizePayments(client).find(p => Number(p.number) === Number(paymentNumber));
+  if (!payment) return;
+
+  if (payment.status === 'مدفوعة' && !confirm('هذه الدفعة معتمدة مسبقاً. هل تريد تعديل بيانات اعتمادها؟')) return;
+
+  const paidDate = prompt('تاريخ الدفع الفعلي:', payment.paidDate || new Date().toISOString().split('T')[0]);
+  if (paidDate === null) return;
+  const note = prompt('رقم الإيصال أو ملاحظة مختصرة:', payment.note || '');
+  if (note === null) return;
+
+  payment.status = 'مدفوعة';
+  payment.paidDate = paidDate || new Date().toISOString().split('T')[0];
+  payment.note = note || payment.note || '';
+  await persistClientPayments(client);
+  showToast('✅ تم اعتماد الدفعة كمدفوعة');
+  adminOpenClientPayments(clientId);
+}
+
+async function adminMarkPaymentUnpaid(clientId, paymentNumber) {
+  const client = db.clients.find(c => String(c.id) === String(clientId));
+  if (!client) return;
+  const payment = normalizePayments(client).find(p => Number(p.number) === Number(paymentNumber));
+  if (!payment) return;
+  if (!confirm('هل تريد إلغاء الاعتماد وتحويل هذه الدفعة إلى غير مدفوعة؟')) return;
+  payment.status = 'غير مدفوعة';
+  payment.paidDate = '';
+  await persistClientPayments(client);
+  showToast('تم تحديث حالة الدفعة');
+  adminOpenClientPayments(clientId);
+}
+
+async function adminRejectPaymentReceipt(clientId, paymentNumber) {
+  const client = db.clients.find(c => String(c.id) === String(clientId));
+  if (!client) return;
+  const payment = normalizePayments(client).find(p => Number(p.number) === Number(paymentNumber));
+  if (!payment) return;
+  const reason = prompt('سبب رفض الإيصال أو الملاحظة للعميل:', payment.note || 'الإيصال غير واضح');
+  if (reason === null) return;
+  payment.status = 'غير مدفوعة';
+  payment.note = reason || 'تم رفض الإيصال';
+  await persistClientPayments(client);
+  showToast('تم رفض الإيصال وإرجاع الدفعة إلى غير مدفوعة');
+  adminOpenClientPayments(clientId);
+}
+
+async function adminUploadPaymentInvoice(clientId, paymentNumber) {
+  const client = db.clients.find(c => String(c.id) === String(clientId));
+  if (!client) return showToast('العميل غير موجود');
+  const payment = normalizePayments(client).find(p => Number(p.number) === Number(paymentNumber));
+  if (!payment) return showToast('الدفعة غير موجودة');
+
+  if (payment.invoice && !confirm('يوجد فاتورة مرفوعة سابقاً. هل تريد استبدالها؟')) return;
+
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = 'image/*,application/pdf';
+  fileInput.onchange = async () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      payment.invoice = reader.result;
+      payment.invoiceName = file.name;
+      payment.invoiceUpdatedAt = new Date().toISOString();
+      payment.note = payment.note || 'تم رفع فاتورة من الإدارة';
+      await persistClientPayments(client);
+      showToast('✅ تم رفع الفاتورة للعميل');
+      adminOpenClientPayments(clientId);
+    };
+    reader.readAsDataURL(file);
+  };
+  fileInput.click();
+}
+
+function showClientSchedule(id) {
+  const client = db.clients.find(c => String(c.id) === String(id));
+  if (!client) return showToast('العميل غير موجود');
+  const schedule = client.visitSchedule || [];
+
+  document.getElementById('appContent').innerHTML = `
+    <div class="card">
+      <div class="section-title">📅 جدول زيارات العميل</div>
+      <div style="font-size:18px;font-weight:800;margin-bottom:8px;">${escapeHtml(client.name)}</div>
+      <div style="color:var(--text-light);margin-bottom:16px;">عدد الزيارات: ${client.used || 0} / ${client.visits || 0}</div>
+
+      ${schedule.length ? schedule.map((v, idx) => `
+        <div class="visit-item">
+          <div class="visit-info">
+            <div class="visit-title">الزيارة رقم ${v.number || idx + 1}</div>
+            <div class="visit-date">${v.date || '-'} — ${v.type || 'زيارة دورية'} | الفني: ${v.tech || 'غير محدد'}</div>
+            <div class="visit-admin-actions">
+              ${v.status !== 'منفذة' && v.status !== 'مكتمل' ? `<button class="submit-btn green" onclick="adminMarkVisitCompleted(${client.id}, ${idx}, 'schedule')">✅ تم التنفيذ</button>` : ''}
+              <button class="submit-btn red" onclick="deleteClientVisit(${client.id}, ${idx}, 'schedule')">🗑️ حذف الزيارة</button>
+            </div>
+          </div>
+          <span class="visit-badge upcoming">${v.status || 'مجدولة'}</span>
+        </div>
+      `).join('') : `<div class="card" style="background:#f8f9fa;text-align:center;">لا يوجد جدول زيارات لهذا العميل</div>`}
+
+      <button class="submit-btn" style="margin-top:16px;" onclick="renderPanel('all_clients')">رجوع</button>
+    </div>
+  `;
+}
+
+function showVisitList(type) {
+  let title = 'الزيارات';
+  let visits = [];
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(today.getDate() + 1);
+
+  db.clients.forEach(client => {
+    (client.visitSchedule || []).forEach((v, idx) => {
+      const d = new Date(v.date);
+      let cmp = new Date(d);
+      cmp.setHours(0,0,0,0);
+      let ok = false;
+
+      if (type === "today") { title = 'زيارات اليوم'; ok = cmp.toDateString() === today.toDateString(); }
+      if (type === "tomorrow") { title = 'زيارات الغد'; ok = cmp.toDateString() === tomorrow.toDateString(); }
+      if (type === "week") {
+        title = 'زيارات هذا الأسبوع';
+        const end = new Date(today);
+        end.setDate(today.getDate() + 7);
+        ok = cmp >= today && cmp <= end;
+      }
+      if (type === "overdue") { title = 'الزيارات المتأخرة'; ok = cmp < today && v.status !== "مكتمل" && v.status !== "منفذة"; }
+
+      if (ok) {
+        visits.push({
+          clientId: client.id,
+          visitIndex: idx,
+          client: client.name,
+          tech: v.tech || "غير محدد",
+          date: v.date,
+          type: v.type || "زيارة دورية",
+          status: v.status || "مجدولة"
+        });
+      }
+    });
+  });
+
+  document.getElementById('appContent').innerHTML = `
+    <div class="section-title">📅 ${title}</div>
+    ${visits.length ? visits.map(v => `
+      <div class="visit-item">
+        <div class="visit-dot upcoming">📅</div>
+        <div class="visit-info" onclick="openVisitDetails(${v.clientId}, '${v.date}')" style="cursor:pointer;">
+          <div class="visit-title">${escapeHtml(v.client)}</div>
+          <div class="visit-date">${v.date} — ${escapeHtml(v.type)}</div>
+          <div class="visit-date">الفني: ${escapeHtml(v.tech)}</div>
+          <div class="visit-admin-actions">
+            ${v.status !== 'منفذة' && v.status !== 'مكتمل' ? `<button class="submit-btn green" onclick="event.stopPropagation(); adminMarkVisitCompleted(${v.clientId}, ${v.visitIndex}, '${type}')">✅ تم التنفيذ / تمت المراجعة</button>` : ''}
+            <button class="submit-btn red" onclick="event.stopPropagation(); deleteClientVisit(${v.clientId}, ${v.visitIndex}, '${type}')">🗑️ حذف الزيارة</button>
+          </div>
+        </div>
+        <span class="visit-badge upcoming">${escapeHtml(v.status)}</span>
+      </div>
+    `).join('') : `<div class="card" style="text-align:center;padding:24px;">لا توجد زيارات في هذا القسم.</div>`}
+
+    <button class="submit-btn" style="margin-top:16px;background:#64748b;" onclick="renderPanel('all_visits')">رجوع لجدول الزيارات</button>
+  `;
+}
+
+async function adminMarkVisitCompleted(clientId, visitIndex, returnType='overdue'){
+  const client = db.clients.find(c => String(c.id) === String(clientId));
+  if (!client || !client.visitSchedule || !client.visitSchedule[visitIndex]) return showToast('الزيارة غير موجودة');
+  const visit = client.visitSchedule[visitIndex];
+  if (!confirm('هل تريد نقل هذه الزيارة من المتأخرة/المجدولة إلى المنفذة؟')) return;
+  visit.status = 'منفذة';
+  visit.reviewedAt = new Date().toISOString();
+  visit.reviewedBy = currentUser?.name || 'مدير النظام';
+  client.used = Math.min(Number(client.used || 0) + 1, Number(client.visits || client.visitSchedule.length || 0));
+  saveDB();
+  if (typeof saveClientToFirebase === 'function') await saveClientToFirebase(client);
+  showToast('✅ تم تحديث الزيارة');
+  returnType === 'schedule' ? showClientSchedule(clientId) : showVisitList(returnType);
+}
+
+async function deleteClientVisit(clientId, visitIndex, returnType='schedule'){
+  const client = db.clients.find(c => String(c.id) === String(clientId));
+  if (!client || !client.visitSchedule || !client.visitSchedule[visitIndex]) return showToast('الزيارة غير موجودة');
+  const visit = client.visitSchedule[visitIndex];
+  if (!confirmDelete('حذف زيارة', `العميل: ${client.name}\nالتاريخ: ${visit.date || '-'}\nسيتم حذف هذه الزيارة من جدول العميل.`)) return;
+  client.visitSchedule.splice(visitIndex, 1);
+  saveDB();
+  if (typeof saveClientToFirebase === 'function') await saveClientToFirebase(client);
+  showToast('🗑️ تم حذف الزيارة');
+  returnType === 'schedule' ? showClientSchedule(clientId) : showVisitList(returnType);
+}
+
 </script>
 </body>
 </html>
