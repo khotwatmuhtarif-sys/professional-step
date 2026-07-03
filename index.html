@@ -72,9 +72,12 @@
       try {
         await db_fire.ref('clients/' + client.id).set(client);
         console.log('✅ تم حفظ العميل في Firebase:', client.username);
+        window.__lastFirebaseSaveError = null;
         return true;
       } catch(e) {
-        console.log('خطأ حفظ:', e);
+        window.__lastFirebaseSaveError = e;
+        console.error('خطأ حفظ Firebase:', e);
+        if (typeof showToast === 'function') showToast('⚠️ تعذر الحفظ على السحابة، تحقق من الإنترنت');
         return false;
       }
     };
@@ -1206,11 +1209,11 @@ let db = {
   clients: [],
   users: [
   { username: 'admin', password: 'stepro@2025', role: 'admin', name: 'مدير النظام' },
-
-  { username: 'raqib', password: 'tech@1234', role: 'employee', name: 'رقيب' },
   { username: 'fahad', password: 'tech@1234', role: 'employee', name: 'فهد' },
-  { username: 'nayoun', password: 'tech@1234', role: 'employee', name: 'نايون' },
-  { username: 'shoaib', password: 'tech@1234', role: 'employee', name: 'شعيب' }
+  { username: 'neon', password: 'tech@1234', role: 'employee', name: 'نيون' },
+  { username: 'abbas', password: 'tech@1234', role: 'employee', name: 'عباس' },
+  { username: 'raqib', password: 'tech@1234', role: 'employee', name: 'رقيب' },
+  { username: 'thani', password: 'tech@1234', role: 'employee', name: 'ثاني' }
 ],
   nextId: 1001
 };
@@ -1225,7 +1228,16 @@ function generatePassword(id) {
 
 // حفظ البيانات
 function saveDB() {
-  try { localStorage.setItem('khotwah_db', JSON.stringify(db)); } catch(e) {}
+  try {
+    localStorage.setItem('khotwah_db', JSON.stringify(db));
+    window.__lastSaveError = null;
+    return true;
+  } catch(e) {
+    window.__lastSaveError = e;
+    console.error('فشل حفظ البيانات محلياً:', e);
+    if (typeof showToast === 'function') showToast('⚠️ تعذر الحفظ محلياً، قد تكون الذاكرة ممتلئة');
+    return false;
+  }
 }
 
 // تحميل البيانات
@@ -1233,7 +1245,10 @@ function loadDB() {
   try {
     const saved = localStorage.getItem('khotwah_db');
     if (saved) db = JSON.parse(saved);
-  } catch(e) {}
+  } catch(e) {
+    window.__lastLoadError = e;
+    console.error('فشل تحميل البيانات المحلية:', e);
+  }
 }
 
 loadDB();
@@ -2706,10 +2721,11 @@ document.getElementById('newClientId').setAttribute('data-editing', 'true');
         document.getElementById('newClientValue').value = client.contractAmount || client.value || 0;
         if (document.getElementById('newClientPay')) document.getElementById('newClientPay').value = client.paymentPlan || client.pay || 'شهري';
         renderPaymentSchedulePreview();
-        document.getElementById('contractStartDate').value =
+        if (document.getElementById('contractStartDate')) {
+            document.getElementById('contractStartDate').value = client.contractStartDate || client.start || '';
+        }
         document.getElementById('previewUsername').textContent = client.username || '';
-document.getElementById('previewPassword').textContent = client.password || '';
-            client.contractStartDate || client.start || '';
+        document.getElementById('previewPassword').textContent = client.password || '';
             const saveBtn = document.querySelector('#modalContent button.green');
 if (saveBtn) saveBtn.innerHTML = '💾 حفظ التعديلات';
     }, 100);
@@ -4687,16 +4703,16 @@ const oldGenerate=window.generateVisitSchedule||generateVisitSchedule; window.ge
 (function(){
 function esc(v){return String(v??'').replace(/[&<>'"]/g,s=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[s]));}
 function ensureTechnicians(){
-  if(!db.users) db.users=[];
-  const techs=[
+  const officialTechs=[
     {username:'fahad',password:'tech@1234',role:'employee',name:'فهد'},
     {username:'neon',password:'tech@1234',role:'employee',name:'نيون'},
-    {username:'nayoun',password:'tech@1234',role:'employee',name:'نيون'},
     {username:'abbas',password:'tech@1234',role:'employee',name:'عباس'},
     {username:'raqib',password:'tech@1234',role:'employee',name:'رقيب'},
-    {username:'tech2',password:'tech@1234',role:'employee',name:'فني ثاني'}
+    {username:'thani',password:'tech@1234',role:'employee',name:'ثاني'}
   ];
-  techs.forEach(t=>{ if(!db.users.some(u=>u.username===t.username)) db.users.push(t); });
+  const adminUsers=(db.users||[]).filter(u=>u.role==='admin');
+  const admin=adminUsers[0] || { username:'admin', password:'stepro@2025', role:'admin', name:'مدير النظام' };
+  db.users=[admin, ...officialTechs];
   try{saveDB();}catch(e){}
 }
 ensureTechnicians();
@@ -4813,6 +4829,484 @@ const oldSaveVisitReport=window.saveVisitReport||saveVisitReport;
 window.saveVisitReport=async function(){ return oldSaveVisitReport(); };
 saveVisitReport=window.saveVisitReport;
 
+})();
+</script>
+
+
+<script>
+/* ===== v1.8 Critical Stabilization Patch ===== */
+(function(){
+  function normalizeDateOnly(value){
+    if(!value) return '';
+    const d = new Date(value);
+    if(Number.isNaN(d.getTime())) return String(value).split('T')[0] || '';
+    return d.toISOString().split('T')[0];
+  }
+  function isVisitCompletedStatus(status){
+    const s = String(status || '').trim();
+    return ['مكتمل','منفذة','تم التنفيذ','تمت المراجعة','completed','done'].includes(s);
+  }
+  window.isVisitCompletedStatus = isVisitCompletedStatus;
+
+  function getAllVisitsNormalized(){
+    const today = new Date(); today.setHours(0,0,0,0);
+    return (db.clients || []).flatMap(client => (client.visitSchedule || []).map((v, index) => {
+      const d = new Date(v.date);
+      if(!Number.isNaN(d.getTime())) d.setHours(0,0,0,0);
+      const completed = isVisitCompletedStatus(v.status) || !!v.doneAt || !!v.reportId;
+      return {
+        clientId: client.id,
+        client: client.name || '—',
+        visitIndex: index,
+        number: v.number || index + 1,
+        tech: v.tech || 'غير محدد',
+        date: v.date || '',
+        type: v.type || 'زيارة دورية',
+        status: completed ? (v.status || 'منفذة') : (v.status || 'مجدولة'),
+        completed,
+        overdue: !completed && !Number.isNaN(d.getTime()) && d < today,
+        raw: v
+      };
+    }));
+  }
+  window.getOverdueVisits = function(){
+    return getAllVisitsNormalized().filter(v => v.overdue);
+  };
+
+  /* تنظيف حسابات الفنيين وإبقاء الأدمن + الفنيين الرسميين فقط */
+  window.enforceOfficialTechnicians = function(){
+    const officialTechs = [
+      { username:'fahad', password:'tech@1234', role:'employee', name:'فهد' },
+      { username:'neon',  password:'tech@1234', role:'employee', name:'نيون' },
+      { username:'abbas', password:'tech@1234', role:'employee', name:'عباس' },
+      { username:'raqib', password:'tech@1234', role:'employee', name:'رقيب' },
+      { username:'thani', password:'tech@1234', role:'employee', name:'ثاني' }
+    ];
+    const admin = (db.users || []).find(u => u.role === 'admin') || { username:'admin', password:'stepro@2025', role:'admin', name:'مدير النظام' };
+    db.users = [admin, ...officialTechs];
+    saveDB();
+  };
+  enforceOfficialTechnicians();
+
+  /* حماية إضافية عند تحميل قاعدة محلية قديمة */
+  const oldLoadDB_v18 = window.loadDB || loadDB;
+  window.loadDB = function(){
+    const result = oldLoadDB_v18.apply(this, arguments);
+    enforceOfficialTechnicians();
+    return result;
+  };
+  loadDB = window.loadDB;
+
+  /* إصلاح فتح تعديل العميل وتعبئة تاريخ بداية العقد المحفوظ */
+  const oldEditClient_v18 = window.editClient || editClient;
+  window.editClient = function(id){
+    const client = (db.clients || []).find(c => String(c.id) === String(id));
+    oldEditClient_v18.apply(this, arguments);
+    setTimeout(() => {
+      if(!client) return;
+      const startInput = document.getElementById('contractStartDate');
+      if(startInput) startInput.value = normalizeDateOnly(client.contractStartDate || client.start || startInput.value);
+      const userPreview = document.getElementById('previewUsername');
+      const passPreview = document.getElementById('previewPassword');
+      if(userPreview) userPreview.textContent = client.username || '';
+      if(passPreview) passPreview.textContent = client.password || '';
+    }, 180);
+  };
+  editClient = window.editClient;
+
+  /* تصحيح حفظ تاريخ بداية العقد عند الحفظ */
+  const oldSaveNewClient_v18 = window.saveNewClient || saveNewClient;
+  window.saveNewClient = async function(){
+    const idValue = document.getElementById('newClientId')?.value || '';
+    const editingId = parseInt(String(idValue).replace('#',''));
+    const oldClient = (db.clients || []).find(c => String(c.id) === String(editingId));
+    const explicitStart = document.getElementById('contractStartDate')?.value || '';
+    const beforeSchedule = oldClient?.visitSchedule ? JSON.stringify(oldClient.visitSchedule) : '';
+    await oldSaveNewClient_v18.apply(this, arguments);
+    const saved = (db.clients || []).find(c => String(c.id) === String(editingId));
+    if(saved){
+      if(explicitStart){
+        saved.contractStartDate = explicitStart;
+        saved.start = saved.start || explicitStart;
+      } else if(oldClient?.contractStartDate || oldClient?.start){
+        saved.contractStartDate = oldClient.contractStartDate || oldClient.start;
+      }
+      /* إذا كان التعديل لم يغير بداية العقد بشكل واضح فلا نمسح الجدول القديم */
+      if(oldClient && !explicitStart && beforeSchedule){
+        try { saved.visitSchedule = JSON.parse(beforeSchedule); } catch(e){}
+      }
+      saveDB();
+      if(window.saveClientToFirebase) {
+        const ok = await window.saveClientToFirebase(saved);
+        if(!ok && typeof showToast === 'function') showToast('⚠️ حُفظ محلياً ولم يُحفظ في Firebase');
+      }
+    }
+  };
+  saveNewClient = window.saveNewClient;
+
+  /* مصدر واحد لعداد وقائمة الزيارات */
+  window.adminVisits = function(){
+    const allVisits = getAllVisitsNormalized().sort((a,b)=>new Date(a.date)-new Date(b.date));
+    const today = new Date(); today.setHours(0,0,0,0);
+    const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate()+1);
+    const weekEnd = new Date(today); weekEnd.setDate(weekEnd.getDate()+7);
+    const todayCount = allVisits.filter(v => new Date(v.date).toDateString() === today.toDateString()).length;
+    const tomorrowCount = allVisits.filter(v => new Date(v.date).toDateString() === tomorrow.toDateString()).length;
+    const weekCount = allVisits.filter(v => {
+      const d = new Date(v.date); return !Number.isNaN(d.getTime()) && d >= today && d <= weekEnd;
+    }).length;
+    const overdueCount = getOverdueVisits().length;
+    const weekVisits = allVisits.filter(v => {
+      const d = new Date(v.date); return !Number.isNaN(d.getTime()) && d >= today && d <= weekEnd;
+    }).slice(0, 20);
+    return `
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+        <div class="section-title" style="margin:0;">📅 جدول الزيارات</div>
+        <button class="submit-btn" style="width:auto; padding:8px 16px; font-size:13px;" onclick="openModal('scheduleVisit')">+ جدولة زيارة</button>
+      </div>
+      <div class="stats-row cols-4" style="margin-bottom:20px;">
+        <div class="stat-card" onclick="showVisitList('today')" style="cursor:pointer;"><span class="stat-icon">📍</span><span class="stat-num green">${todayCount}</span><span class="stat-label">زيارات اليوم</span></div>
+        <div class="stat-card" onclick="showVisitList('tomorrow')" style="cursor:pointer;"><span class="stat-icon">➡️</span><span class="stat-num">${tomorrowCount}</span><span class="stat-label">زيارات الغد</span></div>
+        <div class="stat-card" onclick="showVisitList('week')" style="cursor:pointer;"><span class="stat-icon">🗓️</span><span class="stat-num gold">${weekCount}</span><span class="stat-label">هذا الأسبوع</span></div>
+        <div class="stat-card" onclick="showVisitList('overdue')" style="cursor:pointer;"><span class="stat-icon">⚠️</span><span class="stat-num red">${overdueCount}</span><span class="stat-label">متأخرة</span></div>
+      </div>
+      ${weekVisits.map(v => `
+        <div class="visit-item">
+          <div class="visit-dot ${v.overdue ? 'danger' : 'upcoming'}">📅</div>
+          <div class="visit-info">
+            <div class="visit-title">${escapeHtml(v.client)}</div>
+            <div class="visit-date">${escapeHtml(v.date)} — ${escapeHtml(v.type)} | الفني: ${escapeHtml(v.tech)}</div>
+          </div>
+          <span class="visit-badge ${v.completed ? 'done' : 'upcoming'}">${escapeHtml(v.status)}</span>
+        </div>
+      `).join('') || '<div class="card">لا توجد زيارات قادمة هذا الأسبوع.</div>'}
+    `;
+  };
+  adminVisits = window.adminVisits;
+
+  window.showVisitList = function(type){
+    let title = 'الزيارات';
+    const today = new Date(); today.setHours(0,0,0,0);
+    const tomorrow = new Date(today); tomorrow.setDate(today.getDate()+1);
+    const end = new Date(today); end.setDate(today.getDate()+7);
+    let visits = getAllVisitsNormalized().filter(v => {
+      const d = new Date(v.date); if(Number.isNaN(d.getTime())) return false; d.setHours(0,0,0,0);
+      if(type === 'today'){ title='زيارات اليوم'; return d.getTime() === today.getTime(); }
+      if(type === 'tomorrow'){ title='زيارات الغد'; return d.getTime() === tomorrow.getTime(); }
+      if(type === 'week'){ title='زيارات هذا الأسبوع'; return d >= today && d <= end; }
+      if(type === 'overdue'){ title='الزيارات المتأخرة'; return v.overdue; }
+      return true;
+    }).sort((a,b)=>new Date(a.date)-new Date(b.date));
+
+    document.getElementById('appContent').innerHTML = `
+      <div class="section-title">📅 ${title} (${visits.length})</div>
+      ${visits.length ? visits.map(v => `
+        <div class="visit-item" style="cursor:pointer;">
+          <div class="visit-dot ${v.overdue ? 'danger' : 'upcoming'}">📅</div>
+          <div class="visit-info" onclick="openVisitDetails(${v.clientId}, '${v.date}')">
+            <div class="visit-title">${escapeHtml(v.client)} — الزيارة ${v.number}</div>
+            <div class="visit-date">${escapeHtml(v.date)} — ${escapeHtml(v.type)}</div>
+            <div class="visit-date">الفني: ${escapeHtml(v.tech)}</div>
+          </div>
+          <span class="visit-badge ${v.completed ? 'done' : 'upcoming'}">${escapeHtml(v.status)}</span>
+        </div>
+      `).join('') : `<div class="card" style="text-align:center;padding:24px;">لا توجد زيارات في هذا القسم.</div>`}
+      <button class="submit-btn" style="margin-top:16px;background:#64748b;" onclick="renderPanel('all_visits')">رجوع لجدول الزيارات</button>
+    `;
+  };
+
+  /* حماية فتح التقارير في واجهة العميل: لا يرى العميل إلا تقاريره */
+  const oldOpenReportDetails_v18 = window.openReportDetails || openReportDetails;
+  window.openReportDetails = function(id){
+    const report = (db.reports || []).find(r => String(r.id) === String(id));
+    if(currentRole === 'client' && report && String(report.clientId || '') !== String(currentClientId || '')){
+      return showToast('⚠️ هذا التقرير غير مرتبط بحسابك');
+    }
+    return oldOpenReportDetails_v18.apply(this, arguments);
+  };
+  openReportDetails = window.openReportDetails;
+
+  /* رسائل اتصال واضحة */
+  window.addEventListener('offline', () => { if(typeof showToast==='function') showToast('⚠️ لا يوجد اتصال بالإنترنت، سيتم حفظ بعض البيانات محلياً فقط'); });
+  window.addEventListener('online', () => { if(typeof showToast==='function') showToast('✅ عاد الاتصال بالإنترنت'); });
+
+  console.log('✅ v1.8 Critical Stabilization Patch loaded');
+})();
+</script>
+
+
+<!-- ===== v1.9.1 Pilot Operations Patch: payments workflow ===== -->
+<style>
+.pay-all-card{background:#fff;border:1px solid #e0e7ef;border-radius:16px;padding:16px;margin:12px 0;box-shadow:0 2px 10px rgba(0,0,0,.04)}
+.pay-all-card strong{color:#1a3a5c}.payment-actions{align-items:stretch}.payment-actions .submit-btn{min-height:38px}.payment-card .file-chip{max-width:260px}.payment-status-line{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px}.payment-note-muted{font-size:12px;color:#6b7a8d;margin-top:6px}.pay-all-warning{background:#fff8e1;border:1px solid #facc15;color:#854d0e;border-radius:10px;padding:10px;margin:10px 0;font-size:13px}.pay-all-success{background:#e8f5e9;border:1px solid #a5d6a7;color:#166534;border-radius:10px;padding:10px;margin:10px 0;font-size:13px;font-weight:700}
+</style>
+<script>
+(function(){
+  function psafe(v){
+    try { if (typeof escapeHtml === 'function') return escapeHtml(v); } catch(e){}
+    return String(v ?? '').replace(/[&<>"']/g, function(s){return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]);});
+  }
+  function getClientById(id){ return (db.clients || []).find(c => String(c.id) === String(id)); }
+  function getCurrentClient(){ return getClientById(currentClientId) || {}; }
+  function todayIso(){ return new Date().toISOString().split('T')[0]; }
+  function payAllUnpaid(payments){ return (payments || []).filter(p => p.status !== 'مدفوعة'); }
+  function ensurePayAllRequest(client){
+    if(!client.payAllRequest) client.payAllRequest = null;
+    return client.payAllRequest;
+  }
+  async function persistClient(client){
+    if(!client) return false;
+    try { saveDB(); } catch(e){ console.error(e); showToast('⚠️ تعذر الحفظ المحلي'); }
+    if(typeof saveClientToFirebase === 'function'){
+      try {
+        const ok = await saveClientToFirebase(client);
+        if(!ok){ showToast('⚠️ تم الحفظ محلياً فقط، لم يتم الحفظ في Firebase'); return false; }
+      } catch(e){ console.error(e); showToast('⚠️ انقطع الاتصال أثناء الحفظ، تم الحفظ محلياً فقط'); return false; }
+    }
+    return true;
+  }
+  window.persistClientPayments = persistClient;
+  persistClientPayments = window.persistClientPayments;
+
+  function renderClientPayAllBlock(client, stats){
+    const req = client.payAllRequest || null;
+    const unpaid = payAllUnpaid(stats.payments);
+    if(stats.remaining <= 0){
+      return '<div class="card" style="background:#e8f5e9;text-align:center;color:var(--green);font-weight:bold;">✅ لا توجد مبالغ مستحقة حالياً</div>';
+    }
+    if(req && req.receipt){
+      return `
+        <div class="pay-all-card">
+          <div class="section-title">💰 دفع جميع المتبقي</div>
+          <div><strong>المبلغ:</strong> ${Number(req.amount || stats.remaining).toLocaleString()} ريال</div>
+          <div class="payment-note-muted">الدفعات المشمولة: ${(req.includedNumbers || []).map(n => '#'+n).join('، ') || unpaid.map(p => '#'+p.number).join('، ')}</div>
+          <div class="payment-status-line">${paymentStatusBadge(req.status || 'بانتظار المراجعة')} <span class="file-chip">📎 ${psafe(req.receiptName || 'receipt')}</span></div>
+          <div class="payment-actions">
+            <button class="submit-btn" style="background:#64748b" onclick="openAttachment('${req.receipt}', '${psafe(req.receiptName || 'receipt')}')">👁️ عرض إيصال جميع المتبقي</button>
+            ${req.status !== 'مدفوعة' ? `<button class="submit-btn" onclick="clientUploadPayAllReceipt(true)">🔄 استبدال الإيصال</button><button class="submit-btn red" onclick="clientDeletePayAllReceipt()">🗑 حذف الإيصال</button>` : ''}
+          </div>
+          ${req.status === 'مدفوعة' ? '<div class="pay-all-success">✅ تم اعتماد دفع جميع المتبقي من الإدارة.</div>' : '<div class="pay-all-warning">⏳ الإيصال بانتظار مراجعة الإدارة.</div>'}
+        </div>`;
+    }
+    return `<button class="submit-btn green" style="margin-bottom:14px;" onclick="openPayRemainingModal()">💰 دفع جميع المتبقي (${stats.remaining.toLocaleString()} ريال)</button>`;
+  }
+
+  window.clientPayments = function(){
+    const client = getCurrentClient();
+    const stats = getPaymentStats(client);
+    return `
+      ${paymentSummaryCard(client)}
+      <div class="section-title">💳 دفعاتي</div>
+      ${renderBankDetailsCard()}
+      ${renderClientPayAllBlock(client, stats)}
+      <div class="section-title">📑 جدول الدفعات</div>
+      ${stats.payments.length ? stats.payments.map(p => `
+        <div class="payment-card ${p.status === 'مدفوعة' ? 'paid' : 'unpaid'} ${p.status === 'غير مدفوعة' ? 'danger-soft' : ''}">
+          <span class="payment-icon">${p.status === 'مدفوعة' ? '✅' : p.status === 'بانتظار المراجعة' ? '⏳' : '⚠️'}</span>
+          <div class="payment-info">
+            <div class="payment-title">الدفعة رقم ${psafe(p.number || '-')} — ${Number(p.amount || 0).toLocaleString()} ريال</div>
+            <div class="payment-date">استحقاق: ${psafe(p.dueDate || '-')} ${p.paidDate ? '| دفع: ' + psafe(p.paidDate) : ''}</div>
+            <div style="margin-top:6px;">${paymentStatusBadge(p.status || 'غير مدفوعة')}</div>
+            ${p.receiptName ? `<div class="file-chip">📎 ${psafe(p.receiptName)}</div>` : ''}
+            ${p.invoiceName ? `<div class="file-chip">🧾 ${psafe(p.invoiceName)}</div>` : ''}
+            ${p.note ? `<div class="payment-note-muted">ملاحظة: ${psafe(p.note)}</div>` : ''}
+            <div class="payment-actions">
+              ${p.status !== 'مدفوعة' ? `<button class="submit-btn" onclick="clientUploadReceipt(${Number(p.number)})">📎 ${p.receipt ? 'استبدال الإيصال' : 'رفع إيصال التحويل'}</button>` : ''}
+              ${p.receipt ? `<button class="submit-btn" style="background:#64748b" onclick="openAttachment('${p.receipt}', '${psafe(p.receiptName || 'receipt')}')">👁️ عرض الإيصال</button>` : ''}
+              ${p.receipt && p.status !== 'مدفوعة' ? `<button class="submit-btn red" onclick="clientDeleteReceipt(${Number(p.number)})">🗑 حذف الإيصال</button>` : ''}
+              ${p.invoice ? `<button class="submit-btn green" onclick="openAttachment('${p.invoice}', '${psafe(p.invoiceName || 'invoice')}')">🧾 عرض الفاتورة</button>` : ''}
+            </div>
+          </div>
+          <span class="payment-amount">${Number(p.amount || 0).toLocaleString()} ر</span>
+        </div>
+      `).join('') : '<div class="card" style="text-align:center">لا يوجد جدول دفعات محفوظ لهذا العميل</div>'}
+    `;
+  };
+  clientPayments = window.clientPayments;
+
+  window.clientUploadReceipt = function(paymentNumber){
+    const client = getCurrentClient();
+    if(!client.id) return showToast('العميل غير موجود');
+    const payment = normalizePayments(client).find(p => Number(p.number) === Number(paymentNumber));
+    if(!payment) return showToast('الدفعة غير موجودة');
+    if(payment.status === 'مدفوعة') return showToast('لا يمكن تعديل إيصال دفعة معتمدة');
+    const input = document.createElement('input');
+    input.type = 'file'; input.accept = 'image/*,application/pdf';
+    input.onchange = () => {
+      const file = input.files && input.files[0]; if(!file) return;
+      const reader = new FileReader();
+      reader.onload = async () => {
+        payment.receipt = reader.result;
+        payment.receiptName = file.name;
+        payment.status = 'بانتظار المراجعة';
+        payment.note = payment.receiptName ? 'تم رفع/استبدال إيصال من العميل' : 'تم رفع إيصال من العميل';
+        await persistClient(client);
+        showToast('✅ تم رفع الإيصال وبانتظار اعتماد الإدارة');
+        renderPanel('payments');
+      };
+      reader.readAsDataURL(file);
+    };
+    input.click();
+  };
+
+  window.clientDeleteReceipt = async function(paymentNumber){
+    const client = getCurrentClient();
+    const payment = normalizePayments(client).find(p => Number(p.number) === Number(paymentNumber));
+    if(!payment || !payment.receipt) return showToast('لا يوجد إيصال');
+    if(payment.status === 'مدفوعة') return showToast('لا يمكن حذف إيصال دفعة معتمدة');
+    if(!confirm('هل أنت متأكد من حذف إيصال التحويل؟')) return;
+    payment.receipt = '';
+    payment.receiptName = '';
+    if(payment.status === 'بانتظار المراجعة') payment.status = 'غير مدفوعة';
+    payment.note = 'تم حذف الإيصال من العميل';
+    await persistClient(client);
+    showToast('🗑 تم حذف الإيصال');
+    renderPanel('payments');
+  };
+
+  window.openPayRemainingModal = function(){
+    const client = getCurrentClient(); const stats = getPaymentStats(client); const unpaid = payAllUnpaid(stats.payments);
+    if(stats.remaining <= 0) return showToast('لا يوجد مبلغ متبقٍ');
+    document.getElementById('modalTitle').textContent = 'دفع جميع المبلغ المتبقي';
+    document.getElementById('modalContent').innerHTML = `
+      <div class="pay-all-card">
+        <h3>💰 إجمالي المتبقي: ${stats.remaining.toLocaleString()} ريال</h3>
+        <div class="payment-note-muted">الدفعات المشمولة: ${unpaid.map(p => 'الدفعة #' + p.number + ' (' + Number(p.amount || 0).toLocaleString() + ' ريال)').join('، ')}</div>
+      </div>
+      ${renderBankDetailsCard()}
+      <button class="submit-btn green" onclick="clientUploadPayAllReceipt(false)">📎 رفع إيصال تحويل المبلغ المتبقي</button>
+      <button class="submit-btn" style="background:#64748b;margin-top:10px;" onclick="closeModal()">رجوع</button>`;
+    document.getElementById('modalOverlay').classList.add('active');
+  };
+
+  window.clientUploadPayAllReceipt = function(replace){
+    const client = getCurrentClient(); const stats = getPaymentStats(client); const unpaid = payAllUnpaid(stats.payments);
+    if(!client.id) return showToast('العميل غير موجود');
+    if(stats.remaining <= 0) return showToast('لا يوجد مبلغ متبقٍ');
+    const input = document.createElement('input'); input.type='file'; input.accept='image/*,application/pdf';
+    input.onchange = () => {
+      const file = input.files && input.files[0]; if(!file) return;
+      const reader = new FileReader();
+      reader.onload = async () => {
+        client.payAllRequest = {
+          amount: stats.remaining,
+          includedNumbers: unpaid.map(p => p.number),
+          receipt: reader.result,
+          receiptName: file.name,
+          status: 'بانتظار المراجعة',
+          uploadedAt: new Date().toISOString()
+        };
+        unpaid.forEach(p => {
+          p.status = 'بانتظار المراجعة';
+          p.receipt = reader.result;
+          p.receiptName = file.name;
+          p.note = 'إيصال ضمن طلب دفع جميع المتبقي';
+        });
+        await persistClient(client);
+        showToast(replace ? '✅ تم استبدال إيصال جميع المتبقي' : '✅ تم رفع إيصال جميع المتبقي');
+        closeModal(); renderPanel('payments');
+      };
+      reader.readAsDataURL(file);
+    };
+    input.click();
+  };
+
+  window.clientDeletePayAllReceipt = async function(){
+    const client = getCurrentClient(); const req = client.payAllRequest;
+    if(!req || !req.receipt) return showToast('لا يوجد إيصال');
+    if(req.status === 'مدفوعة') return showToast('لا يمكن حذف إيصال معتمد');
+    if(!confirm('هل تريد حذف إيصال دفع جميع المتبقي؟')) return;
+    const nums = req.includedNumbers || [];
+    normalizePayments(client).forEach(p => {
+      if(nums.includes(p.number) && p.status !== 'مدفوعة'){
+        p.receipt=''; p.receiptName=''; p.status='غير مدفوعة'; p.note='تم حذف إيصال دفع جميع المتبقي';
+      }
+    });
+    client.payAllRequest = null;
+    await persistClient(client);
+    showToast('🗑 تم حذف إيصال جميع المتبقي');
+    renderPanel('payments');
+  };
+
+  function renderPayAllAdminBlock(client){
+    const req = client.payAllRequest;
+    if(!req || !req.receipt) return '';
+    return `
+      <div class="pay-all-card">
+        <div class="section-title">💰 طلب دفع جميع المتبقي</div>
+        <div><strong>المبلغ:</strong> ${Number(req.amount || 0).toLocaleString()} ريال</div>
+        <div class="payment-note-muted">الدفعات المشمولة: ${(req.includedNumbers || []).map(n => '#'+n).join('، ')}</div>
+        <div class="payment-status-line">${paymentStatusBadge(req.status || 'بانتظار المراجعة')} <span class="file-chip">📎 ${psafe(req.receiptName || 'receipt')}</span></div>
+        <div class="payment-actions">
+          <button class="submit-btn" style="background:#64748b" onclick="openAttachment('${req.receipt}', '${psafe(req.receiptName || 'receipt')}')">👁️ عرض الإيصال</button>
+          <button class="submit-btn green" onclick="adminApprovePayAll(${client.id})">✅ اعتماد جميع المتبقي</button>
+          <button class="submit-btn red" onclick="adminRejectPayAll(${client.id})">رفض الطلب</button>
+          <button class="submit-btn red" style="background:#7f1d1d" onclick="adminDeletePayAllRequest(${client.id})">🗑 حذف الطلب</button>
+        </div>
+      </div>`;
+  }
+
+  const oldAdminOpen = window.adminOpenClientPayments || adminOpenClientPayments;
+  window.adminOpenClientPayments = function(id){
+    const client = getClientById(id);
+    if(!client) return showToast('العميل غير موجود');
+    oldAdminOpen(id);
+    const app = document.getElementById('appContent');
+    if(app && client.payAllRequest && client.payAllRequest.receipt){
+      const marker = '<div class="section-title">📑 جدول الدفعات</div>';
+      app.innerHTML = app.innerHTML.replace(marker, renderPayAllAdminBlock(client) + marker);
+    }
+  };
+  adminOpenClientPayments = window.adminOpenClientPayments;
+
+  window.adminApprovePayAll = async function(clientId){
+    const client = getClientById(clientId); if(!client || !client.payAllRequest) return;
+    if(!confirm('هل تريد اعتماد دفع جميع المتبقي وتحويل الدفعات المشمولة إلى مدفوعة؟')) return;
+    const req = client.payAllRequest; const nums = req.includedNumbers || [];
+    normalizePayments(client).forEach(p => {
+      if(nums.includes(p.number)){
+        p.status='مدفوعة'; p.paidDate=todayIso();
+        p.receipt = p.receipt || req.receipt; p.receiptName = p.receiptName || req.receiptName;
+        p.note = 'تم اعتمادها ضمن دفع جميع المتبقي';
+      }
+    });
+    req.status='مدفوعة'; req.approvedAt = new Date().toISOString();
+    await persistClient(client);
+    showToast('✅ تم اعتماد دفع جميع المتبقي');
+    adminOpenClientPayments(clientId);
+  };
+
+  window.adminRejectPayAll = async function(clientId){
+    const client = getClientById(clientId); if(!client || !client.payAllRequest) return;
+    const reason = prompt('سبب رفض إيصال دفع جميع المتبقي:', 'الإيصال غير واضح');
+    if(reason === null) return;
+    const req = client.payAllRequest; req.status='مرفوض'; req.rejectionReason = reason;
+    normalizePayments(client).forEach(p => {
+      if((req.includedNumbers || []).includes(p.number) && p.status !== 'مدفوعة'){
+        p.status='غير مدفوعة'; p.note = reason || 'تم رفض إيصال دفع جميع المتبقي';
+      }
+    });
+    await persistClient(client);
+    showToast('تم رفض طلب دفع جميع المتبقي');
+    adminOpenClientPayments(clientId);
+  };
+
+  window.adminDeletePayAllRequest = async function(clientId){
+    const client = getClientById(clientId); if(!client || !client.payAllRequest) return;
+    if(!confirm('هل تريد حذف طلب دفع جميع المتبقي؟')) return;
+    const nums = client.payAllRequest.includedNumbers || [];
+    normalizePayments(client).forEach(p => {
+      if(nums.includes(p.number) && p.status !== 'مدفوعة'){
+        p.receipt=''; p.receiptName=''; p.status='غير مدفوعة'; p.note='تم حذف طلب دفع جميع المتبقي من الإدارة';
+      }
+    });
+    client.payAllRequest = null;
+    await persistClient(client);
+    showToast('🗑 تم حذف الطلب');
+    adminOpenClientPayments(clientId);
+  };
+
+  console.log('✅ v1.9.1 Payments Pilot Patch loaded');
 })();
 </script>
 
