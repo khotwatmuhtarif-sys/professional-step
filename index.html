@@ -5310,5 +5310,243 @@ saveVisitReport=window.saveVisitReport;
 })();
 </script>
 
+
+<script>
+/* ===== v1.9.2 Focused Patch: payments merge + technician client log mobile cleanup ===== */
+(function(){
+  const PATCH_VERSION = 'v1.9.2-focused';
+
+  function safeEsc(v){
+    if (typeof esc === 'function') return esc(v ?? '');
+    return String(v ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  }
+
+  function normalizeStatus(s){
+    s = String(s || '').trim();
+    if (!s) return 'غير مدفوعة';
+    if (s.includes('مدفوعة') && !s.includes('غير')) return 'مدفوعة';
+    if (s.includes('مراجعة') || s.includes('انتظار')) return 'بانتظار المراجعة';
+    return 'غير مدفوعة';
+  }
+
+  function getEditingClient(){
+    try {
+      const rawId = document.getElementById('newClientId')?.value || '';
+      const id = String(rawId).replace('#','').trim();
+      return (window.db?.clients || []).find(c => String(c.id) === id) || null;
+    } catch(e){ return null; }
+  }
+
+  // 1) منع تضارب جدول الدفعات عند تعديل العميل:
+  // نولّد الجدول حسب البيانات الجديدة، ثم ندمج حالات الدفعات والإيصالات والفواتير القديمة حسب رقم الدفعة.
+  if (typeof generatePaymentScheduleData === 'function' && !window.__v192PaymentPatchApplied) {
+    window.__v192PaymentPatchApplied = true;
+    const oldGeneratePaymentScheduleData_v192 = generatePaymentScheduleData;
+
+    window.generatePaymentScheduleData = function(){
+      const generated = oldGeneratePaymentScheduleData_v192.apply(this, arguments) || [];
+      const client = getEditingClient();
+      const oldPayments = Array.isArray(client?.payments) ? client.payments : [];
+
+      if (!oldPayments.length) return generated;
+
+      const oldByNumber = {};
+      oldPayments.forEach(p => {
+        if (p && p.number != null) oldByNumber[String(p.number)] = p;
+      });
+
+      return generated.map(p => {
+        const old = oldByNumber[String(p.number)];
+        if (!old) return p;
+        return {
+          ...p,
+          status: normalizeStatus(old.status),
+          paidDate: old.paidDate || '',
+          receipt: old.receipt || '',
+          receiptName: old.receiptName || '',
+          invoice: old.invoice || '',
+          invoiceName: old.invoiceName || '',
+          note: old.note || '',
+          approvedBy: old.approvedBy || '',
+          approvedAt: old.approvedAt || '',
+          reviewedAt: old.reviewedAt || ''
+        };
+      });
+    };
+    generatePaymentScheduleData = window.generatePaymentScheduleData;
+  }
+
+  // 2) معاينة جدول الدفعات في شاشة تعديل العميل تعرض الحالة الحقيقية بعد الدمج.
+  if (typeof renderPaymentSchedulePreview === 'function' && !window.__v192PreviewPatchApplied) {
+    window.__v192PreviewPatchApplied = true;
+    window.renderPaymentSchedulePreview = function(){
+      const container = document.getElementById('paymentSchedulePreview');
+      if (!container) return;
+
+      const payments = (typeof generatePaymentScheduleData === 'function') ? generatePaymentScheduleData() : [];
+      const amount = Number(document.getElementById('newClientValue')?.value || 0);
+      const plan = document.getElementById('newClientPay')?.value || 'يدوي';
+
+      if (!amount || plan === 'يدوي' || !payments.length) {
+        container.innerHTML = plan === 'يدوي'
+          ? '<div class="card" style="background:#fff8e1;border:1px solid #facc15;font-size:13px;">💡 طريقة الدفع يدوية: سجّل الدفعات من صندوق الدفعات اليدوية عند الحاجة.</div>'
+          : '';
+        return;
+      }
+
+      const badge = (st) => {
+        st = normalizeStatus(st);
+        if (st === 'مدفوعة') return '<span class="status-badge active">✅ مدفوعة</span>';
+        if (st === 'بانتظار المراجعة') return '<span class="status-badge pending">⏳ بانتظار المراجعة</span>';
+        return '<span class="status-badge expired">⚠️ غير مدفوعة</span>';
+      };
+
+      container.innerHTML = `
+        <div class="card" style="margin-top:12px;background:#f8fafc;">
+          <div class="section-title">💰 جدول الدفعات الحالي</div>
+          <div style="font-size:12px;color:#64748b;margin-bottom:8px;">
+            يعتمد هذا الجدول على الدفعات المحفوظة للعميل، وليس جدولًا جديدًا منفصلًا.
+          </div>
+          <table style="width:100%;border-collapse:collapse;text-align:center;font-size:13px;">
+            <tr style="background:#eef2ff;">
+              <th style="padding:8px;">#</th>
+              <th style="padding:8px;">القيمة</th>
+              <th style="padding:8px;">الاستحقاق</th>
+              <th style="padding:8px;">الحالة</th>
+            </tr>
+            ${payments.map(p => `
+              <tr style="border-bottom:1px solid #e5e7eb;">
+                <td style="padding:8px;">${safeEsc(p.number)}</td>
+                <td style="padding:8px;">${Number(p.amount || 0).toLocaleString()} ريال</td>
+                <td style="padding:8px;">${safeEsc(p.dueDate || '-')}</td>
+                <td style="padding:8px;">${badge(p.status)}</td>
+              </tr>
+            `).join('')}
+          </table>
+        </div>`;
+    };
+    renderPaymentSchedulePreview = window.renderPaymentSchedulePreview;
+  }
+
+  // 3) واجهة الفني: إزالة التكرار بين "العملاء" و"سجل العميل" واعتماد أيقونة واحدة.
+  function applyTechNavCleanup(){
+    try {
+      if (typeof navs === 'object' && Array.isArray(navs.employee)) {
+        navs.employee = [
+          { id: 'home', icon: '🏠', label: 'الرئيسية' },
+          { id: 'visits', icon: '📅', label: 'الزيارات' },
+          { id: 'report_upload', icon: '📤', label: 'رفع تقرير' },
+          { id: 'client_history', icon: '📋', label: 'سجل العميل' }
+        ];
+      }
+    } catch(e){}
+  }
+  applyTechNavCleanup();
+  const oldRenderNav_v192 = window.renderNav || (typeof renderNav === 'function' ? renderNav : null);
+  if (oldRenderNav_v192 && !window.__v192NavRenderPatchApplied) {
+    window.__v192NavRenderPatchApplied = true;
+    window.renderNav = function(){
+      applyTechNavCleanup();
+      return oldRenderNav_v192.apply(this, arguments);
+    };
+    renderNav = window.renderNav;
+  }
+
+  // 4) سجل العميل للفني: بطاقات واضحة بدل جدول مقصوص على الجوال.
+  window.techClientCard_v192 = function(c){
+    const reps = (typeof reportsByClient === 'function') ? reportsByClient(c.id) : [];
+    const last = reps[0];
+    const note = (typeof latestTechNote === 'function') ? latestTechNote(c) : null;
+    const search = ((c.name||'')+' '+(c.englishName||'')+' '+(c.id||'')+' '+(c.phone||'')+' '+(c.username||'')).toLowerCase();
+
+    return `<div class="tech-client-card-v192" data-search="${safeEsc(search)}">
+      <div class="tech-client-card-head-v192">
+        <div>
+          <div class="tech-client-contract-v192">#${safeEsc(c.id || '-')}</div>
+          <div class="tech-client-name-v192">${safeEsc(c.name || 'بدون اسم')}</div>
+          <div class="tech-client-sub-v192">${safeEsc(c.location || c.city || c.phone || '')}</div>
+        </div>
+        <div class="tech-client-icon-v192">🏢</div>
+      </div>
+
+      <div class="tech-client-line-v192">
+        <b>آخر تقرير:</b>
+        <span>${last ? `الزيارة ${safeEsc((typeof getVisitNumberForReport === 'function') ? getVisitNumberForReport(c,last) : '')} — ${safeEsc(last.date || '-')}` : 'لا يوجد'}</span>
+      </div>
+
+      <div class="tech-client-note-v192">
+        <b>ملاحظة للفني القادم:</b>
+        <div>${note ? safeEsc(note.note || '').slice(0,140) + (String(note.note||'').length>140?'…':'') : 'لا توجد ملاحظة'}</div>
+      </div>
+
+      <div class="tech-card-actions-v192">
+        <button class="mini-btn" onclick="openClientServiceLog(${Number(c.id)})">📋 عرض السجل</button>
+        ${last ? `<button class="mini-btn green" onclick="openReportDetails(${Number(last.id)})">📄 آخر تقرير</button>` : ''}
+        <button class="mini-btn gray" onclick="addNextTechNote(${Number(c.id)}, ${last ? Number(last.id) : 'null'})">📝 ملاحظة</button>
+      </div>
+    </div>`;
+  };
+
+  window.employeeClientHistory = function(){
+    const clients = window.db?.clients || [];
+    return `<div class="section-title">📋 سجل العميل للفني</div>
+      <div class="card">
+        <div class="form-group tech-log-search">
+          <label class="form-label">🔍 ابحث باسم العميل أو رقم العقد أو الجوال</label>
+          <input class="form-input" id="techClientLogSearch" placeholder="مثال: السنبلة / 1001 / رقم الجوال" oninput="filterTechClientLog()">
+        </div>
+        <div id="techClientLogRows" class="tech-client-list-v192">
+          ${clients.map(c => techClientCard_v192(c)).join('') || '<div class="card">لا يوجد عملاء</div>'}
+        </div>
+      </div>`;
+  };
+  employeeClientHistory = window.employeeClientHistory;
+  if (typeof employeeClients !== 'undefined') employeeClients = window.employeeClientHistory;
+
+  window.filterTechClientLog = function(){
+    const q = (document.getElementById('techClientLogSearch')?.value || '').toLowerCase().trim();
+    document.querySelectorAll('#techClientLogRows [data-search]').forEach(el => {
+      el.style.display = (!q || (el.getAttribute('data-search') || '').toLowerCase().includes(q)) ? '' : 'none';
+    });
+  };
+
+  // 5) توجيه clients_list القديم لنفس الشاشة بدون تكرار بالناف.
+  const oldGetPanelHTML_v192 = window.getPanelHTML || (typeof getPanelHTML === 'function' ? getPanelHTML : null);
+  if (oldGetPanelHTML_v192 && !window.__v192PanelPatchApplied) {
+    window.__v192PanelPatchApplied = true;
+    window.getPanelHTML = function(id){
+      if (window.currentRole === 'employee' && (id === 'client_history' || id === 'clients_list')) return window.employeeClientHistory();
+      return oldGetPanelHTML_v192.apply(this, arguments);
+    };
+    getPanelHTML = window.getPanelHTML;
+  }
+
+  // CSS خاص بالبطاقات
+  const css = `
+    .tech-client-list-v192{display:flex;flex-direction:column;gap:12px;}
+    .tech-client-card-v192{background:#fff;border:1px solid var(--border);border-radius:16px;padding:14px;box-shadow:var(--shadow);overflow:hidden;}
+    .tech-client-card-head-v192{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:10px;}
+    .tech-client-contract-v192{font-weight:900;color:var(--primary);font-size:15px;}
+    .tech-client-name-v192{font-weight:900;font-size:17px;color:var(--text);line-height:1.6;}
+    .tech-client-sub-v192{font-size:12px;color:var(--text-light);}
+    .tech-client-icon-v192{width:42px;height:42px;border-radius:12px;background:linear-gradient(135deg,var(--primary),var(--primary-light));display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;}
+    .tech-client-line-v192{background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:10px;margin:8px 0;font-size:13px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;}
+    .tech-client-note-v192{background:#fff8e1;border:1px solid #fde68a;border-radius:12px;padding:10px;margin:8px 0;font-size:13px;color:#475569;}
+    .tech-client-note-v192 b{color:#92400e;}
+    .tech-card-actions-v192{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-top:10px;}
+    .tech-card-actions-v192 .mini-btn{width:100%;white-space:normal;}
+    @media(min-width:900px){.tech-client-list-v192{display:grid;grid-template-columns:repeat(2,1fr);}}
+  `;
+  if (!document.getElementById('v192-focused-css')) {
+    const style = document.createElement('style');
+    style.id = 'v192-focused-css';
+    style.textContent = css;
+    document.head.appendChild(style);
+  }
+
+  console.log('✅ تم تحميل تصحيح ' + PATCH_VERSION);
+})();
+</script>
+
 </body>
 </html>
