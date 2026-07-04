@@ -5859,5 +5859,239 @@ saveVisitReport=window.saveVisitReport;
 })();
 </script>
 
+
+
+<!-- ===== v1.9.4 Core fixes: technician client loading + visit schedule + payments preview ===== -->
+<script>
+(function(){
+  const PATCH_VERSION = 'v1.9.4-core-fixes';
+  if (window.__v194CoreFixesApplied) return;
+  window.__v194CoreFixesApplied = true;
+
+  function esc2(v){
+    if (typeof esc === 'function') return esc(v ?? '');
+    if (typeof h === 'function') return h(v ?? '');
+    return String(v ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  }
+  function today(){ return new Date().toISOString().split('T')[0]; }
+  function clientsArr(){
+    if (!window.db) window.db = {};
+    if (!Array.isArray(window.db.clients)) window.db.clients = [];
+    return window.db.clients;
+  }
+  function clientById2(id){ return clientsArr().find(c => String(c.id) === String(id)) || null; }
+  function normalizeVisitStatus(s){ return String(s || '').trim(); }
+  function visitDone(v){
+    const s = normalizeVisitStatus(v && v.status);
+    return !!(v && (v.reportId || v.report || v.completed || v.doneAt || ['منفذة','مكتمل','تم التنفيذ','تمت المراجعة','منجز'].some(x => s.includes(x))));
+  }
+  function getClientVisits2(client){
+    if (!client) return [];
+    return [client.visitSchedule, client.visitsSchedule, client.schedule, client.visitsList, client.visitsTable]
+      .find(Array.isArray) || [];
+  }
+  function nextReportableVisit(client){
+    const visits = getClientVisits2(client);
+    if (!visits.length) return {visit:null,index:-1};
+    let idx = visits.findIndex(v => !visitDone(v));
+    if (idx < 0) idx = 0;
+    return {visit:visits[idx] || null, index:idx};
+  }
+  function visitDate(v){ return v ? (v.date || v.defaultDate || v.scheduledDate || v.dueDate || v.visitDate || '') : ''; }
+  function visitNumber(v, idx){ return v ? (v.number || v.visitNumber || (idx >= 0 ? idx + 1 : '')) : ''; }
+
+  async function waitForFirebaseReady(){
+    for(let i=0;i<25;i++){
+      if (window.firebase && firebase.database) return true;
+      await new Promise(r => setTimeout(r, 120));
+    }
+    return !!(window.firebase && firebase.database);
+  }
+
+  window.ensureClientsLoadedForTechnician_v194 = async function(force=false){
+    if (!force && clientsArr().length) return clientsArr();
+    try{
+      if (typeof window.loadClientsFromFirebase === 'function') await window.loadClientsFromFirebase();
+    }catch(e){ console.warn('loadClientsFromFirebase failed', e); }
+    if (!force && clientsArr().length) return clientsArr();
+    try{
+      if (await waitForFirebaseReady()){
+        const snap = await firebase.database().ref('clients').get();
+        if (snap.exists()){
+          const data = snap.val() || {};
+          window.db.clients = Object.values(data);
+          if (typeof saveDB === 'function') saveDB();
+        }
+      }
+    }catch(e){ console.error('تعذر تحميل العملاء من Firebase:', e); }
+    return clientsArr();
+  };
+
+  function optionLabel(c){ return `#${esc2(c.id)} — ${esc2(c.name || c.englishName || 'بدون اسم')}`; }
+
+  window.refreshReportClientSelect_v194 = async function(force=false){
+    const select = document.getElementById('reportClientSelect');
+    if (!select) return;
+    const oldVal = select.value;
+    const q = (document.getElementById('reportClientSearch')?.value || '').toLowerCase().trim();
+    if (!clientsArr().length || force){
+      select.innerHTML = '<option value="">جاري تحميل العملاء...</option>';
+      await window.ensureClientsLoadedForTechnician_v194(force);
+    }
+    const list = clientsArr().filter(c => {
+      const txt = ((c.name||'')+' '+(c.englishName||'')+' '+(c.id||'')+' '+(c.contractNo||'')+' '+(c.username||'')+' '+(c.location||'')+' '+(c.city||'')).toLowerCase();
+      return !q || txt.includes(q);
+    });
+    select.innerHTML = list.map(c => `<option value="${esc2(c.id)}">${optionLabel(c)}</option>`).join('') || '<option value="">لا توجد نتائج</option>';
+    if (oldVal && [...select.options].some(o => String(o.value) === String(oldVal))) select.value = oldVal;
+    window.updateReportVisitDates();
+    if (typeof window.renderSelectedClientNextNote_v193 === 'function') window.renderSelectedClientNextNote_v193();
+  };
+
+  window.filterReportClients = function(){ window.refreshReportClientSelect_v194(false); };
+
+  window.updateReportVisitDates = function(){
+    const id = document.getElementById('reportClientSelect')?.value;
+    const client = clientById2(id);
+    const visits = getClientVisits2(client);
+    const {visit,index} = nextReportableVisit(client);
+    const defaultInput = document.getElementById('scheduledVisitDate');
+    const idxInput = document.getElementById('scheduledVisitIndex');
+    const hint = document.getElementById('scheduledVisitNumberHint');
+    const serviceType = document.getElementById('serviceType');
+    if(defaultInput) defaultInput.value = visitDate(visit) || '';
+    if(idxInput) idxInput.value = index >= 0 ? String(index) : '';
+    if(serviceType && visit && (visit.type || visit.serviceType)) serviceType.value = visit.type || visit.serviceType;
+    if(hint){
+      if(!client) hint.textContent = 'اختر العميل أولاً';
+      else if(!visits.length) hint.textContent = 'لا يوجد جدول زيارات لهذا العميل';
+      else if(visit) hint.textContent = `الزيارة رقم ${visitNumber(visit,index)} من جدول الزيارات`;
+      else hint.textContent = 'لا يوجد موعد افتراضي محفوظ';
+    }
+  };
+
+  // شاشة رفع التقرير: العميل يظهر بالاسم + رقم العقد فقط، ورقم الجوال لا يظهر للفني.
+  window.employeeUpload = function(){
+    const fileBlocks = [
+      ['executionImages','صور التنفيذ','executionFilesText'],
+      ['pestImages','صور الآفات','pestFilesText'],
+      ['paperReportImages','صورة تقرير المتابعة الورقي','paperFilesText'],
+      ['baitMapImages','صورة خريطة الطعوم','baitMapFilesText'],
+      ['rodentStationImages','صور محطات ومصائد القوارض','rodentStationFilesText']
+    ].map(([id,lbl,txt]) => `<div class="form-group"><label class="form-label">📸 ${esc2(lbl)}</label><input type="file" id="${id}" accept="image/*" multiple style="display:none" onchange="showFileNames('${id}','${txt}')"><div class="pest-upload-area" onclick="document.getElementById('${id}').click()"><div style="font-size:32px">📸</div><div>${esc2(lbl)}</div><div id="${txt}" style="font-size:12px;color:var(--text-light)">لم يتم اختيار صور</div></div></div>`).join('');
+    setTimeout(() => window.refreshReportClientSelect_v194(true), 80);
+    return `<div class="section-title">📤 رفع تقرير زيارة</div>
+      <div class="card">
+        <div class="form-group"><label class="form-label">ابحث عن العميل</label><input class="form-input" id="reportClientSearch" placeholder="اكتب اسم العميل أو رقم العقد" oninput="filterReportClients()"></div>
+        <div class="form-group"><label class="form-label">اختر العميل</label><select class="form-select" id="reportClientSelect" onchange="updateReportVisitDates(); if(window.renderSelectedClientNextNote_v193) renderSelectedClientNextNote_v193();"><option value="">جاري تحميل العملاء...</option></select></div>
+        <div id="selectedClientNextNote" style="margin-bottom:12px"></div>
+        <div class="form-group"><label class="form-label">تاريخ الزيارة الافتراضي</label><input type="text" class="form-input" id="scheduledVisitDate" readonly placeholder="يظهر من جدول الزيارات"><input type="hidden" id="scheduledVisitIndex"><div id="scheduledVisitNumberHint" style="font-size:12px;color:var(--text-light);margin-top:4px">جاري تحميل جدول الزيارات...</div></div>
+        <div class="form-group"><label class="form-label">تاريخ التنفيذ الفعلي</label><input type="date" class="form-input" id="actualExecutionDate" value="${today()}"></div>
+        <div class="form-group"><label class="form-label">نوع الخدمة</label><select class="form-select" id="serviceType"><option>زيارة دورية</option><option>طوارئ</option><option>متابعة</option><option>فحص مصائد الطعوم</option><option>مكافحة صراصير</option><option>مكافحة نمل أبيض</option><option>مكافحة قوارض</option><option>مكافحة طيور</option><option>تقرير متابعة ميدانية (ورقي)</option></select></div>
+        <div class="form-group"><label class="form-label">المواد المستخدمة</label><input type="text" class="form-input" id="materialsInput"></div>
+        <div class="form-group"><label class="form-label">ملاحظات الزيارة</label><textarea class="form-textarea" id="notesInput"></textarea></div>
+        ${fileBlocks}
+        <div id="reportUploadStatus" style="margin:10px 0;font-size:13px;color:var(--text-light)"></div>
+        <button id="uploadReportBtn" class="submit-btn" onclick="saveVisitReport()">📋 رفع التقرير</button>
+      </div>`;
+  };
+  if (typeof employeeUpload !== 'undefined') employeeUpload = window.employeeUpload;
+
+  const oldInitPanel_v194 = window.initPanelJS || (typeof initPanelJS === 'function' ? initPanelJS : null);
+  window.initPanelJS = function(panelId){
+    if(oldInitPanel_v194) oldInitPanel_v194.apply(this, arguments);
+    if(panelId === 'report_upload') setTimeout(() => window.refreshReportClientSelect_v194(true), 120);
+  };
+  if(typeof initPanelJS !== 'undefined') initPanelJS = window.initPanelJS;
+
+  // حفظ التقرير مع ربط واضح بزيارة جدول العميل.
+  const existingSaveVisitReport_v194 = window.saveVisitReport;
+  window.saveVisitReport = async function(){
+    const select = document.getElementById('reportClientSelect');
+    if(select && (!select.value || select.value === '')){
+      if(typeof showToast === 'function') showToast('⚠️ اختر العميل أولاً');
+      return;
+    }
+    window.updateReportVisitDates();
+    if(typeof existingSaveVisitReport_v194 === 'function') return existingSaveVisitReport_v194.apply(this, arguments);
+  };
+  if(typeof saveVisitReport !== 'undefined') saveVisitReport = window.saveVisitReport;
+
+  // معاينة الدفعات في تعديل العميل تقرأ نفس بيانات شاشة الدفعات.
+  function paymentStatus(st){
+    st = String(st || '').trim();
+    if(st.includes('مدفوعة') && !st.includes('غير')) return 'مدفوعة';
+    if(st.includes('مراجعة') || st.includes('انتظار')) return 'بانتظار المراجعة';
+    return 'غير مدفوعة';
+  }
+  function editingClient(){
+    const fieldId = String(document.getElementById('newClientId')?.value || '').replace('#','').trim();
+    const id = window.__editingClientId_v194 || fieldId;
+    return clientsArr().find(c => String(c.id) === String(id)) || null;
+  }
+  function badge(st){
+    st = paymentStatus(st);
+    if(st === 'مدفوعة') return '<span class="status-badge active">✅ مدفوعة</span>';
+    if(st === 'بانتظار المراجعة') return '<span class="status-badge pending">⏳ بانتظار المراجعة</span>';
+    return '<span class="status-badge expired">⚠️ غير مدفوعة</span>';
+  }
+  const oldRenderPreview_v194 = window.renderPaymentSchedulePreview || (typeof renderPaymentSchedulePreview === 'function' ? renderPaymentSchedulePreview : null);
+  window.renderPaymentSchedulePreview = function(){
+    const container = document.getElementById('paymentSchedulePreview');
+    if(!container) return;
+    const client = editingClient();
+    let payments = Array.isArray(client?.payments) && client.payments.length ? client.payments : null;
+    if(!payments && typeof generatePaymentScheduleData === 'function') payments = generatePaymentScheduleData();
+    payments = payments || [];
+    const amount = Number(document.getElementById('newClientValue')?.value || client?.contractAmount || client?.value || 0);
+    const plan = document.getElementById('newClientPay')?.value || client?.paymentPlan || client?.pay || 'يدوي';
+    if(!amount || plan === 'يدوي' || !payments.length){
+      container.innerHTML = plan === 'يدوي' ? '<div class="card" style="background:#fff8e1;border:1px solid #facc15;font-size:13px;">💡 طريقة الدفع يدوية: سجّل الدفعات من شاشة الدفعات.</div>' : '';
+      return;
+    }
+    container.innerHTML = `<div class="card" style="margin-top:12px;background:#f8fafc;">
+      <div class="section-title">💰 جدول الدفعات الحالي</div>
+      <div style="font-size:12px;color:#64748b;margin-bottom:8px;">هذا نفس جدول الدفعات المحفوظ للعميل، وليس جدولاً جديداً منفصلاً.</div>
+      <table style="width:100%;border-collapse:collapse;text-align:center;font-size:13px;">
+        <tr style="background:#eef2ff;"><th style="padding:8px;">#</th><th style="padding:8px;">القيمة</th><th style="padding:8px;">الاستحقاق</th><th style="padding:8px;">الحالة</th></tr>
+        ${payments.map((p,i)=>`<tr style="border-bottom:1px solid #e5e7eb;"><td style="padding:8px;">${esc2(p.number || i+1)}</td><td style="padding:8px;">${Number(p.amount || p.value || 0).toLocaleString()} ريال</td><td style="padding:8px;">${esc2(p.dueDate || p.date || '-')}</td><td style="padding:8px;">${badge(p.status)}</td></tr>`).join('')}
+      </table>
+    </div>`;
+  };
+  if(typeof renderPaymentSchedulePreview !== 'undefined') renderPaymentSchedulePreview = window.renderPaymentSchedulePreview;
+
+  const oldEditClient_v194 = window.editClient || (typeof editClient === 'function' ? editClient : null);
+  if(oldEditClient_v194){
+    window.editClient = function(id){
+      window.__editingClientId_v194 = id;
+      const res = oldEditClient_v194.apply(this, arguments);
+      setTimeout(() => window.renderPaymentSchedulePreview && window.renderPaymentSchedulePreview(), 260);
+      setTimeout(() => window.renderPaymentSchedulePreview && window.renderPaymentSchedulePreview(), 700);
+      return res;
+    };
+    if(typeof editClient !== 'undefined') editClient = window.editClient;
+  }
+
+  // إذا كان الفني في سجل العميل، تأكد أن القائمة تقرأ كل العملاء بعد التحميل.
+  const oldEmployeeClientHistory_v194 = window.employeeClientHistory;
+  if(typeof oldEmployeeClientHistory_v194 === 'function'){
+    window.employeeClientHistory = function(){
+      setTimeout(async ()=>{
+        if(!clientsArr().length) await window.ensureClientsLoadedForTechnician_v194(true);
+        const rows = document.getElementById('techClientLogRows');
+        if(rows && rows.textContent.includes('لا يوجد عملاء') && typeof oldEmployeeClientHistory_v194 === 'function'){
+          const panel = document.getElementById('panelContent') || document.querySelector('.app-content .panel.active');
+          // لا نعيد بناء الشاشة هنا خوفاً من اختلاف الحاويات، لكن البحث سيعمل عند إعادة فتحها بعد التحميل.
+        }
+      },120);
+      return oldEmployeeClientHistory_v194.apply(this, arguments);
+    };
+    if(typeof employeeClientHistory !== 'undefined') employeeClientHistory = window.employeeClientHistory;
+  }
+
+  console.log('✅ تم تحميل تصحيح ' + PATCH_VERSION);
+})();
+</script>
+
 </body>
 </html>
