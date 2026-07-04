@@ -6093,5 +6093,193 @@ saveVisitReport=window.saveVisitReport;
 })();
 </script>
 
+
+
+<!-- ===== v1.9.5 Stage Items 1-5: Technician report selection only ===== -->
+<script>
+(function(){
+  if (window.__v195Items1to5Applied) return;
+  window.__v195Items1to5Applied = true;
+
+  function esc195(v){
+    if (typeof esc === 'function') return esc(v ?? '');
+    if (typeof h === 'function') return h(v ?? '');
+    return String(v ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  }
+  function today195(){ return new Date().toISOString().slice(0,10); }
+  function arr195(x){ return Array.isArray(x) ? x : []; }
+  function clients195(){
+    if (!window.db) window.db = {};
+    if (!Array.isArray(window.db.clients)) window.db.clients = [];
+    return window.db.clients;
+  }
+  function reports195(){
+    if (!window.db) window.db = {};
+    if (!Array.isArray(window.db.reports)) window.db.reports = [];
+    return window.db.reports;
+  }
+  function client195(id){ return clients195().find(c => String(c.id) === String(id)) || null; }
+  function visits195(c){
+    if (!c) return [];
+    return [c.visitSchedule, c.visitsSchedule, c.schedule, c.visitsList, c.visitsTable].find(Array.isArray) || [];
+  }
+  function visitDate195(v){ return v ? String(v.date || v.defaultDate || v.scheduledDate || v.dueDate || v.visitDate || '') : ''; }
+  function statusDone195(v){
+    const s = String(v?.status || '').trim();
+    return !!(v && (v.reportId || v.completed || v.doneAt || ['منفذة','مكتمل','تم التنفيذ','تمت المراجعة','منجز'].some(x => s.includes(x))));
+  }
+  function reportBelongsTo195(r, c){ return c && (String(r.clientId) === String(c.id) || String(r.client) === String(c.name)); }
+  function reportIndexSet195(c){
+    const set = new Set();
+    const visits = visits195(c);
+    reports195().filter(r => reportBelongsTo195(r,c)).forEach(r => {
+      if (r.visitIndex !== undefined && r.visitIndex !== null && r.visitIndex !== '') set.add(Number(r.visitIndex));
+      else {
+        const d = String(r.scheduledVisitDate || r.defaultVisitDate || '').slice(0,10);
+        if (d){
+          const idx = visits.findIndex(v => visitDate195(v).slice(0,10) === d);
+          if (idx >= 0) set.add(idx);
+        }
+      }
+    });
+    return set;
+  }
+  function bestVisit195(c){
+    const list = visits195(c);
+    if (!c || !list.length) return {visit:null,index:-1,total:list.length,number:''};
+    const used = Number(c.used || c.visitsUsed || c.completedVisits || 0);
+    const rset = reportIndexSet195(c);
+    let idx = -1;
+    for (let i=0;i<list.length;i++){
+      if (!statusDone195(list[i]) && !rset.has(i) && i >= used){ idx = i; break; }
+    }
+    if (idx < 0){
+      for (let i=0;i<list.length;i++){
+        if (!statusDone195(list[i]) && !rset.has(i)){ idx = i; break; }
+      }
+    }
+    if (idx < 0) idx = Math.min(Math.max(used,0), list.length - 1);
+    const v = list[idx] || null;
+    const n = v ? (v.number || v.visitNumber || (idx + 1)) : '';
+    return {visit:v,index:idx,total:list.length,number:n};
+  }
+  async function ensureClients195(force){
+    if (!force && clients195().length) return clients195();
+    try { if (typeof window.loadClientsFromFirebase === 'function') await window.loadClientsFromFirebase(); } catch(e) {}
+    if (clients195().length) return clients195();
+    try {
+      if (window.firebase && firebase.database){
+        const snap = await firebase.database().ref('clients').get();
+        if (snap.exists()) window.db.clients = Object.values(snap.val() || {});
+      }
+    } catch(e){ console.warn('تعذر تحميل العملاء للفني', e); }
+    return clients195();
+  }
+  function clientOption195(c){
+    const number = c.contractNo || c.contractNumber || c.id || '';
+    const name = c.name || c.englishName || 'بدون اسم';
+    return `<option value="${esc195(c.id)}">#${esc195(number)} — ${esc195(name)}</option>`;
+  }
+
+  window.refreshReportClientSelect_v195 = async function(force){
+    const select = document.getElementById('reportClientSelect');
+    if (!select) return;
+    const old = select.value;
+    const q = String(document.getElementById('reportClientSearch')?.value || '').toLowerCase().trim();
+    if (!clients195().length || force){
+      select.innerHTML = '<option value="">جاري تحميل العملاء...</option>';
+      await ensureClients195(!!force);
+    }
+    const filtered = clients195().filter(c => {
+      const txt = [c.name,c.englishName,c.id,c.contractNo,c.contractNumber,c.username,c.location,c.city].join(' ').toLowerCase();
+      return !q || txt.includes(q);
+    });
+    select.innerHTML = filtered.map(clientOption195).join('') || '<option value="">لا توجد نتائج</option>';
+    if (old && Array.from(select.options).some(o => String(o.value) === String(old))) select.value = old;
+    window.updateReportVisitDates();
+    if (typeof window.renderSelectedClientNextNote_v193 === 'function') window.renderSelectedClientNextNote_v193();
+  };
+  window.filterReportClients = function(){ window.refreshReportClientSelect_v195(false); };
+
+  window.updateReportVisitDates = function(){
+    const id = document.getElementById('reportClientSelect')?.value;
+    const c = client195(id);
+    const picked = bestVisit195(c);
+    const defaultInput = document.getElementById('scheduledVisitDate');
+    const idxInput = document.getElementById('scheduledVisitIndex');
+    const numInput = document.getElementById('scheduledVisitNumber');
+    const totalInput = document.getElementById('scheduledVisitTotal');
+    const hint = document.getElementById('scheduledVisitNumberHint');
+    const title = document.getElementById('reportUploadVisitTitle');
+    const service = document.getElementById('serviceType');
+    if (defaultInput) defaultInput.value = visitDate195(picked.visit) || '';
+    if (idxInput) idxInput.value = picked.index >= 0 ? String(picked.index) : '';
+    if (numInput) numInput.value = picked.number || '';
+    if (totalInput) totalInput.value = picked.total || '';
+    if (service && picked.visit && (picked.visit.type || picked.visit.serviceType)) service.value = picked.visit.type || picked.visit.serviceType;
+    const titleText = picked.visit ? `📤 رفع تقرير الزيارة رقم ${picked.number} من ${picked.total}` : '📤 رفع تقرير زيارة';
+    if (title) title.textContent = titleText;
+    if (hint){
+      if (!c) hint.textContent = 'اختر العميل أولاً';
+      else if (!picked.total) hint.textContent = 'لا يوجد جدول زيارات لهذا العميل';
+      else hint.textContent = `الزيارة رقم ${picked.number} من ${picked.total} — من جدول الزيارات`;
+    }
+  };
+
+  window.employeeUpload = function(){
+    const fileBlocks = [
+      ['executionImages','صور التنفيذ','executionFilesText'],
+      ['pestImages','صور الآفات','pestFilesText'],
+      ['paperReportImages','صورة تقرير المتابعة الورقي','paperFilesText'],
+      ['baitMapImages','صورة خريطة الطعوم','baitMapFilesText'],
+      ['rodentStationImages','صور محطات ومصائد القوارض','rodentStationFilesText']
+    ].map(([id,lbl,txt]) => `<div class="form-group"><label class="form-label">📸 ${esc195(lbl)}</label><input type="file" id="${id}" accept="image/*" multiple style="display:none" onchange="showFileNames('${id}','${txt}')"><div class="pest-upload-area" onclick="document.getElementById('${id}').click()"><div style="font-size:32px">📸</div><div>${esc195(lbl)}</div><div id="${txt}" style="font-size:12px;color:var(--text-light)">لم يتم اختيار صور</div></div></div>`).join('');
+    setTimeout(() => window.refreshReportClientSelect_v195(true), 120);
+    return `<div class="section-title" id="reportUploadVisitTitle">📤 رفع تقرير زيارة</div>
+      <div class="card">
+        <div class="form-group"><label class="form-label">ابحث عن العميل</label><input class="form-input" id="reportClientSearch" placeholder="اكتب اسم العميل أو رقم العقد" oninput="filterReportClients()"></div>
+        <div class="form-group"><label class="form-label">اختر العميل</label><select class="form-select" id="reportClientSelect" onchange="updateReportVisitDates(); if(window.renderSelectedClientNextNote_v193) renderSelectedClientNextNote_v193();"><option value="">جاري تحميل العملاء...</option></select></div>
+        <div id="selectedClientNextNote" style="margin-bottom:12px"></div>
+        <div class="form-group"><label class="form-label">رقم الزيارة</label><input type="text" class="form-input" id="scheduledVisitNumberDisplay" readonly placeholder="يظهر تلقائياً من جدول الزيارات" value="" onclick="this.blur()"><input type="hidden" id="scheduledVisitNumber"><input type="hidden" id="scheduledVisitTotal"><script>setInterval(function(){var a=document.getElementById('scheduledVisitNumber'),b=document.getElementById('scheduledVisitTotal'),d=document.getElementById('scheduledVisitNumberDisplay');if(a&&b&&d){d.value=(a.value&&b.value)?('الزيارة رقم '+a.value+' من '+b.value):''}},700);<\/script></div>
+        <div class="form-group"><label class="form-label">تاريخ الزيارة الافتراضي</label><input type="text" class="form-input" id="scheduledVisitDate" readonly placeholder="يظهر من جدول الزيارات"><input type="hidden" id="scheduledVisitIndex"><div id="scheduledVisitNumberHint" style="font-size:12px;color:var(--text-light);margin-top:4px">جاري تحميل جدول الزيارات...</div></div>
+        <div class="form-group"><label class="form-label">تاريخ التنفيذ الفعلي</label><input type="date" class="form-input" id="actualExecutionDate" value="${today195()}"></div>
+        <div class="form-group"><label class="form-label">نوع الخدمة</label><select class="form-select" id="serviceType"><option>زيارة دورية</option><option>طوارئ</option><option>متابعة</option><option>فحص مصائد الطعوم</option><option>مكافحة صراصير</option><option>مكافحة نمل أبيض</option><option>مكافحة قوارض</option><option>مكافحة طيور</option><option>تقرير متابعة ميدانية (ورقي)</option></select></div>
+        <div class="form-group"><label class="form-label">المواد المستخدمة</label><input type="text" class="form-input" id="materialsInput"></div>
+        <div class="form-group"><label class="form-label">ملاحظات الزيارة</label><textarea class="form-textarea" id="notesInput"></textarea></div>
+        ${fileBlocks}
+        <div id="reportUploadStatus" style="margin:10px 0;font-size:13px;color:var(--text-light)"></div>
+        <button id="uploadReportBtn" class="submit-btn" onclick="saveVisitReport()">📋 رفع التقرير</button>
+      </div>`;
+  };
+  if (typeof employeeUpload !== 'undefined') employeeUpload = window.employeeUpload;
+
+  const oldInit195 = window.initPanelJS || (typeof initPanelJS === 'function' ? initPanelJS : null);
+  window.initPanelJS = function(panelId){
+    if (oldInit195) oldInit195.apply(this, arguments);
+    if (panelId === 'report_upload') setTimeout(() => window.refreshReportClientSelect_v195(true), 150);
+  };
+  if (typeof initPanelJS !== 'undefined') initPanelJS = window.initPanelJS;
+
+  const oldSave195 = window.saveVisitReport;
+  window.saveVisitReport = async function(){
+    window.updateReportVisitDates();
+    const number = document.getElementById('scheduledVisitNumber')?.value || '';
+    const total = document.getElementById('scheduledVisitTotal')?.value || '';
+    const beforeCount = reports195().length;
+    const res = oldSave195 ? await oldSave195.apply(this, arguments) : undefined;
+    const newest = reports195()[0];
+    if (newest && reports195().length >= beforeCount){
+      newest.visitNumber = number;
+      newest.totalVisits = total;
+      newest.reportTitle = number && total ? `تقرير الزيارة رقم ${number} من ${total}` : newest.reportTitle;
+      if (typeof saveDB === 'function') saveDB();
+      try { if (window.firebase && firebase.database && newest.id) await firebase.database().ref('reports/' + newest.id).update({visitNumber:number,totalVisits:total,reportTitle:newest.reportTitle}); } catch(e) {}
+    }
+    return res;
+  };
+  if (typeof saveVisitReport !== 'undefined') saveVisitReport = window.saveVisitReport;
+})();
+</script>
+
 </body>
 </html>
