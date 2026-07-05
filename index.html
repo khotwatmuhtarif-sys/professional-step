@@ -6482,5 +6482,185 @@ saveVisitReport=window.saveVisitReport;
 })();
 </script>
 
+
+
+<script>
+/* ===== v1.9.7 Safe Fixes: finance + visits + reports stability ===== */
+(function(){
+  const safe = (v)=>String(v ?? '').replace(/[&<>'"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+  const num = (v)=>{
+    if(v===null || v===undefined || v==='') return 0;
+    if(typeof v === 'number') return Number.isFinite(v)?v:0;
+    const s=String(v).replace(/,/g,'').replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[^0-9.\-]/g,'');
+    const n=Number(s); return Number.isFinite(n)?n:0;
+  };
+  const sar = (v)=>`${num(v).toLocaleString('en-US',{maximumFractionDigits:2})} ريال`;
+  const dateOnly=(value)=>{ if(!value) return ''; const d=new Date(value); if(Number.isNaN(d.getTime())) return String(value).split('T')[0]; return d.toISOString().split('T')[0]; };
+  const todayOnly=()=>{ const d=new Date(); d.setHours(0,0,0,0); return d; };
+  const completedStatus=(s)=>['مكتمل','منفذة','تم التنفيذ','تمت المراجعة','تم التنفيذ بدون تقرير','completed','done'].includes(String(s||'').trim());
+  window.formatSAR = sar;
+
+  window.getContractValue=function(client){ return num(client?.contractAmount ?? client?.value ?? client?.contractValue ?? client?.amount ?? 0); };
+
+  window.normalizePayments=function(client){
+    if(!client) return [];
+    let payments = Array.isArray(client.payments) ? client.payments : [];
+    if(!payments.length && Array.isArray(client.manualPayments) && client.manualPayments.length){
+      payments = client.manualPayments.map((p,idx)=>({number:idx+1, amount:num(p.amount), dueDate:p.date||'', status:p.status||'مدفوعة', paidDate:p.date||'', receipt:p.receipt||'', receiptName:p.receiptName||'', invoice:p.invoice||'', invoiceName:p.invoiceName||'', note:p.note||'دفعة يدوية'}));
+      client.payments = payments;
+    }
+    return payments;
+  };
+  if(typeof normalizePayments!=='undefined') normalizePayments=window.normalizePayments;
+
+  window.getPaymentStats=function(client){
+    const payments = window.normalizePayments(client);
+    const contractValue = window.getContractValue(client);
+    const paid = payments.filter(p=>String(p.status||'').trim()==='مدفوعة').reduce((s,p)=>s+num(p.amount),0);
+    const pendingReview = payments.filter(p=>String(p.status||'').trim()==='بانتظار المراجعة').reduce((s,p)=>s+num(p.amount),0);
+    const remaining = Math.max(contractValue - paid - pendingReview, 0);
+    const unpaidCount = payments.filter(p=>String(p.status||'').trim()!=='مدفوعة').length;
+    const paidCount = payments.filter(p=>String(p.status||'').trim()==='مدفوعة').length;
+    const percent = contractValue ? Math.min(100, Math.round((paid / contractValue) * 100)) : 0;
+    return {payments, contractValue, paid, pendingReview, remaining, unpaidCount, paidCount, percent};
+  };
+  if(typeof getPaymentStats!=='undefined') getPaymentStats=window.getPaymentStats;
+
+  function reportForVisit(client, visit, index){
+    const reps=(db.reports||[]).filter(r=>String(r.clientId)===String(client.id));
+    return reps.find(r=>String(r.id)===String(visit.reportId||''))
+      || reps.find(r=>String(r.visitId||'')===String(visit.id||''))
+      || reps.find(r=>String(r.visitIndex)!=='' && Number(r.visitIndex)===index)
+      || reps.find(r=>String(r.visitNumber||'')===String(visit.number||index+1))
+      || reps.find(r=>dateOnly(r.scheduledDate||r.defaultVisitDate||r.visitDate)===dateOnly(visit.date));
+  }
+  window.getReportForVisit_v197 = reportForVisit;
+
+  window.getAllVisitsNormalized=function(){
+    const today=todayOnly();
+    return (db.clients||[]).flatMap(client => (client.visitSchedule||[]).map((v,index)=>{
+      const d=new Date(v.date); if(!Number.isNaN(d.getTime())) d.setHours(0,0,0,0);
+      const rep=reportForVisit(client,v,index);
+      const completed=completedStatus(v.status) || !!v.doneAt || !!v.reportId || !!rep;
+      return {clientId:client.id, client:client.name||'—', contractNo:client.contractNo||client.contractNumber||client.id, visitIndex:index, number:v.number||index+1, total:(client.visitSchedule||[]).length || num(client.visits), tech:v.tech||'غير محدد', date:v.date||'', type:v.type||'زيارة دورية', status: completed ? (v.status||'مكتمل') : (v.status||'مجدولة'), completed, overdue:!completed && !Number.isNaN(d.getTime()) && d<today, report:rep, raw:v};
+    }));
+  };
+  window.getOverdueVisits=()=>window.getAllVisitsNormalized().filter(v=>v.overdue);
+
+  window.adminHome=function(){
+    const clients=db.clients||[];
+    const total=clients.length;
+    const active=clients.filter(c=>(c.status||'active')==='active').length;
+    const pending=clients.filter(c=>c.status==='pending').length;
+    const expired=clients.filter(c=>c.status==='expired').length;
+    const monthly=clients.filter(c=>(c.pay||c.paymentPlan)==='شهري').length;
+    const quarterly=clients.filter(c=>(c.pay||c.paymentPlan)==='ربع سنوي').length;
+    const biannual=clients.filter(c=>(c.pay||c.paymentPlan)==='نصف سنوي').length;
+    const annual=clients.filter(c=>(c.pay||c.paymentPlan)==='سنوي').length;
+    const stats=clients.map(c=>window.getPaymentStats(c));
+    const contractTotal=stats.reduce((s,x)=>s+x.contractValue,0);
+    const collectedTotal=stats.reduce((s,x)=>s+x.paid,0);
+    const pendingReviewTotal=stats.reduce((s,x)=>s+x.pendingReview,0);
+    const remainingTotal=stats.reduce((s,x)=>s+x.remaining,0);
+    const overduePaymentsCount=clients.reduce((count,c)=>count+window.normalizePayments(c).filter(p=>String(p.status||'')!=='مدفوعة' && p.dueDate && new Date(p.dueDate)<new Date()).length,0);
+    return `<div class="welcome-header"><h2>لوحة التحكم 📊</h2><p>نظرة عامة شاملة على أداء المؤسسة</p></div>
+    <div class="section-title">💰 مؤشرات التحصيل</div><div class="stats-row cols-4">
+      <div class="stat-card" style="border-top:3px solid var(--green);"><span class="stat-icon">✅</span><span class="stat-num green">${sar(collectedTotal)}</span><span class="stat-label">المحصّل</span></div>
+      <div class="stat-card" style="border-top:3px solid var(--gold);"><span class="stat-icon">⏳</span><span class="stat-num gold">${sar(pendingReviewTotal)}</span><span class="stat-label">بانتظار المراجعة</span></div>
+      <div class="stat-card" style="border-top:3px solid var(--red);"><span class="stat-icon">💸</span><span class="stat-num red">${sar(remainingTotal)}</span><span class="stat-label">المتبقي</span></div>
+      <div class="stat-card" style="border-top:3px solid var(--orange);"><span class="stat-icon">⚠️</span><span class="stat-num orange">${overduePaymentsCount}</span><span class="stat-label">دفعات متأخرة</span></div></div>
+    <div class="section-title">📋 إحصائيات العقود</div><div class="stats-row cols-4">
+      <div class="stat-card" style="border-top:3px solid var(--green);"><span class="stat-icon">📋</span><span class="stat-num green">${total}</span><span class="stat-label">إجمالي العقود</span></div>
+      <div class="stat-card" style="border-top:3px solid var(--green-light);"><span class="stat-icon">✅</span><span class="stat-num green">${active}</span><span class="stat-label">عقود نشطة</span></div>
+      <div class="stat-card" style="border-top:3px solid var(--gold);"><span class="stat-icon">⏳</span><span class="stat-num gold">${pending}</span><span class="stat-label">تنتهي قريباً</span></div>
+      <div class="stat-card" style="border-top:3px solid var(--red);"><span class="stat-icon">❌</span><span class="stat-num red">${expired}</span><span class="stat-label">عقود منتهية</span></div></div>
+    <div class="section-title">💰 إحصائيات مالية</div><div class="stats-row cols-3">
+      <div class="stat-card" style="border-top:3px solid var(--primary);"><span class="stat-icon">💰</span><span class="stat-num gold">${sar(contractTotal)}</span><span class="stat-label">إجمالي قيمة العقود</span></div>
+      <div class="stat-card" style="border-top:3px solid var(--green);"><span class="stat-icon">👥</span><span class="stat-num green">${total}</span><span class="stat-label">إجمالي العملاء</span></div>
+      <div class="stat-card" style="border-top:3px solid var(--orange);"><span class="stat-icon">📅</span><span class="stat-num orange">${window.getAllVisitsNormalized().filter(v=>dateOnly(v.date)===dateOnly(new Date())).length}</span><span class="stat-label">زيارات اليوم</span></div></div>
+    <div class="section-title">🔄 توزيع طرق الدفع</div><div class="stats-row cols-4">
+      <div class="stat-card"><span class="stat-icon">📅</span><span class="stat-num">${monthly}</span><span class="stat-label">شهري</span></div><div class="stat-card"><span class="stat-icon">📅</span><span class="stat-num green">${quarterly}</span><span class="stat-label">ربع سنوي</span></div><div class="stat-card"><span class="stat-icon">📅</span><span class="stat-num gold">${biannual}</span><span class="stat-label">نصف سنوي</span></div><div class="stat-card"><span class="stat-icon">📅</span><span class="stat-num orange">${annual}</span><span class="stat-label">سنوي</span></div></div>`;
+  };
+  if(typeof adminHome!=='undefined') adminHome=window.adminHome;
+
+  window.adminVisits=function(){
+    const all=window.getAllVisitsNormalized().sort((a,b)=>new Date(a.date)-new Date(b.date));
+    const t=todayOnly(); const tomorrow=new Date(t); tomorrow.setDate(t.getDate()+1); const end=new Date(t); end.setDate(t.getDate()+7);
+    const isSame=(a,b)=>dateOnly(a)===dateOnly(b);
+    const todayCount=all.filter(v=>isSame(v.date,t)).length;
+    const tomorrowCount=all.filter(v=>isSame(v.date,tomorrow)).length;
+    const week=all.filter(v=>{const d=new Date(v.date); return !Number.isNaN(d)&&d>=t&&d<=end;});
+    const overdue=all.filter(v=>v.overdue);
+    return `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;"><div class="section-title" style="margin:0;">📅 جدول الزيارات</div><button class="submit-btn" style="width:auto;padding:8px 16px;font-size:13px;" onclick="openModal('scheduleVisit')">+ جدولة زيارة</button></div>
+    <div class="stats-row cols-4" style="margin-bottom:20px;"><div class="stat-card" onclick="showVisitList('today')" style="cursor:pointer;"><span class="stat-icon">📍</span><span class="stat-num green">${todayCount}</span><span class="stat-label">زيارات اليوم</span></div><div class="stat-card" onclick="showVisitList('tomorrow')" style="cursor:pointer;"><span class="stat-icon">➡️</span><span class="stat-num">${tomorrowCount}</span><span class="stat-label">زيارات الغد</span></div><div class="stat-card" onclick="showVisitList('week')" style="cursor:pointer;"><span class="stat-icon">🗓️</span><span class="stat-num gold">${week.length}</span><span class="stat-label">هذا الأسبوع</span></div><div class="stat-card" onclick="showVisitList('overdue')" style="cursor:pointer;"><span class="stat-icon">⚠️</span><span class="stat-num red">${overdue.length}</span><span class="stat-label">متأخرة</span></div></div>
+    ${week.map(v=>visitRow(v)).join('') || '<div class="card">لا توجد زيارات قادمة هذا الأسبوع.</div>'}`;
+  };
+  if(typeof adminVisits!=='undefined') adminVisits=window.adminVisits;
+
+  function visitRow(v){
+    return `<div class="visit-item"><div class="visit-dot ${v.overdue?'danger':v.completed?'done':'upcoming'}">📅</div><div class="visit-info" onclick="openVisitDetails(${Number(v.clientId)}, ${Number(v.visitIndex)})" style="cursor:pointer;"><div class="visit-title">${safe(v.client)} — الزيارة رقم ${safe(v.number)} من ${safe(v.total||'-')}</div><div class="visit-date">${safe(v.date)} — ${safe(v.type)} | الفني: ${safe(v.tech)}</div></div><span class="visit-badge ${v.completed?'done':v.overdue?'pending':'upcoming'}">${safe(v.completed?'مكتملة':v.overdue?'متأخرة':v.status)}</span></div>`;
+  }
+
+  window.showVisitList=function(type){
+    let title='الزيارات'; const t=todayOnly(); const tomorrow=new Date(t); tomorrow.setDate(t.getDate()+1); const end=new Date(t); end.setDate(t.getDate()+7);
+    let visits=window.getAllVisitsNormalized().filter(v=>{const d=new Date(v.date); if(Number.isNaN(d.getTime())) return false; d.setHours(0,0,0,0); if(type==='today'){title='زيارات اليوم'; return d.getTime()===t.getTime();} if(type==='tomorrow'){title='زيارات الغد'; return d.getTime()===tomorrow.getTime();} if(type==='week'){title='زيارات هذا الأسبوع'; return d>=t&&d<=end;} if(type==='overdue'){title='الزيارات المتأخرة'; return v.overdue;} return true;}).sort((a,b)=>new Date(a.date)-new Date(b.date));
+    document.getElementById('appContent').innerHTML=`<div class="section-title">📅 ${title} (${visits.length})</div>${visits.length?visits.map(visitRow).join(''):'<div class="card" style="text-align:center;padding:24px;">لا توجد زيارات في هذا القسم.</div>'}<button class="submit-btn" style="margin-top:16px;background:#64748b;" onclick="renderPanel('all_visits')">رجوع لجدول الزيارات</button>`;
+  };
+
+  window.openVisitDetails=function(clientId, visitIndex){
+    const c=(db.clients||[]).find(x=>String(x.id)===String(clientId)); if(!c) return showToast('لم يتم العثور على العميل');
+    const v=(c.visitSchedule||[])[Number(visitIndex)] || (c.visitSchedule||[]).find(x=>x.date===visitIndex); if(!v) return showToast('لم يتم العثور على الزيارة');
+    const idx=(c.visitSchedule||[]).indexOf(v); const normalized=window.getAllVisitsNormalized().find(x=>String(x.clientId)===String(c.id)&&Number(x.visitIndex)===idx) || {number:idx+1,total:(c.visitSchedule||[]).length};
+    const rep=reportForVisit(c,v,idx);
+    document.getElementById('appContent').innerHTML=`<div class="section-title">📅 تفاصيل الزيارة</div><div class="card"><h3>${safe(c.name)} — الزيارة رقم ${safe(normalized.number)} من ${safe(normalized.total)}</h3><div style="margin-top:10px;line-height:2"><div><b>التاريخ:</b> ${safe(v.date||'-')}</div><div><b>النوع:</b> ${safe(v.type||'زيارة دورية')}</div><div><b>الفني:</b> ${safe(v.tech||'غير محدد')}</div><div><b>الحالة:</b> ${safe(normalized.completed?'مكتملة':normalized.overdue?'متأخرة':(v.status||'مجدولة'))}</div><div><b>التقرير:</b> ${rep?`مرفوع ✅`:'لم يرفع بعد ⏳'}</div></div><div class="visit-admin-actions" style="margin-top:14px;"><button class="submit-btn green" onclick="changeVisitStatus_v197(${Number(c.id)},${idx})">تغيير حالة الزيارة</button><button class="submit-btn" onclick="editVisitDate_v197(${Number(c.id)},${idx})">تعديل موعد الزيارة</button>${rep?`<button class="submit-btn" onclick="openReportDetails(${Number(rep.id)})">عرض التقرير</button>`:''}</div></div><button class="submit-btn" style="background:#64748b;margin-top:12px;" onclick="renderPanel('all_visits')">رجوع لجدول الزيارات</button>`;
+  };
+
+  window.changeVisitStatus_v197=async function(clientId,idx){
+    const c=(db.clients||[]).find(x=>String(x.id)===String(clientId)); if(!c||!c.visitSchedule||!c.visitSchedule[idx]) return;
+    const val=prompt('اكتب الحالة الجديدة: مجدولة / مؤجلة / ملغاة / تم التنفيذ بدون تقرير / مكتمل', c.visitSchedule[idx].status||'مجدولة');
+    if(!val) return; c.visitSchedule[idx].status=val.trim(); if(completedStatus(val)) c.visitSchedule[idx].doneAt=new Date().toISOString();
+    if(typeof saveDB==='function') saveDB(); try{ if(window.saveClientToFirebase) await window.saveClientToFirebase(c); }catch(e){}
+    showToast('✅ تم تحديث حالة الزيارة'); openVisitDetails(clientId,idx);
+  };
+  window.editVisitDate_v197=async function(clientId,idx){
+    const c=(db.clients||[]).find(x=>String(x.id)===String(clientId)); if(!c||!c.visitSchedule||!c.visitSchedule[idx]) return;
+    const val=prompt('أدخل موعد الزيارة الجديد بصيغة YYYY-MM-DD', dateOnly(c.visitSchedule[idx].date)); if(!val) return;
+    c.visitSchedule[idx].date=val.trim(); if(typeof saveDB==='function') saveDB(); try{ if(window.saveClientToFirebase) await window.saveClientToFirebase(c); }catch(e){}
+    showToast('✅ تم تعديل موعد الزيارة'); openVisitDetails(clientId,idx);
+  };
+
+  window.clientReports=function(){
+    const c=(db.clients||[]).find(x=>String(x.id)===String(currentClientId))||{};
+    const reps=(db.reports||[]).filter(r=>String(r.clientId)===String(currentClientId)).sort((a,b)=>(num(a.visitNumber||999)-num(b.visitNumber||999))||String(a.date||'').localeCompare(String(b.date||'')));
+    return `<div class="section-title">📄 تقاريري الدورية</div><button class="submit-btn" style="margin-bottom:12px" onclick="exportCurrentViewPDF&&exportCurrentViewPDF('تقارير العميل')">⬇️ تصدير PDF</button>${reps.length?reps.map(r=>{const n=r.visitNumber||((c.visitSchedule||[]).findIndex(v=>reportForVisit(c,v,(c.visitSchedule||[]).indexOf(v))&&String(reportForVisit(c,v,(c.visitSchedule||[]).indexOf(v)).id)===String(r.id))+1)||'-'; const total=(c.visitSchedule||[]).length||c.visits||'-'; return `<div class="report-card" onclick="openReportDetails(${Number(r.id)})"><div class="report-icon">📄</div><div class="report-info"><div class="report-title">تقرير الزيارة رقم ${safe(n)} من ${safe(total)} — ${safe(r.type||'زيارة')}</div><div class="report-date">الفني: ${safe(r.tech||r.employeeName||'-')} | ${safe(r.actualExecutionDate||r.date||'')}</div></div><span class="visit-badge done">${safe(r.status||'مكتمل')}</span><span class="report-arrow">›</span></div>`;}).join(''):'<div class="card">لا توجد تقارير مرفوعة حتى الآن</div>'}`;
+  };
+  if(typeof clientReports!=='undefined') clientReports=window.clientReports;
+
+  const oldClientMap = window.clientMap || (typeof clientMap==='function'?clientMap:null);
+  window.clientMap=function(){
+    const html = oldClientMap ? oldClientMap.apply(this,arguments) : '<div class="section-title">🗺️ خريطة المصائد والطعوم</div><div class="card">لا توجد بيانات</div>';
+    return html + '<button class="submit-btn" style="background:#64748b;margin-top:14px;" onclick="renderPanel(\'home\')">⬅️ رجوع إلى القائمة</button>';
+  };
+  if(typeof clientMap!=='undefined') clientMap=window.clientMap;
+
+  const oldEditClient = window.editClient || (typeof editClient==='function'?editClient:null);
+  if(oldEditClient){
+    window.editClient=function(id){ oldEditClient.apply(this,arguments); setTimeout(()=>{ const btn=[...document.querySelectorAll('#modalContent button.green,.modal-box button.green')].find(b=>/حفظ/.test(b.textContent)); if(btn) btn.innerHTML='💾 حفظ التعديلات'; },250); };
+    if(typeof editClient!=='undefined') editClient=window.editClient;
+  }
+
+  const oldOpenReportDetails = window.openReportDetails || (typeof openReportDetails==='function'?openReportDetails:null);
+  if(oldOpenReportDetails){
+    window.openReportDetails=function(id){
+      oldOpenReportDetails.apply(this,arguments);
+      if(currentRole==='admin'){
+        const box=document.getElementById('appContent'); if(box) box.innerHTML=box.innerHTML.replace(/<button[^>]*>\s*[^<]*تقييم هذه الزيارة[^<]*<\/button>/g,'');
+      }
+    };
+    if(typeof openReportDetails!=='undefined') openReportDetails=window.openReportDetails;
+  }
+})();
+</script>
+
 </body>
 </html>
