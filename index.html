@@ -6281,5 +6281,206 @@ saveVisitReport=window.saveVisitReport;
 })();
 </script>
 
+<script>
+/* ===== v1.9.6 Stage 6-8: upload flow + technician reports + admin grouped reports ===== */
+(function(){
+  const e = window.escapeHtml || window.h || function(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));};
+  function clients(){ if(!window.db) window.db={}; if(!Array.isArray(db.clients)) db.clients=[]; return db.clients; }
+  function reports(){ if(!window.db) window.db={}; if(!Array.isArray(db.reports)) db.reports=[]; return db.reports; }
+  function clientById(id){ return clients().find(c=>String(c.id)===String(id)) || null; }
+  function reportClient(r){ return clientById(r.clientId) || clients().find(c=>String(c.name)===String(r.client)) || null; }
+  function visitsOf(c){ return c ? ([c.visitSchedule,c.visitsSchedule,c.schedule,c.visitsList,c.visitsTable].find(Array.isArray) || []) : []; }
+  function visitDate(v){ return v ? String(v.date || v.defaultDate || v.scheduledDate || v.dueDate || v.visitDate || '') : ''; }
+  function todayISO(){ return new Date().toISOString().slice(0,10); }
+  function setStatus(msg,color='#1d4ed8',disable=true,done=false){
+    const box=document.getElementById('reportUploadStatus');
+    const btn=document.getElementById('uploadReportBtn');
+    if(box){ box.textContent=msg||''; box.style.color=color; box.style.fontWeight=msg?'700':'400'; }
+    if(btn){ btn.disabled=!!disable; btn.style.opacity=disable?'.7':'1'; btn.textContent=done?'✅ تم رفع التقرير':'📋 رفع التقرير'; }
+  }
+  function selectedVisitInfo(){
+    const cid=document.getElementById('reportClientSelect')?.value;
+    const c=clientById(cid);
+    const idxRaw=document.getElementById('scheduledVisitIndex')?.value;
+    const idx=idxRaw!=='' && idxRaw!=null ? Number(idxRaw) : -1;
+    const vs=visitsOf(c);
+    const v=idx>=0?vs[idx]:null;
+    return {client:c, visits:vs, visit:v, index:idx, number:document.getElementById('scheduledVisitNumber')?.value || (v?(v.number||v.visitNumber||idx+1):''), total:document.getElementById('scheduledVisitTotal')?.value || vs.length};
+  }
+  function compressImage_v196(file, maxWidth=900, quality=.55){
+    return new Promise((resolve,reject)=>{
+      if(!file) return resolve(null);
+      if(file.size > 25*1024*1024) return reject(new Error('الصورة كبيرة جداً قبل الضغط: '+file.name));
+      const reader=new FileReader();
+      reader.onerror=()=>reject(new Error('تعذر قراءة الصورة: '+file.name));
+      reader.onload=ev=>{
+        const img=new Image();
+        img.onerror=()=>reject(new Error('تعذر فتح الصورة: '+file.name));
+        img.onload=()=>{
+          let w=img.width,h=img.height;
+          if(w>maxWidth){ h=Math.round(h*maxWidth/w); w=maxWidth; }
+          const canvas=document.createElement('canvas'); canvas.width=w; canvas.height=h;
+          const ctx=canvas.getContext('2d'); ctx.drawImage(img,0,0,w,h);
+          resolve({name:file.name,data:canvas.toDataURL('image/jpeg',quality)});
+        };
+        img.src=ev.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+  async function readCompressed(inputId,label,maxFiles){
+    const files=Array.from(document.getElementById(inputId)?.files || []);
+    if(files.length>maxFiles) throw new Error(`الحد الأقصى ${maxFiles} صور في ${label}`);
+    const out=[];
+    for(let i=0;i<files.length;i++){
+      setStatus(`جاري ضغط الصور: ${label} (${i+1} من ${files.length})`,'#1d4ed8',true,false);
+      out.push(await compressImage_v196(files[i]));
+    }
+    return out.filter(Boolean);
+  }
+  window.saveVisitReport = async function(){
+    try{
+      if(typeof window.updateReportVisitDates==='function') window.updateReportVisitDates();
+      const cid=document.getElementById('reportClientSelect')?.value;
+      if(!cid){ showToast && showToast('⚠️ اختر العميل أولاً'); return; }
+      const info=selectedVisitInfo();
+      const c=info.client;
+      if(!c){ showToast && showToast('⚠️ لم يتم العثور على العميل'); return; }
+      setStatus('جاري تجهيز التقرير...', '#1d4ed8', true, false);
+      const reportId=Date.now();
+      const executionImages=await readCompressed('executionImages','صور التنفيذ',6);
+      const pestImages=await readCompressed('pestImages','صور الآفات',6);
+      const paperReportImages=await readCompressed('paperReportImages','صور التقرير الورقي',4);
+      const baitMapImages=await readCompressed('baitMapImages','خريطة الطعوم',4);
+      const rodentStationImages=await readCompressed('rodentStationImages','محطات ومصائد القوارض',10);
+      setStatus('جاري رفع التقرير...', '#1d4ed8', true, false);
+      const actual=document.getElementById('actualExecutionDate')?.value || todayISO();
+      const scheduled=document.getElementById('scheduledVisitDate')?.value || visitDate(info.visit) || '';
+      const report={
+        id:reportId,
+        clientId:Number(cid), client:c.name || 'عميل',
+        tech:currentUser?.name || currentUser?.username || 'فني', employeeName:currentUser?.name || 'فني', employeeUsername:currentUser?.username || '',
+        type:document.getElementById('serviceType')?.value || 'زيارة دورية',
+        materials:document.getElementById('materialsInput')?.value || '',
+        notes:document.getElementById('notesInput')?.value || '',
+        visitIndex:info.index, visitNumber:info.number, totalVisits:info.total,
+        scheduledVisitDate:scheduled, defaultVisitDate:scheduled,
+        actualExecutionDate:actual, date:actual,
+        reportTitle:(info.number&&info.total)?`تقرير الزيارة رقم ${info.number} من ${info.total}`:'تقرير زيارة',
+        status:'مكتمل', createdAt:new Date().toISOString(),
+        executionImages,pestImages,paperReportImages,baitMapImages,rodentStationImages,
+        images:[...executionImages,...pestImages,...paperReportImages,...baitMapImages,...rodentStationImages].map(x=>x.data),
+        lastEditedBy: currentUser?.name || currentUser?.username || 'فني', lastEditedAt:new Date().toISOString()
+      };
+      reports().unshift(report);
+      if(info.visit){
+        info.visit.status='منفذة'; info.visit.reportId=reportId; info.visit.reportType=report.type; info.visit.doneAt=new Date().toISOString(); info.visit.doneDate=actual; info.visit.executionDate=actual;
+      }
+      c.used = Math.max(Number(c.used||0), reports().filter(r=>String(r.clientId)===String(c.id)).length);
+      if(typeof saveDB==='function') saveDB();
+      if(window.firebase && firebase.database) await firebase.database().ref('reports/'+reportId).set(report);
+      if(window.saveClientToFirebase) await window.saveClientToFirebase(c);
+      setStatus('تم رفع التقرير بنجاح', '#15803d', true, true);
+      showToast && showToast('✅ تم رفع التقرير بنجاح');
+      ['executionFilesText','pestFilesText','paperFilesText','baitMapFilesText','rodentStationFilesText'].forEach(id=>{const x=document.getElementById(id); if(x)x.textContent='لم يتم اختيار صور';});
+    }catch(err){
+      console.error('فشل رفع التقرير', err);
+      const msg=String(err?.message||err||'');
+      setStatus(msg.includes('الصورة')||msg.includes('الحد الأقصى') ? ('❌ '+msg) : '❌ فشل رفع التقرير، تحقق من حجم الصور أو الاتصال ثم أعد المحاولة', '#b91c1c', false, false);
+      showToast && showToast('❌ فشل رفع التقرير');
+    }
+  };
+  if(typeof saveVisitReport!=='undefined') saveVisitReport=window.saveVisitReport;
+
+  function reportVisitLabel(c,r){
+    const total=Number(r.totalVisits||visitsOf(c).length||0);
+    let num=r.visitNumber || '';
+    if(!num && r.visitIndex!==undefined && r.visitIndex!==null && r.visitIndex!=='') num=Number(r.visitIndex)+1;
+    if(!num){
+      const d=String(r.scheduledVisitDate||r.defaultVisitDate||r.date||'').slice(0,10);
+      const idx=visitsOf(c).findIndex(v=>visitDate(v).slice(0,10)===d);
+      if(idx>=0) num=idx+1;
+    }
+    return num && total ? `الزيارة رقم ${num} من ${total}` : (num?`الزيارة رقم ${num}`:'تقرير زيارة');
+  }
+  function canEmployeeEdit(r){
+    if(currentRole==='admin') return true;
+    if(currentRole!=='employee') return false;
+    const me=String(currentUser?.name||currentUser?.username||'');
+    return [r.tech,r.employeeName,r.employeeUsername].map(x=>String(x||'')).some(x=>x && (x===me || x.includes(me) || me.includes(x)));
+  }
+  window.employeeReports=function(){
+    const me=String(currentUser?.name||currentUser?.username||'');
+    const mine=reports().filter(r=>[r.tech,r.employeeName,r.employeeUsername].map(x=>String(x||'')).some(x=>x && (x===me || x.includes(me) || me.includes(x))));
+    const grouped={}; mine.forEach(r=>{const c=reportClient(r)||{}; const key=String(c.id||r.clientId||r.client||'other'); if(!grouped[key]) grouped[key]={client:c,reports:[]}; grouped[key].reports.push(r);});
+    const blocks=Object.values(grouped).map(g=>{g.reports.sort((a,b)=>(Number(a.visitNumber||999)-Number(b.visitNumber||999))||String(a.date||'').localeCompare(String(b.date||''))); return `<div class="card"><div class="section-title">🏢 ${e(g.client.name||g.reports[0]?.client||'عميل')}</div>${g.reports.map(r=>`<div class="report-card" onclick="openReportDetails(${Number(r.id)})"><div class="report-icon">📄</div><div class="report-info"><div class="report-title">${e(reportVisitLabel(g.client,r))} — ${e(r.type||'زيارة')}</div><div class="report-date">${e(r.actualExecutionDate||r.date||'')} ${r.lastEditedBy?`| آخر تعديل: ${e(r.lastEditedBy)}`:''}</div></div><span class="visit-badge done">تعديل</span></div>`).join('')}</div>`}).join('');
+    return `<div class="section-title">📋 تقاريري</div>${blocks||'<div class="card">لا توجد تقارير مرفوعة من حسابك حتى الآن</div>'}`;
+  };
+
+  window.adminAllReports=function(){
+    const q=(window.__adminReportsQuery||'').toLowerCase();
+    const ids=new Set(reports().map(r=>String(r.clientId)).filter(Boolean));
+    const list=Array.from(ids).map(id=>clientById(id)||{id,name:(reports().find(r=>String(r.clientId)===id)||{}).client||'عميل'}).filter(c=>{const txt=[c.name,c.id,c.contractNo,c.contractNumber,c.username].join(' ').toLowerCase(); return !q||txt.includes(q);});
+    const cards=list.map(c=>{const reps=reports().filter(r=>String(r.clientId)===String(c.id)).sort((a,b)=>(Number(a.visitNumber||999)-Number(b.visitNumber||999))||String(a.date||'').localeCompare(String(b.date||''))); return `<div class="client-select-card" onclick="showAdminClientReports(${Number(c.id)})"><div class="client-avatar">🏢</div><div style="flex:1"><div style="font-weight:800">${e(c.name||'عميل')}</div><div style="font-size:12px;color:var(--text-light)">#${e(c.contractNo||c.contractNumber||c.id)} — ${reps.length} تقرير</div></div><span class="report-arrow">›</span></div>`;}).join('');
+    return `<div class="section-title">📊 جميع التقارير حسب العميل</div><div class="card"><div class="form-group"><label class="form-label">🔍 بحث باسم العميل أو رقم العقد</label><input class="form-input" value="${e(window.__adminReportsQuery||'')}" oninput="window.__adminReportsQuery=this.value; renderPanel('all_reports')" placeholder="مثال: التوفير لاند / السنبلة / 1007"></div><button class="submit-btn" style="margin-bottom:12px" onclick="loadReportsFromFirebase().then(()=>renderPanel('all_reports'))">🔄 تحديث التقارير</button>${cards||'<div class="card">لا توجد تقارير</div>'}</div>`;
+  };
+  if(typeof adminAllReports!=='undefined') adminAllReports=window.adminAllReports;
+  window.showAdminClientReports=function(clientId){
+    const c=clientById(clientId)||{}; const reps=reports().filter(r=>String(r.clientId)===String(clientId)).sort((a,b)=>(Number(a.visitNumber||999)-Number(b.visitNumber||999))||String(a.date||'').localeCompare(String(b.date||'')));
+    document.getElementById('appContent').innerHTML=`<div class="section-title">📄 تقارير ${e(c.name||'العميل')}</div><button class="submit-btn" style="background:#64748b;margin-bottom:12px" onclick="renderPanel('all_reports')">⬅️ رجوع إلى العملاء</button>${reps.map(r=>`<div class="report-card" onclick="openReportDetails(${Number(r.id)})"><div class="report-icon">📄</div><div class="report-info"><div class="report-title">${e(reportVisitLabel(c,r))} — ${e(r.type||'زيارة')}</div><div class="report-date">الفني: ${e(r.tech||r.employeeName||'-')} | ${e(r.actualExecutionDate||r.date||'')}</div></div><span class="visit-badge done">${e(r.status||'مكتمل')}</span><span class="report-arrow">›</span></div>`).join('')||'<div class="card">لا توجد تقارير لهذا العميل</div>'}`;
+  };
+
+  const oldGetPanel = window.getPanelHTML || (typeof getPanelHTML==='function'?getPanelHTML:null);
+  window.getPanelHTML=function(id){
+    if(currentRole==='employee' && id==='reports') return window.employeeReports();
+    if(currentRole==='admin' && id==='all_reports') return window.adminAllReports();
+    return oldGetPanel ? oldGetPanel.apply(this,arguments) : '<p>الصفحة غير موجودة</p>';
+  };
+  if(typeof getPanelHTML!=='undefined') getPanelHTML=window.getPanelHTML;
+  if(window.navs && Array.isArray(window.navs.employee)){
+    window.navs.employee = [
+      {id:'home',icon:'🏠',label:'الرئيسية'},
+      {id:'visits',icon:'📅',label:'الزيارات'},
+      {id:'report_upload',icon:'📤',label:'رفع تقرير'},
+      {id:'reports',icon:'📋',label:'تقاريري'}
+    ];
+  } else if(typeof navs!=='undefined' && Array.isArray(navs.employee)){
+    navs.employee = [
+      {id:'home',icon:'🏠',label:'الرئيسية'},
+      {id:'visits',icon:'📅',label:'الزيارات'},
+      {id:'report_upload',icon:'📤',label:'رفع تقرير'},
+      {id:'reports',icon:'📋',label:'تقاريري'}
+    ];
+  }
+
+  window.openReportEdit_v196=function(id){
+    const r=reports().find(x=>String(x.id)===String(id)); if(!r) return showToast('التقرير غير موجود'); if(!canEmployeeEdit(r)) return showToast('لا تملك صلاحية تعديل هذا التقرير');
+    document.getElementById('appContent').innerHTML=`<div class="section-title">✏️ تعديل التقرير</div><div class="card"><div class="form-group"><label class="form-label">نوع الزيارة</label><input class="form-input" id="editReportType" value="${e(r.type||'')}"></div><div class="form-group"><label class="form-label">المواد المستخدمة</label><input class="form-input" id="editReportMaterials" value="${e(r.materials||'')}"></div><div class="form-group"><label class="form-label">الملاحظات</label><textarea class="form-textarea" id="editReportNotes">${e(r.notes||'')}</textarea></div><button class="submit-btn green" onclick="saveReportEdit_v196(${Number(r.id)})">💾 حفظ التعديلات</button><button class="submit-btn" style="background:#64748b;margin-top:10px" onclick="openReportDetails(${Number(r.id)})">رجوع</button></div>`;
+  };
+  window.saveReportEdit_v196=async function(id){
+    const r=reports().find(x=>String(x.id)===String(id)); if(!r) return;
+    r.type=document.getElementById('editReportType')?.value||r.type;
+    r.materials=document.getElementById('editReportMaterials')?.value||'';
+    r.notes=document.getElementById('editReportNotes')?.value||'';
+    r.lastEditedBy=currentUser?.name||currentUser?.username||'مستخدم'; r.lastEditedAt=new Date().toISOString();
+    if(typeof saveDB==='function') saveDB();
+    try{ if(window.firebase&&firebase.database) await firebase.database().ref('reports/'+id).update({type:r.type,materials:r.materials,notes:r.notes,lastEditedBy:r.lastEditedBy,lastEditedAt:r.lastEditedAt}); }catch(e){}
+    showToast('✅ تم حفظ التعديلات'); openReportDetails(id);
+  };
+  const oldOpen = window.openReportDetails || (typeof openReportDetails==='function'?openReportDetails:null);
+  window.openReportDetails=function(id){
+    if(oldOpen) oldOpen.apply(this,arguments);
+    const r=reports().find(x=>String(x.id)===String(id));
+    if(!r) return;
+    const box=document.getElementById('appContent');
+    if(box && canEmployeeEdit(r)){
+      const btn=`<button class="submit-btn green" style="margin-top:10px" onclick="openReportEdit_v196(${Number(r.id)})">✏️ تعديل التقرير</button>`;
+      box.innerHTML=box.innerHTML.replace('<button class="submit-btn" style="margin-top:10px;background:#64748b;" onclick="renderPanel(currentPanel)">رجوع</button>', btn+'<button class="submit-btn" style="margin-top:10px;background:#64748b;" onclick="renderPanel(currentPanel)">رجوع</button>');
+    }
+  };
+  if(typeof openReportDetails!=='undefined') openReportDetails=window.openReportDetails;
+})();
+</script>
+
 </body>
 </html>
