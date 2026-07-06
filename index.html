@@ -6662,5 +6662,175 @@ saveVisitReport=window.saveVisitReport;
 })();
 </script>
 
+
+<script>
+/* ===== v1.9.8 finance + next visit sync hotfix ===== */
+(function(){
+  function moneyNumber(v){
+    if(v===null || v===undefined || v==='') return 0;
+    if(typeof v === 'number') return Number.isFinite(v) ? v : 0;
+    let s = String(v)
+      .replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d))
+      .replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d))
+      .replace(/[^0-9.\-]/g,'');
+    const n = parseFloat(s);
+    return Number.isFinite(n) ? n : 0;
+  }
+  function statusText(p){ return String((p&&p.status) || (p&&p.paymentStatus) || '').trim(); }
+  function isPaidPayment(p){
+    const s = statusText(p);
+    return s === 'مدفوعة' || s === 'مدفوع' || s === 'paid' || p?.approved === true || p?.isPaid === true || p?.paid === true;
+  }
+  function isPendingPayment(p){
+    const s = statusText(p);
+    if(isPaidPayment(p)) return false;
+    return s === 'بانتظار المراجعة' || s === 'قيد المراجعة' || s === 'pending' || !!(p && (p.receipt || p.receiptName || p.receiptData));
+  }
+  function contractValue(c){
+    return moneyNumber(c?.contractAmount ?? c?.contractValue ?? c?.value ?? c?.amount ?? c?.total ?? 0);
+  }
+  function normalizePaymentsSafe(c){
+    if(!c) return [];
+    let arr = [];
+    if(Array.isArray(c.payments)) arr = arr.concat(c.payments);
+    if(Array.isArray(c.manualPayments)) arr = arr.concat(c.manualPayments);
+    if(Array.isArray(c.paymentSchedule)) arr = arr.concat(c.paymentSchedule);
+    return arr;
+  }
+  window.getPaymentStats_v198 = function(c){
+    const total = contractValue(c);
+    const payments = normalizePaymentsSafe(c);
+    const paid = payments.filter(isPaidPayment).reduce((s,p)=>s+moneyNumber(p.amount ?? p.value ?? p.total),0);
+    const pendingReview = payments.filter(isPendingPayment).reduce((s,p)=>s+moneyNumber(p.amount ?? p.value ?? p.total),0);
+    const remaining = Math.max(total - paid - pendingReview, 0);
+    const overdueCount = payments.filter(p=>!isPaidPayment(p) && !isPendingPayment(p) && (p.dueDate || p.date) && new Date(p.dueDate || p.date) < new Date()).length;
+    return {payments, contractValue:total, paid, pendingReview, remaining, overdueCount, percent: total ? Math.min(100,Math.round((paid/total)*100)) : 0};
+  };
+  window.formatSAR_v198 = function(n){ return `${moneyNumber(n).toLocaleString('en-US',{maximumFractionDigits:2})} ريال`; };
+
+  function dateOnlyVal(v){
+    if(!v) return '';
+    const d = new Date(v);
+    if(!Number.isNaN(d.getTime())) return d.toISOString().slice(0,10);
+    return String(v).slice(0,10);
+  }
+  function today(){ const d=new Date(); d.setHours(0,0,0,0); return d; }
+  function completedStatusText(s){
+    s=String(s||'');
+    return s.includes('مكتمل') || s.includes('تم التنفيذ') || s.includes('منفذة') || s.includes('ملغاة') || s.includes('تم التنفيذ بدون تقرير');
+  }
+  function reportForVisitSafe(c,v,idx){
+    const reports=(window.db?.reports||[]).filter(r=>String(r.clientId)===String(c.id));
+    if(v?.reportId){ const r=reports.find(x=>String(x.id)===String(v.reportId)); if(r) return r; }
+    const byNo=reports.find(r=>Number(r.visitNumber)===idx+1);
+    if(byNo) return byNo;
+    const vd=dateOnlyVal(v?.date);
+    return reports.find(r=>dateOnlyVal(r.visitDate || r.scheduledDate || r.defaultVisitDate || r.date)===vd) || null;
+  }
+  window.getNextVisitForClient_v198 = function(c){
+    const schedule = Array.isArray(c?.visitSchedule) ? c.visitSchedule : [];
+    if(!schedule.length) return null;
+    const rows=schedule.map((v,i)=>{
+      const rep=reportForVisitSafe(c,v,i);
+      const done=!!rep || completedStatusText(v.status);
+      const d=new Date(v.date); if(!Number.isNaN(d.getTime())) d.setHours(0,0,0,0);
+      return {visit:v,index:i,report:rep,done,dateObj:d,valid:!Number.isNaN(d.getTime())};
+    }).filter(x=>!x.done);
+    if(!rows.length) return null;
+    const future=rows.filter(x=>x.valid && x.dateObj>=today()).sort((a,b)=>a.dateObj-b.dateObj);
+    if(future.length) return future[0];
+    return rows.filter(x=>x.valid).sort((a,b)=>b.dateObj-a.dateObj)[0] || rows[0];
+  };
+
+  const oldGetClientData = window.getClientData || (typeof getClientData === 'function' ? getClientData : null);
+  window.getClientData = function(key){
+    const c=(window.db?.clients||[]).find(x=>String(x.id)===String(window.currentClientId)) || {};
+    if(key === 'nextVisit'){
+      const n=window.getNextVisitForClient_v198(c);
+      return n ? dateOnlyVal(n.visit.date) : 'لا يوجد';
+    }
+    if(key === 'nextVisitNumber'){
+      const n=window.getNextVisitForClient_v198(c);
+      return n ? (n.index+1) : '-';
+    }
+    if(key === 'nextVisitTotal'){
+      return (c.visitSchedule||[]).length || c.visits || '-';
+    }
+    if(key === 'nextVisitType'){
+      const n=window.getNextVisitForClient_v198(c);
+      return n ? (n.visit.type || 'زيارة دورية') : '-';
+    }
+    return oldGetClientData ? oldGetClientData(key) : '—';
+  };
+  try{ if(typeof getClientData !== 'undefined') getClientData = window.getClientData; }catch(e){}
+
+  const oldClientHome = window.clientHome || (typeof clientHome === 'function' ? clientHome : null);
+  window.clientHome = function(){
+    const html = oldClientHome ? oldClientHome.apply(this, arguments) : '';
+    const c=(window.db?.clients||[]).find(x=>String(x.id)===String(window.currentClientId)) || {};
+    const n=window.getNextVisitForClient_v198(c);
+    const date=n ? dateOnlyVal(n.visit.date) : 'لا يوجد موعد مجدول';
+    const no=n ? `${n.index+1} من ${(c.visitSchedule||[]).length || c.visits || '-'}` : '-';
+    const type=n ? (n.visit.type || 'زيارة دورية') : '-';
+    return html
+      .replace('سيتم إشعارك بموعد الزيارة القادمة', `موعد الزيارة القادمة: ${date}`)
+      .replace('الساعة 10:00 صباحاً', `الزيارة رقم ${no}`)
+      .replace('سيتم تحديد الفني', type);
+  };
+  try{ if(typeof clientHome !== 'undefined') clientHome = window.clientHome; }catch(e){}
+
+  window.adminHome = function(){
+    const clients=(window.db?.clients||[]);
+    const activeClients = clients.filter(c => !String(c.status||'').includes('محذوف'));
+    const total=clients.length;
+    const active=clients.filter(c=>c.status==='active').length;
+    const pending=clients.filter(c=>c.status==='pending').length;
+    const expired=clients.filter(c=>c.status==='expired').length;
+    const monthly=clients.filter(c=>c.pay==='شهري').length;
+    const quarterly=clients.filter(c=>c.pay==='ربع سنوي').length;
+    const biannual=clients.filter(c=>c.pay==='نصف سنوي').length;
+    const annual=clients.filter(c=>c.pay==='سنوي').length;
+    const stats=activeClients.map(window.getPaymentStats_v198);
+    const totalRevenue=stats.reduce((s,x)=>s+x.contractValue,0);
+    const collectedTotal=stats.reduce((s,x)=>s+x.paid,0);
+    const pendingReviewTotal=stats.reduce((s,x)=>s+x.pendingReview,0);
+    const remainingTotal=stats.reduce((s,x)=>s+x.remaining,0);
+    const overduePaymentsCount=stats.reduce((s,x)=>s+x.overdueCount,0);
+    return `
+    <div class="welcome-header"><h2>لوحة التحكم 📊</h2><p>نظرة عامة شاملة على أداء المؤسسة</p></div>
+    <div class="section-title">💰 مؤشرات التحصيل</div>
+    <div class="stats-row cols-4">
+      <div class="stat-card" style="border-top:3px solid var(--green);"><span class="stat-icon">✅</span><span class="stat-num green">${window.formatSAR_v198(collectedTotal)}</span><span class="stat-label">المحصّل</span></div>
+      <div class="stat-card" style="border-top:3px solid var(--gold);"><span class="stat-icon">⏳</span><span class="stat-num gold">${window.formatSAR_v198(pendingReviewTotal)}</span><span class="stat-label">بانتظار مراجعة</span></div>
+      <div class="stat-card" style="border-top:3px solid var(--red);"><span class="stat-icon">💸</span><span class="stat-num red">${window.formatSAR_v198(remainingTotal)}</span><span class="stat-label">المتبقي</span></div>
+      <div class="stat-card" style="border-top:3px solid var(--orange);"><span class="stat-icon">⚠️</span><span class="stat-num orange">${overduePaymentsCount}</span><span class="stat-label">دفعات متأخرة</span></div>
+    </div>
+    <div class="section-title">📋 إحصائيات العقود</div>
+    <div class="stats-row cols-4">
+      <div class="stat-card" style="border-top:3px solid var(--green);"><span class="stat-icon">📋</span><span class="stat-num green">${total}</span><span class="stat-label">إجمالي العقود</span></div>
+      <div class="stat-card" style="border-top:3px solid var(--green-light);"><span class="stat-icon">✅</span><span class="stat-num green">${active}</span><span class="stat-label">عقود نشطة</span></div>
+      <div class="stat-card" style="border-top:3px solid var(--gold);"><span class="stat-icon">⏳</span><span class="stat-num gold">${pending}</span><span class="stat-label">تنتهي قريباً</span></div>
+      <div class="stat-card" style="border-top:3px solid var(--red);"><span class="stat-icon">❌</span><span class="stat-num red">${expired}</span><span class="stat-label">عقود منتهية</span></div>
+    </div>
+    <div class="section-title">💰 إحصائيات مالية</div>
+    <div class="stats-row cols-3">
+      <div class="stat-card" style="border-top:3px solid var(--primary);"><span class="stat-icon">💰</span><span class="stat-num gold">${window.formatSAR_v198(totalRevenue)}</span><span class="stat-label">إجمالي قيمة العقود</span></div>
+      <div class="stat-card" style="border-top:3px solid var(--green);"><span class="stat-icon">👥</span><span class="stat-num green">${total}</span><span class="stat-label">إجمالي العملاء</span></div>
+      <div class="stat-card" style="border-top:3px solid var(--orange);"><span class="stat-icon">📅</span><span class="stat-num orange">${(window.getAllVisitsNormalized?window.getAllVisitsNormalized():[]).filter(v=>{const d=new Date(v.date); const t=new Date(); d.setHours(0,0,0,0); t.setHours(0,0,0,0); return d.getTime()===t.getTime();}).length}</span><span class="stat-label">زيارات اليوم</span></div>
+    </div>
+    <div class="section-title">🔄 توزيع طرق الدفع</div>
+    <div class="stats-row cols-4">
+      <div class="stat-card" style="border-top:3px solid var(--primary);"><span class="stat-icon">📆</span><span class="stat-num" style="color:var(--primary);">${monthly}</span><span class="stat-label">شهري</span></div>
+      <div class="stat-card" style="border-top:3px solid var(--green);"><span class="stat-icon">📅</span><span class="stat-num green">${quarterly}</span><span class="stat-label">ربع سنوي</span></div>
+      <div class="stat-card" style="border-top:3px solid var(--gold);"><span class="stat-icon">🗓️</span><span class="stat-num gold">${biannual}</span><span class="stat-label">نصف سنوي</span></div>
+      <div class="stat-card" style="border-top:3px solid var(--orange);"><span class="stat-icon">📋</span><span class="stat-num orange">${annual}</span><span class="stat-label">سنوي</span></div>
+    </div>
+    ${total===0?`<div class="card" style="text-align:center; padding:40px; background:#f8fafc;"><div style="font-size:48px; margin-bottom:12px;">📋</div><div style="font-size:16px; font-weight:700; color:var(--primary); margin-bottom:8px;">لا يوجد عملاء بعد</div><div style="font-size:13px; color:var(--text-light); margin-bottom:16px;">ابدأ بإضافة أول عميل متعاقد</div><button class="submit-btn" style="width:auto; padding:10px 24px;" onclick="renderPanel('all_clients')">+ إضافة عميل</button></div>`:`<div class="section-title">🆕 آخر العملاء المضافين</div>${clients.slice(-5).reverse().map(c=>`<div class="client-select-card" onclick="openClientDetails(${Number(c.id)})"><div class="client-avatar">🏢</div><div style="flex:1;"><div style="font-weight:bold;">${(c.name||'-')}</div><div style="font-size:12px;color:var(--text-light);">#${c.id||'-'} — ${c.type||''}</div></div><span class="status-badge ${c.status||'active'}">${c.status==='expired'?'منتهي':c.status==='pending'?'قريب الانتهاء':'نشط'}</span></div>`).join('')}`}
+    `;
+  };
+  try{ if(typeof adminHome !== 'undefined') adminHome = window.adminHome; }catch(e){}
+})();
+</script>
+
 </body>
 </html>
