@@ -6935,5 +6935,176 @@ saveVisitReport=window.saveVisitReport;
 })();
 </script>
 
+
+
+<script>
+/* ===== v1.9.10 Admin Dashboard Counters Fix =====
+   إصلاح لوحة المدير فقط: قراءة البيانات من db الحقيقي وليس window.db،
+   وإعادة حساب المؤشرات من العملاء والدفعات مباشرة بدون الاعتماد على قيم محفوظة.
+*/
+(function(){
+  function getDB(){
+    try { if (typeof db !== 'undefined' && db) return db; } catch(e) {}
+    return window.db || {clients:[], reports:[]};
+  }
+  function toNum(v){
+    if(v === null || v === undefined || v === '') return 0;
+    if(typeof v === 'number') return Number.isFinite(v) ? v : 0;
+    const ar = '٠١٢٣٤٥٦٧٨٩';
+    const s = String(v)
+      .replace(/[٠-٩]/g, d => String(ar.indexOf(d)))
+      .replace(/,/g, '')
+      .replace(/\s/g, '')
+      .replace(/[^0-9.\-]/g, '');
+    const n = Number(s);
+    return Number.isFinite(n) ? n : 0;
+  }
+  function sar(v){ return toNum(v).toLocaleString('en-US', {maximumFractionDigits:2}) + ' ريال'; }
+  function norm(s){ return String(s || '').trim().toLowerCase(); }
+  function isDeletedClient(c){
+    const st = norm(c && c.status);
+    return !!(c && (c.deleted || c.isDeleted || st.includes('محذوف') || st === 'deleted'));
+  }
+  function isExpiredClient(c){
+    const st = norm(c && c.status);
+    if(st === 'expired' || st.includes('منتهي')) return true;
+    const end = c && (c.end || c.contractEndDate || c.endDate);
+    if(end){
+      const d = new Date(end); const t = new Date();
+      if(!Number.isNaN(d.getTime())){ d.setHours(0,0,0,0); t.setHours(0,0,0,0); return d < t; }
+    }
+    return false;
+  }
+  function isPendingClient(c){
+    const st = norm(c && c.status);
+    return st === 'pending' || st.includes('قريب') || st.includes('قريبا');
+  }
+  function contractValue(c){
+    // قيمة العقد فقط. لا نستخدم حقول الدفعات حتى لا تتضخم الأرقام.
+    return toNum(c && (c.contractAmount ?? c.contractValue ?? c.value ?? c.totalContract ?? c.contractTotal ?? 0));
+  }
+  function paymentsOf(c){
+    if(!c) return [];
+    if(Array.isArray(c.payments) && c.payments.length) return c.payments;
+    if(Array.isArray(c.manualPayments) && c.manualPayments.length) return c.manualPayments;
+    if(Array.isArray(c.paymentSchedule) && c.paymentSchedule.length) return c.paymentSchedule;
+    return [];
+  }
+  function statusOf(p){ return String((p && (p.status || p.paymentStatus || p.state)) || '').trim(); }
+  function isPaid(p){
+    const st = statusOf(p);
+    if(st === 'مدفوعة' || st === 'مدفوع' || /^paid$/i.test(st)) return true;
+    if(p && (p.paid === true || p.isPaid === true || p.approved === true || p.statusPaid === true)) return true;
+    return false;
+  }
+  function payAmount(p){ return toNum(p && (p.amount ?? p.value ?? p.total ?? p.paymentAmount ?? 0)); }
+  function isOverduePayment(p){
+    if(isPaid(p)) return false;
+    const st = statusOf(p);
+    if(st.includes('ملغ') || /^cancel/i.test(st)) return false;
+    const dRaw = p && (p.dueDate || p.date || p.paymentDate || p.scheduledDate);
+    if(!dRaw) return false;
+    const d = new Date(dRaw); if(Number.isNaN(d.getTime())) return false;
+    const t = new Date(); d.setHours(0,0,0,0); t.setHours(0,0,0,0);
+    return d < t;
+  }
+  function clientPaymentStats(c){
+    const total = contractValue(c);
+    const payments = paymentsOf(c);
+    const paid = payments.filter(isPaid).reduce((s,p)=>s + payAmount(p), 0);
+    const remaining = Math.max(total - paid, 0);
+    const overdueCount = payments.filter(isOverduePayment).length;
+    return {contractValue: total, paid, remaining, overdueCount, payments};
+  }
+
+  window.formatSAR_v1910 = sar;
+  window.getPaymentStats_v1910 = clientPaymentStats;
+  try { window.getPaymentStats = clientPaymentStats; if(typeof getPaymentStats !== 'undefined') getPaymentStats = clientPaymentStats; } catch(e) {}
+
+  window.adminHome = function(){
+    const database = getDB();
+    const clients = (database.clients || []).filter(c => c && !isDeletedClient(c));
+    const total = clients.length;
+    const expired = clients.filter(isExpiredClient).length;
+    const pending = clients.filter(c => !isExpiredClient(c) && isPendingClient(c)).length;
+    const active = Math.max(total - expired - pending, 0);
+
+    const payText = c => String(c.pay || c.paymentPlan || c.payPlan || '').trim();
+    const monthly = clients.filter(c => ['شهري','monthly'].includes(payText(c))).length;
+    const quarterly = clients.filter(c => ['ربع سنوي','quarter','quarterly'].includes(payText(c))).length;
+    const biannual = clients.filter(c => ['نصف سنوي','semi','semiannual','semi-annual'].includes(payText(c))).length;
+    const annual = clients.filter(c => ['سنوي','annual','yearly'].includes(payText(c))).length;
+
+    const stats = clients.map(clientPaymentStats);
+    const contractTotal = stats.reduce((s,x)=>s + x.contractValue, 0);
+    const collectedTotal = stats.reduce((s,x)=>s + x.paid, 0);
+    const remainingTotal = Math.max(contractTotal - collectedTotal, 0);
+    const overduePaymentsCount = stats.reduce((s,x)=>s + x.overdueCount, 0);
+
+    let visitsToday = 0;
+    try {
+      const allVisits = typeof window.getAllVisitsNormalized === 'function' ? window.getAllVisitsNormalized() : [];
+      const today = new Date(); today.setHours(0,0,0,0);
+      visitsToday = allVisits.filter(v => {
+        const d = new Date(v.date || v.scheduledDate || v.defaultVisitDate);
+        if(Number.isNaN(d.getTime())) return false;
+        d.setHours(0,0,0,0);
+        return d.getTime() === today.getTime();
+      }).length;
+    } catch(e) { visitsToday = 0; }
+
+    return `
+      <div class="welcome-header"><h2>لوحة التحكم 📊</h2><p>نظرة عامة شاملة على أداء المؤسسة</p></div>
+
+      <div class="section-title">💰 مؤشرات التحصيل</div>
+      <div class="stats-row cols-3">
+        <div class="stat-card" style="border-top:3px solid var(--green);"><span class="stat-icon">✅</span><span class="stat-num green">${sar(collectedTotal)}</span><span class="stat-label">المحصّل</span></div>
+        <div class="stat-card" style="border-top:3px solid var(--red);"><span class="stat-icon">💸</span><span class="stat-num red">${sar(remainingTotal)}</span><span class="stat-label">المتبقي</span></div>
+        <div class="stat-card" style="border-top:3px solid var(--orange);"><span class="stat-icon">⚠️</span><span class="stat-num orange">${overduePaymentsCount}</span><span class="stat-label">الدفعات المتأخرة</span></div>
+      </div>
+
+      <div class="section-title">📋 إحصائيات العقود</div>
+      <div class="stats-row cols-4">
+        <div class="stat-card" style="border-top:3px solid var(--green);"><span class="stat-icon">📋</span><span class="stat-num green">${total}</span><span class="stat-label">إجمالي العقود</span></div>
+        <div class="stat-card" style="border-top:3px solid var(--green-light);"><span class="stat-icon">✅</span><span class="stat-num green">${active}</span><span class="stat-label">عقود نشطة</span></div>
+        <div class="stat-card" style="border-top:3px solid var(--gold);"><span class="stat-icon">⏳</span><span class="stat-num gold">${pending}</span><span class="stat-label">تنتهي قريباً</span></div>
+        <div class="stat-card" style="border-top:3px solid var(--red);"><span class="stat-icon">❌</span><span class="stat-num red">${expired}</span><span class="stat-label">عقود منتهية</span></div>
+      </div>
+
+      <div class="section-title">💰 إحصائيات مالية</div>
+      <div class="stats-row cols-3">
+        <div class="stat-card" style="border-top:3px solid var(--primary);"><span class="stat-icon">💰</span><span class="stat-num gold">${sar(contractTotal)}</span><span class="stat-label">إجمالي قيمة العقود</span></div>
+        <div class="stat-card" style="border-top:3px solid var(--green);"><span class="stat-icon">👥</span><span class="stat-num green">${total}</span><span class="stat-label">إجمالي العملاء</span></div>
+        <div class="stat-card" style="border-top:3px solid var(--orange);"><span class="stat-icon">📅</span><span class="stat-num orange">${visitsToday}</span><span class="stat-label">زيارات اليوم</span></div>
+      </div>
+
+      <div class="section-title">🔄 توزيع طرق الدفع</div>
+      <div class="stats-row cols-4">
+        <div class="stat-card"><span class="stat-icon">📆</span><span class="stat-num" style="color:var(--primary);">${monthly}</span><span class="stat-label">شهري</span></div>
+        <div class="stat-card"><span class="stat-icon">📅</span><span class="stat-num green">${quarterly}</span><span class="stat-label">ربع سنوي</span></div>
+        <div class="stat-card"><span class="stat-icon">🗓️</span><span class="stat-num gold">${biannual}</span><span class="stat-label">نصف سنوي</span></div>
+        <div class="stat-card"><span class="stat-icon">📋</span><span class="stat-num orange">${annual}</span><span class="stat-label">سنوي</span></div>
+      </div>
+
+      ${total === 0 ? `<div class="card" style="text-align:center; padding:40px; background:#f8fafc;"><div style="font-size:48px; margin-bottom:12px;">📋</div><div style="font-size:16px; font-weight:700; color:var(--primary); margin-bottom:8px;">لا يوجد عملاء بعد</div><button class="submit-btn" style="width:auto; padding:10px 24px;" onclick="renderPanel('all_clients')">+ إضافة عميل</button></div>` : ``}
+    `;
+  };
+
+  try { if(typeof adminHome !== 'undefined') adminHome = window.adminHome; } catch(e) {}
+
+  // تحديث لوحة المدير بعد حفظ العميل في Firebase، بدون لمس بقية الشاشات.
+  const oldSaveClient = window.saveClientToFirebase;
+  if(typeof oldSaveClient === 'function' && !oldSaveClient.__v1910_wrapped){
+    const wrapped = async function(client){
+      const result = await oldSaveClient(client);
+      try { if(typeof currentRole !== 'undefined' && currentRole === 'admin' && typeof currentPanel !== 'undefined' && currentPanel === 'home' && typeof renderPanel === 'function') renderPanel('home', null, true); } catch(e) {}
+      return result;
+    };
+    wrapped.__v1910_wrapped = true;
+    window.saveClientToFirebase = wrapped;
+  }
+})();
+</script>
+
 </body>
 </html>
