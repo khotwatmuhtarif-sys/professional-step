@@ -7106,5 +7106,207 @@ saveVisitReport=window.saveVisitReport;
 })();
 </script>
 
+
+
+<script>
+/* ===== v1.9.11 RESCUE: lazy panels + light local cache + safe dashboard ===== */
+(function(){
+  function toNum(v){
+    if(v===null||v===undefined||v==='') return 0;
+    if(typeof v==='number') return Number.isFinite(v)?v:0;
+    let s=String(v)
+      .replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d))
+      .replace(/[۰-۹]/g,d=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(d))
+      .replace(/[^0-9.\-]/g,'');
+    const n=parseFloat(s);
+    return Number.isFinite(n)?n:0;
+  }
+  function sar(n){ return `${toNum(n).toLocaleString('en-US',{maximumFractionDigits:2})} ريال`; }
+  function h2(v){
+    return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+  }
+  function stripHeavy(obj){
+    const seen=new WeakSet();
+    function walk(x){
+      if(x===null||x===undefined) return x;
+      if(typeof x==='string'){
+        if(x.startsWith('data:image') || x.startsWith('data:application') || x.length>50000) return '';
+        return x;
+      }
+      if(typeof x!=='object') return x;
+      if(seen.has(x)) return null; seen.add(x);
+      if(Array.isArray(x)) return x.map(walk);
+      const out={};
+      for(const [k,v] of Object.entries(x)){
+        if(/image|photo|receipt|invoice|attachment|base64|dataUrl|fileData/i.test(k)){
+          if(typeof v==='string') { out[k]=''; continue; }
+        }
+        out[k]=walk(v);
+      }
+      return out;
+    }
+    return walk(obj);
+  }
+
+  window.saveDB=function(){
+    try{
+      const light=stripHeavy(window.db || db || {});
+      localStorage.setItem('khotwah_db', JSON.stringify(light));
+      window.__lastSaveError=null;
+      return true;
+    }catch(e){
+      window.__lastSaveError=e;
+      console.warn('تم تجاوز الحفظ المحلي واعتماد Firebase كمصدر أساسي:', e);
+      try{ localStorage.removeItem('khotwah_db'); }catch(_){ }
+      return false;
+    }
+  };
+  if(typeof saveDB!=='undefined') saveDB=window.saveDB;
+
+  window.getContractValueSafe=function(c){
+    return toNum(c?.contractAmount ?? c?.contractValue ?? c?.value ?? c?.amount ?? c?.total ?? c?.contractTotal ?? 0);
+  };
+  function normalizePaymentsSafe(c){
+    if(!c) return [];
+    let arr=[];
+    if(Array.isArray(c.payments)) arr=arr.concat(c.payments);
+    if(Array.isArray(c.manualPayments)) arr=arr.concat(c.manualPayments.map((p,i)=>({number:p.number||i+1,amount:p.amount,status:p.status||'مدفوعة',paidDate:p.date||p.paidDate,dueDate:p.dueDate||p.date})));
+    if(Array.isArray(c.paymentSchedule)) arr=arr.concat(c.paymentSchedule);
+    const seen=new Set();
+    return arr.filter(p=>{
+      const key=[p.id,p.number,p.amount,p.dueDate,p.paidDate,p.status].join('|');
+      if(seen.has(key)) return false; seen.add(key); return true;
+    });
+  }
+  window.normalizePayments=normalizePaymentsSafe;
+  if(typeof normalizePayments!=='undefined') normalizePayments=window.normalizePayments;
+
+  function paidStatus(p){
+    const s=String(p?.status||p?.paymentStatus||'').trim().toLowerCase();
+    return s==='مدفوعة'||s==='مدفوع'||s==='paid'||p?.approved===true||p?.isPaid===true||p?.paid===true;
+  }
+  function pendingStatus(p){
+    if(paidStatus(p)) return false;
+    const s=String(p?.status||p?.paymentStatus||'').trim().toLowerCase();
+    return s==='بانتظار المراجعة'||s==='قيد المراجعة'||s==='pending';
+  }
+  window.getPaymentStats=function(c){
+    const payments=normalizePaymentsSafe(c);
+    const contractValue=window.getContractValueSafe(c);
+    const paid=payments.filter(paidStatus).reduce((s,p)=>s+toNum(p.amount??p.value??p.total),0);
+    const pendingReview=payments.filter(pendingStatus).reduce((s,p)=>s+toNum(p.amount??p.value??p.total),0);
+    const remaining=Math.max(contractValue-paid,0);
+    const today=new Date(); today.setHours(0,0,0,0);
+    const overdueCount=payments.filter(p=>!paidStatus(p)&&!pendingStatus(p)&&(p.dueDate||p.date)&&new Date(p.dueDate||p.date)<today).length;
+    return {payments,contractValue,paid,pendingReview,remaining,overdueCount,percent:contractValue?Math.min(100,Math.round((paid/contractValue)*100)):0};
+  };
+  if(typeof getPaymentStats!=='undefined') getPaymentStats=window.getPaymentStats;
+
+  window.adminHome=function(){
+    const clients=(window.db?.clients||[]);
+    const total=clients.length;
+    const active=clients.filter(c=>String(c.status||'active')==='active'||String(c.status||'نشط')==='نشط').length;
+    const pending=clients.filter(c=>String(c.status||'')==='pending').length;
+    const expired=clients.filter(c=>String(c.status||'')==='expired'||String(c.status||'')==='منتهي').length;
+    const stats=clients.map(c=>window.getPaymentStats(c));
+    const contractTotal=stats.reduce((s,x)=>s+x.contractValue,0);
+    const collectedTotal=stats.reduce((s,x)=>s+x.paid,0);
+    const remainingTotal=Math.max(contractTotal-collectedTotal,0);
+    const overduePaymentsCount=stats.reduce((s,x)=>s+x.overdueCount,0);
+    const payOf=c=>String(c.pay||c.paymentPlan||c.paymentType||'');
+    const monthly=clients.filter(c=>payOf(c)==='شهري').length;
+    const quarterly=clients.filter(c=>payOf(c)==='ربع سنوي').length;
+    const biannual=clients.filter(c=>payOf(c)==='نصف سنوي').length;
+    const annual=clients.filter(c=>payOf(c)==='سنوي').length;
+    let todayVisits=0;
+    try{
+      const today=new Date().toISOString().slice(0,10);
+      todayVisits=clients.reduce((n,c)=>n+(Array.isArray(c.visitSchedule)?c.visitSchedule.filter(v=>String(v.date||'').slice(0,10)===today).length:0),0);
+    }catch(_){ }
+    return `<div class="welcome-header"><h2>لوحة التحكم 📊</h2><p>نظرة عامة شاملة على أداء المؤسسة</p></div>
+    <div class="section-title">💰 مؤشرات التحصيل</div>
+    <div class="stats-row cols-3">
+      <div class="stat-card" style="border-top:3px solid var(--green);"><span class="stat-icon">✅</span><span class="stat-num green">${sar(collectedTotal)}</span><span class="stat-label">المحصّل</span></div>
+      <div class="stat-card" style="border-top:3px solid var(--red);"><span class="stat-icon">💸</span><span class="stat-num red">${sar(remainingTotal)}</span><span class="stat-label">المتبقي</span></div>
+      <div class="stat-card" style="border-top:3px solid var(--orange);"><span class="stat-icon">⚠️</span><span class="stat-num orange">${overduePaymentsCount}</span><span class="stat-label">الدفعات المتأخرة</span></div>
+    </div>
+    <div class="section-title">📋 إحصائيات العقود</div>
+    <div class="stats-row cols-4">
+      <div class="stat-card"><span class="stat-icon">📋</span><span class="stat-num green">${total}</span><span class="stat-label">إجمالي العقود</span></div>
+      <div class="stat-card"><span class="stat-icon">✅</span><span class="stat-num green">${active}</span><span class="stat-label">عقود نشطة</span></div>
+      <div class="stat-card"><span class="stat-icon">⏳</span><span class="stat-num gold">${pending}</span><span class="stat-label">تنتهي قريباً</span></div>
+      <div class="stat-card"><span class="stat-icon">❌</span><span class="stat-num red">${expired}</span><span class="stat-label">عقود منتهية</span></div>
+    </div>
+    <div class="section-title">💰 إحصائيات مالية</div>
+    <div class="stats-row cols-3">
+      <div class="stat-card"><span class="stat-icon">💰</span><span class="stat-num gold">${sar(contractTotal)}</span><span class="stat-label">إجمالي قيمة العقود</span></div>
+      <div class="stat-card"><span class="stat-icon">👥</span><span class="stat-num green">${total}</span><span class="stat-label">إجمالي العملاء</span></div>
+      <div class="stat-card"><span class="stat-icon">📅</span><span class="stat-num orange">${todayVisits}</span><span class="stat-label">زيارات اليوم</span></div>
+    </div>
+    <div class="section-title">🔄 توزيع طرق الدفع</div>
+    <div class="stats-row cols-4">
+      <div class="stat-card"><span class="stat-icon">📆</span><span class="stat-num">${monthly}</span><span class="stat-label">شهري</span></div>
+      <div class="stat-card"><span class="stat-icon">📅</span><span class="stat-num green">${quarterly}</span><span class="stat-label">ربع سنوي</span></div>
+      <div class="stat-card"><span class="stat-icon">🗓️</span><span class="stat-num gold">${biannual}</span><span class="stat-label">نصف سنوي</span></div>
+      <div class="stat-card"><span class="stat-icon">📋</span><span class="stat-num orange">${annual}</span><span class="stat-label">سنوي</span></div>
+    </div>`;
+  };
+  if(typeof adminHome!=='undefined') adminHome=window.adminHome;
+
+  // Lazy panel renderer: لا يحمّل كل الشاشات دفعة واحدة حتى لا تتعطل الرئيسية بسبب خطأ في شاشة أخرى
+  window.getPanelHTML=function(id){
+    try{
+      if(id==='home') return currentRole==='client'?clientHome():(currentRole==='employee'?employeeHome():window.adminHome());
+      if(id==='reports') return currentRole==='admin'?adminAllReports():clientReports();
+      if(id==='map') return clientMap();
+      if(id==='payments') return clientPayments();
+      if(id==='visits') return employeeVisits();
+      if(id==='report_upload') return employeeUpload();
+      if(id==='clients_list') return employeeClients();
+      if(id==='tech_reports') return (typeof employeeMyReports==='function'?employeeMyReports():employeeReports());
+      if(id==='client_log') return (typeof employeeClientLog==='function'?employeeClientLog():employeeClients());
+      if(id==='all_clients') return adminClients();
+      if(id==='all_reports') return adminAllReports();
+      if(id==='all_visits') return adminVisits();
+      if(id==='emergency_admin') return adminEmergency();
+      if(id==='settings') return adminSettings();
+      if(id==='client_emergency') return clientEmergency();
+      if(id==='client_complaints') return clientComplaints();
+      if(id==='client_ratings') return clientRatings();
+      return `<div class="card">الشاشة غير متوفرة: ${h2(id)}</div>`;
+    }catch(e){
+      console.error('Panel error:', id, e);
+      return `<div class="card" style="border:1px solid #fecaca;background:#fff1f2"><h3>⚠️ تعذر فتح هذه الشاشة</h3><p style="font-size:13px;color:#7f1d1d">تم منع ظهور صفحة بيضاء. جرّب تحديث الصفحة أو انتقل لشاشة أخرى.</p><pre style="white-space:pre-wrap;direction:ltr;text-align:left;font-size:11px;background:white;padding:8px;border-radius:8px;overflow:auto">${h2(e.message||e)}</pre></div>`;
+    }
+  };
+  if(typeof getPanelHTML!=='undefined') getPanelHTML=window.getPanelHTML;
+
+  const oldRenderPanel=window.renderPanel || (typeof renderPanel==='function'?renderPanel:null);
+  window.renderPanel=function(panelId, btn, skipHistory){
+    try{
+      if(!skipHistory && window.currentPanel && window.currentPanel!==panelId){ try{ history.pushState({panel:panelId},'', '#'+panelId); }catch(_){ } }
+      document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
+      if(btn) btn.classList.add('active');
+      window.currentPanel=panelId; if(typeof currentPanel!=='undefined') currentPanel=panelId;
+      const content=document.getElementById('appContent');
+      if(content) content.innerHTML=window.getPanelHTML(panelId);
+      if(typeof initPanelJS==='function') initPanelJS(panelId);
+    }catch(e){
+      console.error('renderPanel rescue error:', e);
+      const content=document.getElementById('appContent');
+      if(content) content.innerHTML=`<div class="card"><h3>⚠️ خطأ في فتح الشاشة</h3><p>${h2(e.message||e)}</p></div>`;
+    }
+  };
+  if(typeof renderPanel!=='undefined') renderPanel=window.renderPanel;
+
+  // بعد تحميل Firebase حدث الشاشة الحالية مرة واحدة
+  setTimeout(function(){
+    try{
+      if(window.currentRole && document.getElementById('appContent')) window.renderPanel(window.currentPanel||'home', null, true);
+    }catch(e){ console.warn(e); }
+  },1200);
+})();
+</script>
+
 </body>
 </html>
