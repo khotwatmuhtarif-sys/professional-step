@@ -7308,5 +7308,190 @@ saveVisitReport=window.saveVisitReport;
 })();
 </script>
 
+
+
+<script>
+/* ===== v1.9.12 ADMIN COUNTERS FIREBASE FIX =====
+   إصلاح مخصص: عدادات لوحة المدير كانت تصفر لأن v1.9.11 كانت تقرأ من window.db
+   بينما قاعدة البيانات الفعلية داخل المتغير db. هذا التصحيح لا يلمس التقارير أو الزيارات.
+*/
+(function(){
+  function getDB(){
+    try { if (typeof db !== 'undefined' && db) return db; } catch(e) {}
+    if (window.db && typeof window.db === 'object') return window.db;
+    return {clients:[], reports:[], users:[]};
+  }
+  function exposeDB(){
+    try { if (typeof db !== 'undefined' && db) window.db = db; } catch(e) {}
+  }
+  exposeDB();
+
+  function toNum(v){
+    if(v===null||v===undefined||v==='') return 0;
+    if(typeof v==='number') return Number.isFinite(v)?v:0;
+    let s=String(v)
+      .replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d))
+      .replace(/[۰-۹]/g,d=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(d))
+      .replace(/,/g,'')
+      .replace(/\s/g,'')
+      .replace(/[^0-9.\-]/g,'');
+    const n=parseFloat(s);
+    return Number.isFinite(n)?n:0;
+  }
+  function sar(n){ return `${toNum(n).toLocaleString('en-US',{maximumFractionDigits:2})} ريال`; }
+  function esc(v){ return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m])); }
+
+  function clients(){
+    const d=getDB();
+    const arr=Array.isArray(d.clients)?d.clients:[];
+    return arr.filter(c=>c && !c.deleted && !c.isDeleted && !String(c.status||'').includes('محذوف'));
+  }
+  function contractValue(c){
+    return toNum(c?.contractAmount ?? c?.contractValue ?? c?.value ?? c?.amount ?? c?.contractTotal ?? c?.totalContract ?? 0);
+  }
+  function paymentsOf(c){
+    if(!c) return [];
+    let arr=[];
+    if(Array.isArray(c.payments)) arr=arr.concat(c.payments);
+    if(Array.isArray(c.manualPayments)) arr=arr.concat(c.manualPayments);
+    if(Array.isArray(c.paymentSchedule)) arr=arr.concat(c.paymentSchedule);
+    const seen=new Set();
+    return arr.filter(p=>{
+      if(!p) return false;
+      const key=[p.id,p.number,p.amount,p.value,p.dueDate,p.date,p.status,p.paidDate].join('|');
+      if(seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+  function paymentAmount(p){ return toNum(p?.amount ?? p?.value ?? p?.total ?? p?.paymentAmount ?? 0); }
+  function statusOf(p){ return String(p?.status || p?.paymentStatus || p?.state || '').trim().toLowerCase(); }
+  function isPaid(p){
+    const s=statusOf(p);
+    return s==='مدفوعة' || s==='مدفوع' || s==='paid' || p?.paid===true || p?.isPaid===true || p?.approved===true;
+  }
+  function isPendingReview(p){
+    if(isPaid(p)) return false;
+    const s=statusOf(p);
+    return s==='بانتظار المراجعة' || s==='قيد المراجعة' || s==='pending';
+  }
+  function isOverduePayment(p){
+    if(isPaid(p) || isPendingReview(p)) return false;
+    const s=statusOf(p);
+    if(s.includes('ملغ') || s.includes('cancel')) return false;
+    const raw=p?.dueDate || p?.scheduledDate || p?.date;
+    if(!raw) return false;
+    const d=new Date(raw); if(Number.isNaN(d.getTime())) return false;
+    const today=new Date(); d.setHours(0,0,0,0); today.setHours(0,0,0,0);
+    return d < today;
+  }
+  function paymentStats(c){
+    const total=contractValue(c);
+    const pays=paymentsOf(c);
+    const paid=pays.filter(isPaid).reduce((s,p)=>s+paymentAmount(p),0);
+    const remaining=Math.max(total-paid,0);
+    const overdueCount=pays.filter(isOverduePayment).length;
+    return {contractValue:total, paid, remaining, overdueCount, payments:pays};
+  }
+
+  window.getPaymentStats = paymentStats;
+  try { if(typeof getPaymentStats !== 'undefined') getPaymentStats = paymentStats; } catch(e) {}
+
+  // لف دوال التحميل حتى تصبح بيانات db متاحة أيضًا عبر window.db وتُحدّث لوحة المدير بعد التحميل.
+  if(window.loadClientsFromFirebase && !window.loadClientsFromFirebase.__v1912){
+    const oldLoad=window.loadClientsFromFirebase;
+    const wrapped=async function(){
+      const result=await oldLoad.apply(this,arguments);
+      exposeDB();
+      try{
+        if(typeof currentRole!=='undefined' && currentRole==='admin' && typeof currentPanel!=='undefined' && currentPanel==='home' && typeof renderPanel==='function'){
+          renderPanel('home', null, true);
+        }
+      }catch(e){ console.warn('تحديث لوحة المدير بعد التحميل فشل:', e); }
+      return result;
+    };
+    wrapped.__v1912=true;
+    window.loadClientsFromFirebase=wrapped;
+  }
+
+  window.adminHome=function(){
+    exposeDB();
+    const cs=clients();
+    const total=cs.length;
+    const expired=cs.filter(c=>String(c.status||'').includes('منتهي') || String(c.status||'')==='expired').length;
+    const pending=cs.filter(c=>String(c.status||'')==='pending' || String(c.status||'').includes('قريب')).length;
+    const active=Math.max(total-expired-pending,0);
+    const stats=cs.map(paymentStats);
+    const contractTotal=stats.reduce((s,x)=>s+x.contractValue,0);
+    const collectedTotal=stats.reduce((s,x)=>s+x.paid,0);
+    const remainingTotal=Math.max(contractTotal-collectedTotal,0);
+    const overduePaymentsCount=stats.reduce((s,x)=>s+x.overdueCount,0);
+    const payOf=c=>String(c.pay||c.paymentPlan||c.paymentType||'').trim();
+    const monthly=cs.filter(c=>payOf(c)==='شهري').length;
+    const quarterly=cs.filter(c=>payOf(c)==='ربع سنوي').length;
+    const biannual=cs.filter(c=>payOf(c)==='نصف سنوي').length;
+    const annual=cs.filter(c=>payOf(c)==='سنوي').length;
+    let todayVisits=0;
+    try{
+      const today=new Date(); today.setHours(0,0,0,0);
+      todayVisits=cs.reduce((n,c)=> n + (Array.isArray(c.visitSchedule)?c.visitSchedule.filter(v=>{const d=new Date(v.date||v.scheduledDate||v.defaultVisitDate); if(Number.isNaN(d.getTime())) return false; d.setHours(0,0,0,0); return d.getTime()===today.getTime();}).length:0),0);
+    }catch(_){ todayVisits=0; }
+
+    const loadWarning = total===0 ? `<div class="card" style="border:1px solid #fde68a;background:#fffbeb;color:#92400e;font-size:13px;">⚠️ إذا كنت متأكدًا أن هناك عملاء في النظام وما زالت العدادات صفرًا، اضغط تحديث الصفحة بعد تسجيل الدخول أو تحقق من اتصال Firebase.</div>` : '';
+    return `<div class="welcome-header"><h2>لوحة التحكم 📊</h2><p>نظرة عامة شاملة على أداء المؤسسة</p></div>
+    ${loadWarning}
+    <div class="section-title">💰 مؤشرات التحصيل</div>
+    <div class="stats-row cols-3">
+      <div class="stat-card" style="border-top:3px solid var(--green);"><span class="stat-icon">✅</span><span class="stat-num green">${sar(collectedTotal)}</span><span class="stat-label">المحصّل</span></div>
+      <div class="stat-card" style="border-top:3px solid var(--red);"><span class="stat-icon">💸</span><span class="stat-num red">${sar(remainingTotal)}</span><span class="stat-label">المتبقي</span></div>
+      <div class="stat-card" style="border-top:3px solid var(--orange);"><span class="stat-icon">⚠️</span><span class="stat-num orange">${overduePaymentsCount}</span><span class="stat-label">الدفعات المتأخرة</span></div>
+    </div>
+    <div class="section-title">📋 إحصائيات العقود</div>
+    <div class="stats-row cols-4">
+      <div class="stat-card"><span class="stat-icon">📋</span><span class="stat-num green">${total}</span><span class="stat-label">إجمالي العقود</span></div>
+      <div class="stat-card"><span class="stat-icon">✅</span><span class="stat-num green">${active}</span><span class="stat-label">عقود نشطة</span></div>
+      <div class="stat-card"><span class="stat-icon">⏳</span><span class="stat-num gold">${pending}</span><span class="stat-label">تنتهي قريباً</span></div>
+      <div class="stat-card"><span class="stat-icon">❌</span><span class="stat-num red">${expired}</span><span class="stat-label">عقود منتهية</span></div>
+    </div>
+    <div class="section-title">💰 إحصائيات مالية</div>
+    <div class="stats-row cols-3">
+      <div class="stat-card"><span class="stat-icon">💰</span><span class="stat-num gold">${sar(contractTotal)}</span><span class="stat-label">إجمالي قيمة العقود</span></div>
+      <div class="stat-card"><span class="stat-icon">👥</span><span class="stat-num green">${total}</span><span class="stat-label">إجمالي العملاء</span></div>
+      <div class="stat-card"><span class="stat-icon">📅</span><span class="stat-num orange">${todayVisits}</span><span class="stat-label">زيارات اليوم</span></div>
+    </div>
+    <div class="section-title">🔄 توزيع طرق الدفع</div>
+    <div class="stats-row cols-4">
+      <div class="stat-card"><span class="stat-icon">📆</span><span class="stat-num">${monthly}</span><span class="stat-label">شهري</span></div>
+      <div class="stat-card"><span class="stat-icon">📅</span><span class="stat-num green">${quarterly}</span><span class="stat-label">ربع سنوي</span></div>
+      <div class="stat-card"><span class="stat-icon">🗓️</span><span class="stat-num gold">${biannual}</span><span class="stat-label">نصف سنوي</span></div>
+      <div class="stat-card"><span class="stat-icon">📋</span><span class="stat-num orange">${annual}</span><span class="stat-label">سنوي</span></div>
+    </div>`;
+  };
+  try { if(typeof adminHome !== 'undefined') adminHome=window.adminHome; } catch(e) {}
+
+  // شاشة فني آمنة: لا تجعل الصفحة بيضاء إذا كان db غير ظاهر على window
+  window.employeeHome=function(){
+    exposeDB();
+    const d=getDB();
+    const cs=Array.isArray(d.clients)?d.clients:[];
+    const reps=Array.isArray(d.reports)?d.reports:[];
+    const myName=(typeof currentUser!=='undefined' && currentUser)?(currentUser.name||currentUser.username||''):'';
+    const myReports=reps.filter(r=>!myName || String(r.tech||r.employeeName||'')===String(myName));
+    return `<div class="welcome-header"><h2>أهلاً، ${esc(myName||'الفني')} 👷</h2><p>يمكنك رفع تقرير أو مراجعة سجل أي عميل قبل الزيارة</p></div>
+      <div class="stats-row cols-3"><div class="stat-card"><span class="stat-icon">📋</span><span class="stat-num">${cs.length}</span><span class="stat-label">عملاء متاحون</span></div><div class="stat-card"><span class="stat-icon">✅</span><span class="stat-num green">${myReports.length}</span><span class="stat-label">تقاريري</span></div><div class="stat-card"><span class="stat-icon">📝</span><span class="stat-num gold">${cs.reduce((n,c)=>n+(Array.isArray(c.techNotes)?c.techNotes.length:0),0)}</span><span class="stat-label">ملاحظات فنية</span></div></div>
+      <div class="action-grid"><div class="action-btn" onclick="renderPanel('report_upload')"><span class="btn-icon">📤</span><span class="btn-label">رفع تقرير</span><span class="btn-sub">زيارة جديدة</span></div><div class="action-btn" onclick="renderPanel('client_history')"><span class="btn-icon">📋</span><span class="btn-label">سجل العميل</span><span class="btn-sub">تقارير وملاحظات</span></div><div class="action-btn" onclick="renderPanel('clients_list')"><span class="btn-icon">🔍</span><span class="btn-label">بحث العملاء</span><span class="btn-sub">قبل الزيارة</span></div></div>`;
+  };
+  try { if(typeof employeeHome !== 'undefined') employeeHome=window.employeeHome; } catch(e) {}
+
+  // إعادة رسم الشاشة بعد التحميل المتأخر من Firebase
+  setTimeout(function(){
+    try{
+      exposeDB();
+      if(typeof currentRole!=='undefined' && currentRole && typeof renderPanel==='function') renderPanel((typeof currentPanel!=='undefined'&&currentPanel)||'home', null, true);
+    }catch(e){ console.warn('v1.9.12 delayed refresh failed', e); }
+  },1800);
+})();
+</script>
+
 </body>
 </html>
