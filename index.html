@@ -7689,5 +7689,566 @@ saveVisitReport=window.saveVisitReport;
   }
 })();
 </script>
+
+
+<script>
+/* ===== v1.9.14 FINANCE + CLIENT SAFE FIX =====
+   إصلاح محدود:
+   1) إجمالي قيمة العقود = مجموع جدول الدفعات إن وجد، لأنه المصدر العملي للعقد.
+      وإذا لا يوجد جدول دفعات نستخدم contractAmount ثم value.
+   2) المحصل = الدفعات التي حالتها مدفوعة فقط من مصدر واحد.
+   3) حماية شاشات العميل من خطأ toLocaleString على undefined.
+*/
+(function(){
+  function getDB(){
+    try { if (typeof db !== 'undefined' && db) return db; } catch(e) {}
+    if (window.db && typeof window.db === 'object') return window.db;
+    return {clients:[], reports:[]};
+  }
+  function exposeDB(){ try { if (typeof db !== 'undefined' && db) window.db = db; } catch(e) {} }
+  function toNum(v){
+    if(v === null || v === undefined || v === '') return 0;
+    if(typeof v === 'number') return Number.isFinite(v) ? v : 0;
+    const s = String(v)
+      .replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d))
+      .replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d))
+      .replace(/,/g,'')
+      .replace(/\s/g,'')
+      .replace(/[^0-9.\-]/g,'');
+    const n = parseFloat(s);
+    return Number.isFinite(n) ? n : 0;
+  }
+  function sar(n){ return `${toNum(n).toLocaleString('en-US', {maximumFractionDigits:2})} ريال`; }
+  function esc(v){ return String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+  function clientsList(){
+    exposeDB();
+    const arr = Array.isArray(getDB().clients) ? getDB().clients : [];
+    return arr.filter(c => c && !c.deleted && !c.isDeleted && !String(c.status||'').includes('محذوف'));
+  }
+  function rawPayments(client){
+    if(!client) return [];
+    if(Array.isArray(client.payments) && client.payments.length) return client.payments;
+    if(Array.isArray(client.paymentSchedule) && client.paymentSchedule.length) return client.paymentSchedule;
+    if(Array.isArray(client.manualPayments) && client.manualPayments.length) return client.manualPayments;
+    return [];
+  }
+  function normalizedPayments(client){
+    return rawPayments(client).map((p, idx) => ({
+      ...p,
+      number: p.number || idx + 1,
+      amount: toNum(p.amount ?? p.paymentAmount ?? p.value),
+      dueDate: p.dueDate || p.scheduledDate || p.date || '',
+      status: p.status || p.paymentStatus || p.state || (p.paid || p.isPaid || p.approved ? 'مدفوعة' : 'غير مدفوعة'),
+      paidDate: p.paidDate || p.paymentDate || p.date || '',
+      receipt: p.receipt || p.receiptData || '',
+      receiptName: p.receiptName || '',
+      invoice: p.invoice || '',
+      invoiceName: p.invoiceName || ''
+    }));
+  }
+  function sumPaymentSchedule(client){
+    const ps = normalizedPayments(client);
+    return ps.reduce((s,p)=>s+toNum(p.amount),0);
+  }
+  function storedContractValue(client){
+    const contractAmount = toNum(client && client.contractAmount);
+    if(contractAmount > 0) return contractAmount;
+    const value = toNum(client && client.value);
+    return value > 0 ? value : 0;
+  }
+  function contractValue(client){
+    const paymentsTotal = sumPaymentSchedule(client);
+    // عند وجود جدول دفعات، نعتبره مصدر قيمة العقد حتى لا يدخل رقم مخزن خطأ في value/contractAmount.
+    if(paymentsTotal > 0) return paymentsTotal;
+    return storedContractValue(client);
+  }
+  function statusText(p){ return String((p && (p.status || p.paymentStatus || p.state)) || '').trim().toLowerCase(); }
+  function isPaid(p){
+    const s=statusText(p);
+    return s === 'مدفوعة' || s === 'مدفوع' || s === 'paid' || s === 'approved';
+  }
+  function isPending(p){
+    if(isPaid(p)) return false;
+    const s=statusText(p);
+    return s === 'بانتظار المراجعة' || s === 'قيد المراجعة' || s === 'pending';
+  }
+  function isCancelled(p){ const s=statusText(p); return s.includes('ملغ') || s.includes('cancel'); }
+  function isOverdue(p){
+    if(isPaid(p) || isPending(p) || isCancelled(p)) return false;
+    const raw=p && (p.dueDate || p.scheduledDate || p.date);
+    if(!raw) return false;
+    const d=new Date(raw); if(Number.isNaN(d.getTime())) return false;
+    const t=new Date(); d.setHours(0,0,0,0); t.setHours(0,0,0,0);
+    return d < t;
+  }
+  function paymentStats(client){
+    const payments=normalizedPayments(client);
+    const total=contractValue(client);
+    const paid=payments.filter(isPaid).reduce((s,p)=>s+toNum(p.amount),0);
+    const pendingReview=payments.filter(isPending).reduce((s,p)=>s+toNum(p.amount),0);
+    const remaining=Math.max(total - paid, 0);
+    const overdueCount=payments.filter(isOverdue).length;
+    const paidCount=payments.filter(isPaid).length;
+    const unpaidCount=payments.filter(p=>!isPaid(p)).length;
+    const percent=total ? Math.min(100, Math.round((paid/total)*100)) : 0;
+    return {payments, contractValue:total, paid, pendingReview, remaining, overdueCount, paidCount, unpaidCount, percent};
+  }
+
+  window.normalizePayments = normalizedPayments;
+  window.getContractValue = contractValue;
+  window.getPaymentStats = paymentStats;
+  window.formatSAR = sar;
+  try { if(typeof normalizePayments !== 'undefined') normalizePayments = window.normalizePayments; } catch(e) {}
+  try { if(typeof getContractValue !== 'undefined') getContractValue = window.getContractValue; } catch(e) {}
+  try { if(typeof getPaymentStats !== 'undefined') getPaymentStats = window.getPaymentStats; } catch(e) {}
+
+  function currentClientSafe(){
+    try { if (typeof clientNow === 'function') { const c=clientNow(); if(c) return c; } } catch(e) {}
+    try { if (typeof currentClientId !== 'undefined') return (getDB().clients||[]).find(c=>String(c.id)===String(currentClientId)) || {}; } catch(e) {}
+    return {};
+  }
+
+  window.paymentSummaryCard=function(client){
+    const s=paymentStats(client || {});
+    return `<div class="card" style="background:linear-gradient(135deg,#e8f5e9,#ffffff);border:1px solid #d7eadb;">
+      <div class="section-title">💳 ملخص التحصيل</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:10px;text-align:center;">
+        <div><div style="font-size:12px;color:var(--text-light);">قيمة العقد</div><div style="font-size:18px;font-weight:800;">${sar(s.contractValue)}</div></div>
+        <div><div style="font-size:12px;color:var(--text-light);">المدفوع</div><div style="font-size:18px;font-weight:800;color:var(--green);">${sar(s.paid)}</div></div>
+        <div><div style="font-size:12px;color:var(--text-light);">المتبقي</div><div style="font-size:18px;font-weight:800;color:${s.remaining>0?'var(--red)':'var(--green)'};">${sar(s.remaining)}</div></div>
+      </div>
+      <div class="progress-wrap" style="margin-top:14px;"><div class="progress-bar" style="width:${toNum(s.percent)}%"></div></div>
+      <div style="font-size:12px;color:var(--text-light);text-align:center;">نسبة التحصيل: ${toNum(s.percent)}%</div>
+    </div>`;
+  };
+  try { if(typeof paymentSummaryCard !== 'undefined') paymentSummaryCard = window.paymentSummaryCard; } catch(e) {}
+
+  // إصلاح شاشة الدفع عند العميل ومنع خطأ toLocaleString
+  window.clientPayments=function(){
+    const c=currentClientSafe();
+    const s=paymentStats(c);
+    return `${window.paymentSummaryCard(c)}
+      <div class="section-title">💳 دفعاتي</div>
+      ${typeof renderBankDetailsCard==='function' ? renderBankDetailsCard() : ''}
+      ${s.remaining>0?`<button class="submit-btn green" style="margin-bottom:14px" onclick="openPayRemainingModal()">💰 دفع جميع المتبقي (${sar(s.remaining)})</button>`:''}
+      <div class="section-title">📑 جدول الدفعات</div>
+      ${s.payments.length ? s.payments.map(p=>`<div class="payment-card ${isPaid(p)?'paid':'unpaid'}">
+        <span class="payment-icon">${isPaid(p)?'✅':isPending(p)?'⏳':'⚠️'}</span>
+        <div class="payment-info"><div class="payment-title">الدفعة رقم ${esc(p.number||'-')} — ${sar(p.amount)}</div>
+        <div class="payment-date">استحقاق: ${esc(p.dueDate||'-')} ${p.paidDate?'| دفع: '+esc(p.paidDate):''}</div>
+        <div>${typeof paymentStatusBadge==='function'?paymentStatusBadge(p.status||'غير مدفوعة'):esc(p.status||'غير مدفوعة')}</div>
+        ${p.receiptName?`<div class="file-chip">📎 ${esc(p.receiptName)}</div>`:''}${p.invoiceName?`<div class="file-chip">🧾 ${esc(p.invoiceName)}</div>`:''}</div>
+        <span class="payment-amount">${sar(p.amount)}</span></div>`).join('') : '<div class="card" style="text-align:center">لا يوجد جدول دفعات محفوظ لهذا العميل</div>'}`;
+  };
+  try { if(typeof clientPayments !== 'undefined') clientPayments = window.clientPayments; } catch(e) {}
+
+  // إصلاح الصفحة الرئيسية للعميل لأنها كانت تتعطل بسبب بطاقة التحصيل القديمة
+  const oldClientHome = window.clientHome || (typeof clientHome==='function' ? clientHome : null);
+  window.clientHome=function(){
+    try {
+      const html = oldClientHome ? oldClientHome.apply(this, arguments) : '';
+      return html || `<div class="welcome-header"><h2>أهلاً بك 👋</h2><p>${esc(currentClientSafe().name||'عميلنا العزيز')}</p></div>${window.paymentSummaryCard(currentClientSafe())}`;
+    } catch(err){
+      const c=currentClientSafe();
+      return `<div class="welcome-header"><h2>أهلاً بك 👋</h2><p style="font-size:18px;font-weight:800;color:white">${esc(c.name||'عميلنا العزيز')}</p></div>
+        ${window.paymentSummaryCard(c)}
+        <div class="action-grid">
+          <div class="action-btn" onclick="renderPanel('reports')"><span class="btn-icon">📋</span><span class="btn-label">تقاريري</span></div>
+          <div class="action-btn" onclick="renderPanel('map')"><span class="btn-icon">🗺️</span><span class="btn-label">المصائد</span></div>
+          <div class="action-btn" onclick="renderPanel('payments')"><span class="btn-icon">💳</span><span class="btn-label">الدفع</span></div>
+        </div>`;
+    }
+  };
+  try { if(typeof clientHome !== 'undefined') clientHome = window.clientHome; } catch(e) {}
+
+  window.adminHome=function(){
+    exposeDB();
+    const cs=clientsList();
+    const total=cs.length;
+    const expired=cs.filter(c=>String(c.status||'').includes('منتهي') || String(c.status||'')==='expired').length;
+    const pending=cs.filter(c=>String(c.status||'')==='pending' || String(c.status||'').includes('قريب')).length;
+    const active=Math.max(total-expired-pending,0);
+    const stats=cs.map(paymentStats);
+    const contractTotal=stats.reduce((s,x)=>s+x.contractValue,0);
+    const collectedTotal=stats.reduce((s,x)=>s+x.paid,0);
+    const remainingTotal=Math.max(contractTotal-collectedTotal,0);
+    const overduePaymentsCount=stats.reduce((s,x)=>s+x.overdueCount,0);
+    const payOf=c=>String(c.pay||c.paymentPlan||c.paymentType||'').trim();
+    const monthly=cs.filter(c=>['شهري','monthly'].includes(payOf(c))).length;
+    const quarterly=cs.filter(c=>['ربع سنوي','quarter'].includes(payOf(c))).length;
+    const biannual=cs.filter(c=>['نصف سنوي','semi'].includes(payOf(c))).length;
+    const annual=cs.filter(c=>['سنوي','annual'].includes(payOf(c))).length;
+    return `<div class="welcome-header"><h2>لوحة التحكم 📊</h2><p>نظرة عامة شاملة على أداء المؤسسة</p></div>
+      <div class="section-title">💰 مؤشرات التحصيل</div><div class="stats-row cols-3">
+        <div class="stat-card" style="border-top:3px solid var(--green);"><span class="stat-icon">✅</span><span class="stat-num green">${sar(collectedTotal)}</span><span class="stat-label">المحصّل</span></div>
+        <div class="stat-card" style="border-top:3px solid var(--red);"><span class="stat-icon">💸</span><span class="stat-num red">${sar(remainingTotal)}</span><span class="stat-label">المتبقي</span></div>
+        <div class="stat-card" style="border-top:3px solid var(--orange);"><span class="stat-icon">⚠️</span><span class="stat-num orange">${overduePaymentsCount}</span><span class="stat-label">الدفعات المتأخرة</span></div>
+      </div>
+      <div class="section-title">📋 إحصائيات العقود</div><div class="stats-row cols-4">
+        <div class="stat-card"><span class="stat-icon">📋</span><span class="stat-num green">${total}</span><span class="stat-label">إجمالي العقود</span></div>
+        <div class="stat-card"><span class="stat-icon">✅</span><span class="stat-num green">${active}</span><span class="stat-label">عقود نشطة</span></div>
+        <div class="stat-card"><span class="stat-icon">⏳</span><span class="stat-num gold">${pending}</span><span class="stat-label">تنتهي قريباً</span></div>
+        <div class="stat-card"><span class="stat-icon">❌</span><span class="stat-num red">${expired}</span><span class="stat-label">عقود منتهية</span></div>
+      </div>
+      <div class="section-title">💰 إحصائيات مالية</div><div class="stats-row cols-3">
+        <div class="stat-card"><span class="stat-icon">💰</span><span class="stat-num gold">${sar(contractTotal)}</span><span class="stat-label">إجمالي قيمة العقود</span></div>
+        <div class="stat-card"><span class="stat-icon">👥</span><span class="stat-num green">${total}</span><span class="stat-label">إجمالي العملاء</span></div>
+        <div class="stat-card"><span class="stat-icon">📅</span><span class="stat-num orange">0</span><span class="stat-label">زيارات اليوم</span></div>
+      </div>
+      <div class="section-title">🔄 توزيع طرق الدفع</div><div class="stats-row cols-4">
+        <div class="stat-card"><span class="stat-icon">📆</span><span class="stat-num">${monthly}</span><span class="stat-label">شهري</span></div>
+        <div class="stat-card"><span class="stat-icon">📅</span><span class="stat-num green">${quarterly}</span><span class="stat-label">ربع سنوي</span></div>
+        <div class="stat-card"><span class="stat-icon">🗓️</span><span class="stat-num gold">${biannual}</span><span class="stat-label">نصف سنوي</span></div>
+        <div class="stat-card"><span class="stat-icon">📋</span><span class="stat-num orange">${annual}</span><span class="stat-label">سنوي</span></div>
+      </div>`;
+  };
+  try { if(typeof adminHome !== 'undefined') adminHome = window.adminHome; } catch(e) {}
+})();
+</script>
+
+
+
+<script>
+/* ===== v1.9.15 Recalculate Finance + Client Screen Stability =====
+   الهدف:
+   - كل الأرقام المالية تُحسب لحظياً من بيانات العملاء والدفعات الحالية، بدون تخزين ناتج قديم.
+   - حذف/إضافة/تعديل دفعة أو عميل ينعكس عند فتح لوحة المدير فوراً، ومع إعادة تحميل Firebase.
+   - المحصّل يُحسب فقط من الدفعات ذات حالة مدفوعة صريحة، ولا يعتمد على approved حتى لا يخلط الفواتير/الإيصالات.
+   - إصلاح شاشة العميل الرئيسية والدفع من خطأ toLocaleString على قيم غير موجودة.
+*/
+(function(){
+  function getDB(){
+    try { if (typeof db !== 'undefined' && db) return db; } catch(e) {}
+    return (window.db && typeof window.db === 'object') ? window.db : {clients:[], reports:[]};
+  }
+  function exposeDB(){ try { if (typeof db !== 'undefined' && db) window.db = db; } catch(e) {} }
+  function toNum(v){
+    if(v === null || v === undefined || v === '') return 0;
+    if(typeof v === 'number') return Number.isFinite(v) ? v : 0;
+    const s = String(v)
+      .replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d))
+      .replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d))
+      .replace(/,/g,'')
+      .replace(/\s/g,'')
+      .replace(/[^0-9.\-]/g,'');
+    const n = parseFloat(s);
+    return Number.isFinite(n) ? n : 0;
+  }
+  function sar(v){ return toNum(v).toLocaleString('en-US', {maximumFractionDigits:2}) + ' ريال'; }
+  function esc(v){ return String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+  function st(v){ return String(v ?? '').trim().toLowerCase(); }
+
+  function notDeleted(c){
+    const s = st(c && c.status);
+    return c && !c.deleted && !c.isDeleted && !s.includes('محذوف') && s !== 'deleted';
+  }
+  function activeClients(){
+    exposeDB();
+    const arr = Array.isArray(getDB().clients) ? getDB().clients : [];
+    return arr.filter(notDeleted);
+  }
+  function isExpired(c){
+    const s = st(c && c.status);
+    if(s === 'expired' || s.includes('منتهي')) return true;
+    const end = c && (c.endDate || c.contractEndDate || c.end || c.expiryDate);
+    if(end){
+      const d = new Date(end), t = new Date();
+      if(!Number.isNaN(d.getTime())){ d.setHours(0,0,0,0); t.setHours(0,0,0,0); return d < t; }
+    }
+    return false;
+  }
+  function isPending(c){
+    const s = st(c && c.status);
+    return s === 'pending' || s.includes('قريب') || s.includes('معلق');
+  }
+  function paymentPlan(c){ return String(c?.pay || c?.paymentPlan || c?.paymentType || c?.paymentMethod || '').trim(); }
+
+  function sourcePayments(client){
+    if(!client) return [];
+    // مصدر واحد فقط: جدول الدفعات الرئيسي. لا نجمع أكثر من جدول حتى لا تتكرر الدفعات.
+    if(Array.isArray(client.payments) && client.payments.length) return client.payments;
+    if(Array.isArray(client.paymentSchedule) && client.paymentSchedule.length) return client.paymentSchedule;
+    if(Array.isArray(client.manualPayments) && client.manualPayments.length) return client.manualPayments;
+    return [];
+  }
+  function normalizePayment(p, idx){
+    p = p || {};
+    const amount = toNum(p.amount ?? p.paymentAmount ?? p.value ?? p.total ?? 0);
+    const status = String(p.status ?? p.paymentStatus ?? p.state ?? '').trim();
+    return {
+      ...p,
+      number: p.number || p.no || p.id || (idx + 1),
+      amount,
+      dueDate: p.dueDate || p.scheduledDate || p.date || p.paymentDueDate || '',
+      paidDate: p.paidDate || p.paymentDate || p.collectedDate || '',
+      status,
+      receipt: p.receipt || p.receiptData || '',
+      receiptName: p.receiptName || '',
+      invoice: p.invoice || p.invoiceData || '',
+      invoiceName: p.invoiceName || '',
+      note: p.note || ''
+    };
+  }
+  function uniquePayments(payments){
+    const seen = new Set();
+    const out = [];
+    payments.forEach((p, i) => {
+      const n = normalizePayment(p, i);
+      const key = [n.number, n.dueDate, n.amount, n.status].join('|');
+      if(seen.has(key)) return;
+      seen.add(key);
+      out.push(n);
+    });
+    return out;
+  }
+  function normalizedPayments(client){ return uniquePayments(sourcePayments(client)); }
+
+  function storedContractValue(client){
+    if(!client) return 0;
+    // قيمة العقد لا تؤخذ من total/amount العامة لأنها قد تكون مبلغ دفعة أو ملخصاً متراكماً.
+    const fields = [client.contractAmount, client.contractValue, client.value, client.totalContract, client.contractTotal];
+    for(const f of fields){ const n = toNum(f); if(n > 0) return n; }
+    // fallback فقط إذا لم توجد قيمة عقد محفوظة إطلاقاً.
+    const paySum = normalizedPayments(client).reduce((s,p)=>s+toNum(p.amount),0);
+    return paySum > 0 ? paySum : 0;
+  }
+  function isPaidPayment(p){
+    const s = st(p.status || p.paymentStatus || p.state);
+    // محصّل = مدفوعة صريحة فقط. لا نعتمد على approved لأنه قد يعني اعتماد فاتورة/إيصال وليس تحصيل.
+    if(['مدفوعة','مدفوع','paid','collected'].includes(s)) return true;
+    // دعم محدود للبيانات القديمة: إذا paid=true ومعه تاريخ دفع واضح.
+    if((p.paid === true || p.isPaid === true) && (p.paidDate || p.paymentDate || p.collectedDate)) return true;
+    return false;
+  }
+  function isCancelledPayment(p){ const s = st(p.status || p.paymentStatus || p.state); return s.includes('ملغ') || s.includes('cancel') || s.includes('deleted'); }
+  function isOverduePayment(p){
+    if(isPaidPayment(p) || isCancelledPayment(p)) return false;
+    const raw = p.dueDate || p.scheduledDate || p.date || p.paymentDueDate;
+    if(!raw) return false;
+    const d = new Date(raw); if(Number.isNaN(d.getTime())) return false;
+    const t = new Date(); d.setHours(0,0,0,0); t.setHours(0,0,0,0);
+    return d < t;
+  }
+  function paymentStats(client){
+    const payments = normalizedPayments(client);
+    const contractValue = storedContractValue(client);
+    const paid = payments.filter(isPaidPayment).reduce((s,p)=>s+toNum(p.amount),0);
+    const remaining = Math.max(contractValue - paid, 0);
+    const overdueCount = payments.filter(isOverduePayment).length;
+    const paidCount = payments.filter(isPaidPayment).length;
+    const unpaidCount = payments.length - paidCount;
+    const percent = contractValue ? Math.min(100, Math.round((paid / contractValue) * 100)) : 0;
+    return { payments, contractValue, paid, pendingReview:0, remaining, overdueCount, paidCount, unpaidCount, percent };
+  }
+
+  window.normalizePayments = normalizedPayments;
+  window.getContractValue = storedContractValue;
+  window.getPaymentStats = paymentStats;
+  window.formatSAR = sar;
+  try { if(typeof normalizePayments !== 'undefined') normalizePayments = window.normalizePayments; } catch(e) {}
+  try { if(typeof getContractValue !== 'undefined') getContractValue = window.getContractValue; } catch(e) {}
+  try { if(typeof getPaymentStats !== 'undefined') getPaymentStats = window.getPaymentStats; } catch(e) {}
+
+  function currentClientSafe(){
+    try { if(typeof clientNow === 'function'){ const c = clientNow(); if(c) return c; } } catch(e) {}
+    try { if(typeof currentClient !== 'undefined' && currentClient) return currentClient; } catch(e) {}
+    try { if(typeof currentClientId !== 'undefined') return (getDB().clients||[]).find(c=>String(c.id)===String(currentClientId)) || {}; } catch(e) {}
+    return {};
+  }
+  function paymentStatusBadgeSafe(status){
+    if(typeof paymentStatusBadge === 'function') return paymentStatusBadge(status || 'غير مدفوعة');
+    return `<span class="status-badge">${esc(status || 'غير مدفوعة')}</span>`;
+  }
+  function bankDetailsSafe(){
+    try { if(typeof renderBankDetailsCard === 'function') return renderBankDetailsCard(); } catch(e) {}
+    return '';
+  }
+  window.paymentSummaryCard = function(client){
+    const s = paymentStats(client || {});
+    return `<div class="card" style="background:linear-gradient(135deg,#e8f5e9,#ffffff);border:1px solid #d7eadb;">
+      <div class="section-title">💳 ملخص التحصيل</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:10px;text-align:center;">
+        <div><div style="font-size:12px;color:var(--text-light);">قيمة العقد</div><div style="font-size:18px;font-weight:800;">${sar(s.contractValue)}</div></div>
+        <div><div style="font-size:12px;color:var(--text-light);">المدفوع</div><div style="font-size:18px;font-weight:800;color:var(--green);">${sar(s.paid)}</div></div>
+        <div><div style="font-size:12px;color:var(--text-light);">المتبقي</div><div style="font-size:18px;font-weight:800;color:${s.remaining>0?'var(--red)':'var(--green)'};">${sar(s.remaining)}</div></div>
+      </div>
+      <div class="progress-wrap" style="margin-top:14px;"><div class="progress-bar" style="width:${toNum(s.percent)}%"></div></div>
+      <div style="font-size:12px;color:var(--text-light);text-align:center;">نسبة التحصيل: ${toNum(s.percent)}%</div>
+    </div>`;
+  };
+  try { if(typeof paymentSummaryCard !== 'undefined') paymentSummaryCard = window.paymentSummaryCard; } catch(e) {}
+
+  window.clientHome = function(){
+    const c = currentClientSafe();
+    return `<div class="welcome-header"><h2>أهلاً بك 👋</h2><p style="font-size:18px;font-weight:800;color:white">${esc(c.name || 'عميلنا العزيز')}</p>${c.contractNo||c.contractNumber?`<span class="contract-badge">رقم العقد: ${esc(c.contractNo || c.contractNumber)}</span>`:''}</div>
+      ${window.paymentSummaryCard(c)}
+      <div class="action-grid">
+        <div class="action-btn" onclick="renderPanel('reports')"><span class="btn-icon">📋</span><span class="btn-label">تقاريري</span><span class="btn-sub">التقارير الدورية</span></div>
+        <div class="action-btn" onclick="renderPanel('map')"><span class="btn-icon">🗺️</span><span class="btn-label">المصائد</span><span class="btn-sub">الخريطة التفاعلية</span></div>
+        <div class="action-btn" onclick="renderPanel('payments')"><span class="btn-icon">💳</span><span class="btn-label">الدفع</span><span class="btn-sub">دفعاتي والتحويل</span></div>
+      </div>`;
+  };
+  try { if(typeof clientHome !== 'undefined') clientHome = window.clientHome; } catch(e) {}
+
+  window.clientPayments = function(){
+    const c = currentClientSafe();
+    const s = paymentStats(c);
+    return `${window.paymentSummaryCard(c)}
+      <div class="section-title">💳 دفعاتي</div>
+      ${bankDetailsSafe()}
+      ${s.remaining>0?`<button class="submit-btn green" style="margin-bottom:14px" onclick="openPayRemainingModal()">💰 دفع جميع المتبقي (${sar(s.remaining)})</button>`:''}
+      <div class="section-title">📑 جدول الدفعات</div>
+      ${s.payments.length ? s.payments.map(p=>`<div class="payment-card ${isPaidPayment(p)?'paid':'unpaid'}">
+        <span class="payment-icon">${isPaidPayment(p)?'✅':'⚠️'}</span>
+        <div class="payment-info"><div class="payment-title">الدفعة رقم ${esc(p.number || '-')} — ${sar(p.amount)}</div>
+        <div class="payment-date">استحقاق: ${esc(p.dueDate || '-')} ${p.paidDate?'| دفع: '+esc(p.paidDate):''}</div>
+        <div>${paymentStatusBadgeSafe(p.status || 'غير مدفوعة')}</div>
+        ${p.receiptName?`<div class="file-chip">📎 ${esc(p.receiptName)}</div>`:''}${p.invoiceName?`<div class="file-chip">🧾 ${esc(p.invoiceName)}</div>`:''}</div>
+        <span class="payment-amount">${sar(p.amount)}</span></div>`).join('') : '<div class="card" style="text-align:center">لا يوجد جدول دفعات محفوظ لهذا العميل</div>'}`;
+  };
+  try { if(typeof clientPayments !== 'undefined') clientPayments = window.clientPayments; } catch(e) {}
+
+  window.openPayRemainingModal = function(){
+    const c = currentClientSafe();
+    const s = paymentStats(c);
+    const unpaid = s.payments.filter(p=>!isPaidPayment(p) && !isCancelledPayment(p));
+    const title = document.getElementById('modalTitle'), content = document.getElementById('modalContent'), overlay = document.getElementById('modalOverlay');
+    if(title) title.textContent = 'دفع جميع المتبقي';
+    if(content) content.innerHTML = `<div class="card"><h3>💰 إجمالي المتبقي: ${sar(s.remaining)}</h3><div style="font-size:13px;color:var(--text-light)">الدفعات المشمولة: ${unpaid.map(p=>'#'+esc(p.number)).join('، ') || '-'}</div></div>${bankDetailsSafe()}<button class="submit-btn green" onclick="clientPayAllRemaining && clientPayAllRemaining()">📎 رفع إيصال تحويل المبلغ المتبقي</button><button class="submit-btn" style="background:#64748b;margin-top:10px" onclick="closeModal && closeModal()">رجوع</button>`;
+    if(overlay) overlay.classList.add('active');
+  };
+
+  function visitsToday(){
+    try {
+      const all = typeof window.getAllVisitsNormalized === 'function' ? window.getAllVisitsNormalized() : [];
+      const t = new Date(); t.setHours(0,0,0,0);
+      return all.filter(v=>{ const d = new Date(v.date || v.scheduledDate || v.defaultVisitDate); if(Number.isNaN(d.getTime())) return false; d.setHours(0,0,0,0); return d.getTime()===t.getTime(); }).length;
+    } catch(e){ return 0; }
+  }
+  window.adminHome = function(){
+    const cs = activeClients();
+    const total = cs.length;
+    const expired = cs.filter(isExpired).length;
+    const pending = cs.filter(c=>!isExpired(c) && isPending(c)).length;
+    const active = Math.max(total - expired - pending, 0);
+    const stats = cs.map(paymentStats);
+    const contractTotal = stats.reduce((s,x)=>s+x.contractValue,0);
+    const collectedTotal = stats.reduce((s,x)=>s+x.paid,0);
+    const remainingTotal = Math.max(contractTotal - collectedTotal,0);
+    const overduePaymentsCount = stats.reduce((s,x)=>s+x.overdueCount,0);
+    const monthly = cs.filter(c=>['شهري','monthly'].includes(paymentPlan(c))).length;
+    const quarterly = cs.filter(c=>['ربع سنوي','quarter','quarterly'].includes(paymentPlan(c))).length;
+    const biannual = cs.filter(c=>['نصف سنوي','semi','semiannual','semi-annual'].includes(paymentPlan(c))).length;
+    const annual = cs.filter(c=>['سنوي','annual','yearly'].includes(paymentPlan(c))).length;
+    return `<div class="welcome-header"><h2>لوحة التحكم 📊</h2><p>نظرة عامة شاملة على أداء المؤسسة</p></div>
+      <div class="section-title">💰 مؤشرات التحصيل</div><div class="stats-row cols-3">
+        <div class="stat-card" style="border-top:3px solid var(--green);"><span class="stat-icon">✅</span><span class="stat-num green">${sar(collectedTotal)}</span><span class="stat-label">المحصّل</span></div>
+        <div class="stat-card" style="border-top:3px solid var(--red);"><span class="stat-icon">💸</span><span class="stat-num red">${sar(remainingTotal)}</span><span class="stat-label">المتبقي</span></div>
+        <div class="stat-card" style="border-top:3px solid var(--orange);"><span class="stat-icon">⚠️</span><span class="stat-num orange">${overduePaymentsCount}</span><span class="stat-label">الدفعات المتأخرة</span></div>
+      </div>
+      <div class="section-title">📋 إحصائيات العقود</div><div class="stats-row cols-4">
+        <div class="stat-card"><span class="stat-icon">📋</span><span class="stat-num green">${total}</span><span class="stat-label">إجمالي العقود</span></div>
+        <div class="stat-card"><span class="stat-icon">✅</span><span class="stat-num green">${active}</span><span class="stat-label">عقود نشطة</span></div>
+        <div class="stat-card"><span class="stat-icon">⏳</span><span class="stat-num gold">${pending}</span><span class="stat-label">تنتهي قريباً</span></div>
+        <div class="stat-card"><span class="stat-icon">❌</span><span class="stat-num red">${expired}</span><span class="stat-label">عقود منتهية</span></div>
+      </div>
+      <div class="section-title">💰 إحصائيات مالية</div><div class="stats-row cols-3">
+        <div class="stat-card"><span class="stat-icon">💰</span><span class="stat-num gold">${sar(contractTotal)}</span><span class="stat-label">إجمالي قيمة العقود</span></div>
+        <div class="stat-card"><span class="stat-icon">👥</span><span class="stat-num green">${total}</span><span class="stat-label">إجمالي العملاء</span></div>
+        <div class="stat-card"><span class="stat-icon">📅</span><span class="stat-num orange">${visitsToday()}</span><span class="stat-label">زيارات اليوم</span></div>
+      </div>
+      <div class="section-title">🔄 توزيع طرق الدفع</div><div class="stats-row cols-4">
+        <div class="stat-card"><span class="stat-icon">📆</span><span class="stat-num">${monthly}</span><span class="stat-label">شهري</span></div>
+        <div class="stat-card"><span class="stat-icon">📅</span><span class="stat-num green">${quarterly}</span><span class="stat-label">ربع سنوي</span></div>
+        <div class="stat-card"><span class="stat-icon">🗓️</span><span class="stat-num gold">${biannual}</span><span class="stat-label">نصف سنوي</span></div>
+        <div class="stat-card"><span class="stat-icon">📋</span><span class="stat-num orange">${annual}</span><span class="stat-label">سنوي</span></div>
+      </div>`;
+  };
+  try { if(typeof adminHome !== 'undefined') adminHome = window.adminHome; } catch(e) {}
+
+  // Lazy renderer أقوى: لا يحسب الشاشة إلا عند فتحها، ويمنع انهيار الرئيسية بسبب شاشة أخرى.
+  window.getPanelHTML = function(id){
+    try{
+      if(id === 'home') return currentRole === 'client' ? window.clientHome() : (currentRole === 'employee' ? employeeHome() : window.adminHome());
+      if(id === 'payments') return window.clientPayments();
+      if(id === 'reports') return currentRole === 'admin' ? adminAllReports() : clientReports();
+      if(id === 'map') return clientMap();
+      if(id === 'visits') return employeeVisits();
+      if(id === 'report_upload') return employeeUpload();
+      if(id === 'clients_list') return employeeClients();
+      if(id === 'tech_reports') return (typeof employeeMyReports === 'function' ? employeeMyReports() : employeeReports());
+      if(id === 'client_log') return (typeof employeeClientLog === 'function' ? employeeClientLog() : employeeClients());
+      if(id === 'all_clients') return adminClients();
+      if(id === 'all_reports') return adminAllReports();
+      if(id === 'all_visits') return adminVisits();
+      if(id === 'emergency_admin') return adminEmergency();
+      if(id === 'settings') return adminSettings();
+      if(id === 'client_emergency') return clientEmergency();
+      if(id === 'client_complaints') return clientComplaints();
+      if(id === 'client_ratings') return clientRatings();
+      return `<div class="card">الشاشة غير متوفرة: ${esc(id)}</div>`;
+    }catch(e){
+      console.error('Panel error v1.9.15:', id, e);
+      return `<div class="card" style="border:1px solid #fecaca;background:#fff1f2"><h3>⚠️ تعذر فتح هذه الشاشة</h3><p style="font-size:13px;color:#7f1d1d">تم منع ظهور صفحة بيضاء. جرّب تحديث الصفحة أو انتقل لشاشة أخرى.</p><pre style="white-space:pre-wrap;direction:ltr;text-align:left;font-size:11px;background:white;padding:8px;border-radius:8px;overflow:auto">${esc(e.message || e)}</pre></div>`;
+    }
+  };
+  try { if(typeof getPanelHTML !== 'undefined') getPanelHTML = window.getPanelHTML; } catch(e) {}
+
+  window.renderPanel = function(panelId, btn, skipHistory){
+    try{
+      if(!skipHistory){ try{ if(window.currentPanel && window.currentPanel !== panelId) history.pushState({panel:panelId}, '', '#'+panelId); }catch(_e){} }
+      document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
+      if(btn) btn.classList.add('active');
+      window.currentPanel = panelId; try { currentPanel = panelId; } catch(e) {}
+      const content = document.getElementById('appContent');
+      if(content) content.innerHTML = window.getPanelHTML(panelId);
+      if(typeof initPanelJS === 'function') initPanelJS(panelId);
+    }catch(e){
+      const content = document.getElementById('appContent');
+      if(content) content.innerHTML = `<div class="card"><h3>⚠️ خطأ في فتح الشاشة</h3><p>${esc(e.message || e)}</p></div>`;
+    }
+  };
+  try { if(typeof renderPanel !== 'undefined') renderPanel = window.renderPanel; } catch(e) {}
+
+  async function refreshAfterChange(){
+    exposeDB();
+    try { if(typeof saveDB === 'function') saveDB(); } catch(e) {}
+    try {
+      const role = (typeof currentRole !== 'undefined' ? currentRole : window.currentRole);
+      const panel = (typeof currentPanel !== 'undefined' ? currentPanel : window.currentPanel);
+      if(role && panel && typeof window.renderPanel === 'function') window.renderPanel(panel, null, true);
+    } catch(e) {}
+  }
+  window.recalculateDashboards = refreshAfterChange;
+
+  function wrapAsync(name){
+    const fn = window[name] || (typeof globalThis[name] === 'function' ? globalThis[name] : null);
+    if(typeof fn !== 'function' || fn.__v1915Wrapped) return;
+    const wrapped = async function(){
+      const result = await fn.apply(this, arguments);
+      await refreshAfterChange();
+      return result;
+    };
+    wrapped.__v1915Wrapped = true;
+    window[name] = wrapped;
+    try { globalThis[name] = wrapped; } catch(e) {}
+  }
+  ['saveClientToFirebase','deleteClientFromFirebase','persistClientPayments','adminMarkPaymentPaid','adminMarkPaymentUnpaid','adminDeletePaymentRow','adminDeletePaymentReceipt','adminDeletePaymentInvoice','clientDeleteReceipt'].forEach(wrapAsync);
+
+  // بعد تحميل Firebase: أعد رسم اللوحة الحالية لأن الأرقام تُحسب من البيانات المحملة.
+  if(window.loadClientsFromFirebase && !window.loadClientsFromFirebase.__v1915Wrapped){
+    const oldLoad = window.loadClientsFromFirebase;
+    const wrappedLoad = async function(){
+      const res = await oldLoad.apply(this, arguments);
+      exposeDB();
+      await refreshAfterChange();
+      return res;
+    };
+    wrappedLoad.__v1915Wrapped = true;
+    window.loadClientsFromFirebase = wrappedLoad;
+  }
+})();
+</script>
+
 </body>
 </html>
