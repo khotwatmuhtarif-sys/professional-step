@@ -1127,6 +1127,7 @@ html, body {
 }
 
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 </head>
 <body>
 
@@ -7992,6 +7993,110 @@ saveVisitReport=window.saveVisitReport;
     return base+`<details class="card" style="margin-top:14px"><summary style="cursor:pointer;font-weight:700">🔎 تدقيق الحساب المالي حسب العميل</summary><div style="overflow:auto;margin-top:12px"><table class="data-table"><thead><tr><th>العميل</th><th>قيمة العقد</th><th>المحصّل</th><th>المتبقي</th><th>دفعات مدفوعة</th></tr></thead><tbody>${window.adminFinanceAudit()}</tbody></table></div></details>`;
   };
   try{if(typeof adminHome!=='undefined') adminHome=window.adminHome;}catch(e){}
+})();
+</script>
+
+<script>
+/* ===== v1.9.16 launch stabilization ===== */
+(function(){
+  const num=v=>{const n=Number(String(v??0).replace(/,/g,''));return Number.isFinite(n)?n:0};
+  const esc=v=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+  const today=()=>new Date().toISOString().split('T')[0];
+  const addMonths=(iso,m)=>{const d=new Date(iso||today());if(Number.isNaN(d.getTime())) return today();d.setMonth(d.getMonth()+m);return d.toISOString().split('T')[0]};
+  const clientById=id=>(db.clients||[]).find(c=>String(c.id)===String(id));
+  const currentClientObj=()=>clientById(typeof currentClientId!=='undefined'?currentClientId:window.currentClientId)||{};
+  const paidStatus=s=>['مدفوعة','مدفوع','paid'].includes(String(s||'').trim().toLowerCase());
+  const pendingStatus=s=>['بانتظار المراجعة','قيد المراجعة','pending'].includes(String(s||'').trim().toLowerCase());
+  const planCount=c=>{const p=String(c.pay||c.paymentPlan||'').trim();if(p.includes('شهري')||p==='monthly')return 12;if(p.includes('ربع')||p==='quarter')return 4;if(p.includes('نصف')||p==='semi')return 2;return 1};
+  function ensurePayments(c,persist=false){
+    if(!c) return [];
+    if(Array.isArray(c.payments)&&c.payments.length) return c.payments;
+    if(Array.isArray(c.manualPayments)&&c.manualPayments.length){
+      c.payments=c.manualPayments.map((p,i)=>({number:i+1,amount:num(p.amount),dueDate:p.dueDate||p.date||'',status:p.status||'غير مدفوعة',paidDate:p.paidDate||'',note:p.note||''}));
+    } else {
+      const total=num(c.contractAmount||c.value||c.contractValue);
+      if(total>0){
+        const count=planCount(c), base=c.contractStartDate||c.start||today(), each=Math.floor((total/count)*100)/100;
+        c.payments=Array.from({length:count},(_,i)=>({number:i+1,amount:i===count-1?Number((total-each*(count-1)).toFixed(2)):each,dueDate:addMonths(base,Math.round(12/count)*i),status:'غير مدفوعة',paidDate:'',note:''}));
+      } else c.payments=[];
+    }
+    if(persist){ try{saveDB()}catch(e){}; if(window.saveClientToFirebase) window.saveClientToFirebase(c).catch(()=>{}); }
+    return c.payments;
+  }
+  window.ensureClientPayments=ensurePayments;
+  window.normalizePayments=c=>ensurePayments(c,false);
+  window.getPaymentStats=function(c){const ps=ensurePayments(c,false);const contract=num(c?.contractAmount||c?.value||c?.contractValue);const paid=ps.filter(p=>paidStatus(p.status)).reduce((a,p)=>a+num(p.amount),0);const pendingReview=ps.filter(p=>pendingStatus(p.status)).reduce((a,p)=>a+num(p.amount),0);const remaining=Math.max(contract-paid,0);const now=new Date();now.setHours(0,0,0,0);const overdueCount=ps.filter(p=>!paidStatus(p.status)&&!pendingStatus(p.status)&&p.dueDate&&new Date(p.dueDate)<now).length;return{payments:ps,contractValue:contract,paid,pendingReview,remaining,overdueCount,percent:contract?Math.min(100,Math.round(paid/contract*100)):0}};
+  try{normalizePayments=window.normalizePayments;getPaymentStats=window.getPaymentStats}catch(e){}
+
+  const originalOpenModal=window.openModal||openModal;
+  window.openModal=function(type){
+    originalOpenModal(type);
+    if(type==='scheduleVisit') setTimeout(()=>{
+      const cs=document.getElementById('visitClientSelect'); if(cs) cs.innerHTML='<option value="">— اختر العميل —</option>'+((db.clients||[]).map(c=>`<option value="${c.id}">${esc(c.name)} — #${c.id}</option>`).join(''));
+    },30);
+  }; try{openModal=window.openModal}catch(e){}
+
+  if(window.modalContents||typeof modalContents!=='undefined'){
+    const mc=window.modalContents||modalContents;
+    mc.scheduleVisit={title:'📅 جدولة زيارة جديدة',html:`
+      <div class="form-group"><label class="form-label">العميل</label><select class="form-select" id="visitClientSelect"><option value="">— اختر العميل —</option></select></div>
+      <div class="form-group"><label class="form-label">الفني المسؤول</label><input class="form-input" id="visitTech" placeholder="اسم الفني"></div>
+      <div class="form-group"><label class="form-label">التاريخ والوقت</label><input type="datetime-local" class="form-input" id="visitDateTime"></div>
+      <div class="form-group"><label class="form-label">نوع الخدمة</label><select class="form-select" id="visitService"><option>زيارة دورية</option><option>رش دوري</option><option>فحص مصائد</option><option>معالجة قوارض</option><option>معالجة نمل أبيض</option></select></div>
+      <button class="submit-btn" onclick="scheduleVisitFromAdmin()">جدولة الزيارة</button>`};
+    mc.complaint={title:'📣 شكوى أو اقتراح',html:`
+      <div class="form-group"><label class="form-label">النوع</label><select id="complaintType" class="form-select"><option>شكوى</option><option>اقتراح</option><option>استفسار</option></select></div>
+      <div class="form-group"><label class="form-label">الموضوع</label><input id="complaintSubject" class="form-input" placeholder="الموضوع"></div>
+      <div class="form-group"><label class="form-label">التفاصيل</label><textarea id="complaintDetails" class="form-textarea" placeholder="اكتب التفاصيل"></textarea></div>
+      <button class="submit-btn" onclick="submitComplaintRequest()">📤 إرسال</button>`};
+  }
+  window.scheduleVisitFromAdmin=async function(){
+    const id=document.getElementById('visitClientSelect')?.value, c=clientById(id), dt=document.getElementById('visitDateTime')?.value;
+    if(!c) return showToast('اختر العميل'); if(!dt) return showToast('حدد التاريخ والوقت');
+    const arr=Array.isArray(c.visitSchedule)?c.visitSchedule:[]; const next=Math.max(0,...arr.map(v=>num(v.number)))+1;
+    arr.push({id:Date.now(),number:next,date:dt.slice(0,10),time:dt.slice(11,16),dateTime:dt,tech:document.getElementById('visitTech')?.value||'غير محدد',type:document.getElementById('visitService')?.value||'زيارة دورية',status:'مجدولة',createdAt:new Date().toISOString()});
+    c.visitSchedule=arr; await (window.saveClientToFirebase?saveClientToFirebase(c):Promise.resolve()); try{saveDB()}catch(e){}; showToast('✅ تم حفظ الزيارة وظهورها للعميل والفني');closeModal(); if(currentRole==='admin') renderPanel('all_visits');
+  };
+
+  window.submitComplaintRequest=async function(){
+    const c=currentClientObj(), details=document.getElementById('complaintDetails')?.value.trim(); if(!details)return showToast('اكتب التفاصيل');
+    const req={clientId:c.id||'',clientName:c.name||'',contractId:c.id||'',type:document.getElementById('complaintType')?.value||'شكوى',subject:document.getElementById('complaintSubject')?.value||'',details,status:'جديد',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};
+    try{await firebase.database().ref('complaintRequests').push(req);showToast('✅ تم إرسال الطلب');closeModal()}catch(e){showToast('❌ تعذر الإرسال')}
+  };
+
+  window.clientHome=function(){
+    const c=currentClientObj(), s=getPaymentStats(c), reports=(db.reports||[]).filter(r=>String(r.clientId)===String(c.id));const visits=num(c.visits),used=num(c.used),rem=Math.max(visits-used,0),next=(c.visitSchedule||[]).filter(v=>v.status==='مجدولة').sort((a,b)=>String(a.dateTime||a.date).localeCompare(String(b.dateTime||b.date)))[0];
+    return `<div class="welcome-header"><h2>أهلاً بك 👋</h2><p>${esc(c.name||'عميلنا العزيز')}</p><span class="contract-badge">عقد #${esc(c.id||'-')}</span></div>${paymentSummaryCard(c)}
+    <div class="stats-row cols-3"><div class="stat-card"><span class="stat-icon">📅</span><span class="stat-num green">${rem}</span><span class="stat-label">زيارات متبقية</span></div><div class="stat-card"><span class="stat-icon">✅</span><span class="stat-num">${used}</span><span class="stat-label">زيارات منفذة</span></div><div class="stat-card"><span class="stat-icon">📋</span><span class="stat-num">${reports.length}</span><span class="stat-label">تقارير</span></div></div>
+    <div class="section-title">⚡ إجراءات سريعة</div><div class="action-grid"><div class="action-btn emergency" onclick="openModal('emergency')"><span class="btn-icon">🚨</span><span class="btn-label">طوارئ</span><span class="btn-sub">طلب عاجل</span></div><div class="action-btn" onclick="openModal('complaint')"><span class="btn-icon">📣</span><span class="btn-label">شكوى أو اقتراح</span></div><div class="action-btn" onclick="renderPanel('reports')"><span class="btn-icon">📋</span><span class="btn-label">تقاريري</span></div><div class="action-btn" onclick="renderPanel('map')"><span class="btn-icon">🗺️</span><span class="btn-label">المصائد</span></div><div class="action-btn" onclick="renderPanel('payments')"><span class="btn-icon">💳</span><span class="btn-label">الدفع</span></div></div>
+    <div class="section-title">📅 الزيارة القادمة</div><div class="card">${next?`<b>الزيارة رقم ${esc(next.number)}</b><br>${esc(next.date)} ${esc(next.time||'')}<br>الفني: ${esc(next.tech||'سيتم التحديد')}`:'سيتم إشعارك بموعد الزيارة القادمة'}</div>`;
+  };try{clientHome=window.clientHome}catch(e){}
+
+  window.uploadClientReceipt=function(paymentNumber){
+    const c=currentClientObj(), p=ensurePayments(c,true).find(x=>Number(x.number)===Number(paymentNumber));if(!p)return showToast('الدفعة غير موجودة');
+    const input=document.createElement('input');input.type='file';input.accept='image/*,application/pdf';input.onchange=()=>{const f=input.files[0];if(!f)return;const r=new FileReader();r.onload=async()=>{p.receipt=r.result;p.receiptName=f.name;p.status='بانتظار المراجعة';p.receiptUploadedAt=new Date().toISOString();await persistClientPayments(c);showToast('✅ تم رفع الإيصال وبانتظار المراجعة');renderPanel('payments')};r.readAsDataURL(f)};input.click();
+  };
+  window.clientPayments=function(){
+    const c=currentClientObj(), ps=ensurePayments(c,true), s=getPaymentStats(c);
+    const rows=ps.length?ps.map(p=>`<div class="payment-card ${paidStatus(p.status)?'paid':'unpaid'}"><span class="payment-icon">${paidStatus(p.status)?'✅':pendingStatus(p.status)?'⏳':'⚠️'}</span><div class="payment-info"><div class="payment-title">الدفعة رقم ${p.number} — ${num(p.amount).toLocaleString()} ريال</div><div class="payment-date">الاستحقاق: ${esc(p.dueDate||'-')}</div><div>${esc(p.status||'غير مدفوعة')}</div>${p.receiptName?`<div class="file-chip">📎 ${esc(p.receiptName)}</div>`:''}${!paidStatus(p.status)&&!pendingStatus(p.status)?`<button class="submit-btn green" style="margin-top:10px" onclick="uploadClientReceipt(${p.number})">رفع إيصال التحويل</button>`:''}${pendingStatus(p.status)?'<div style="margin-top:8px;color:var(--gold);font-weight:700">بانتظار اعتماد الإدارة</div>':''}</div></div>`).join(''):'<div class="card">تعذر إنشاء جدول الدفعات؛ راجع قيمة العقد وطريقة الدفع لدى الإدارة.</div>';
+    return `${paymentSummaryCard(c)}<div class="section-title">🏦 بيانات التحويل البنكي</div>${typeof renderBankDetailsCard==='function'?renderBankDetailsCard():''}<div class="section-title">📑 جدول الدفعات</div>${rows}`;
+  };try{clientPayments=window.clientPayments}catch(e){}
+
+  window.deleteAdminPayment=async function(clientId,n){const c=clientById(clientId);if(!c)return;if(!confirm('حذف هذه الدفعة؟ ستتحدث المؤشرات مباشرة.'))return;c.payments=ensurePayments(c,false).filter(p=>Number(p.number)!==Number(n)).map((p,i)=>({...p,number:i+1}));await persistClientPayments(c);showToast('تم حذف الدفعة وتحديث المؤشرات');adminOpenClientPayments(clientId)};
+  const oldAdminPayments=window.adminOpenClientPayments||adminOpenClientPayments;
+  window.adminOpenClientPayments=function(id){ensurePayments(clientById(id),true);oldAdminPayments(id);setTimeout(()=>{document.querySelectorAll('.payment-card').forEach((card,i)=>{const c=clientById(id),p=ensurePayments(c,false)[i];if(p&&!card.querySelector('.delete-pay-v196')){const b=document.createElement('button');b.className='submit-btn red delete-pay-v196';b.style='margin-top:8px;width:auto;padding:6px 10px;font-size:12px';b.textContent='حذف الدفعة';b.onclick=()=>deleteAdminPayment(id,p.number);card.querySelector('.payment-info')?.appendChild(b)}})},30)};try{adminOpenClientPayments=window.adminOpenClientPayments}catch(e){}
+
+  function uniqueSections(r){const seen=new Set();const take=arr=>(arr||[]).filter(x=>{const u=x?.data||x;if(!u||seen.has(u))return false;seen.add(u);return true});return{executionImages:take(r.executionImages?.length?r.executionImages:r.images),pestImages:take(r.pestImages),paperReportImages:take(r.paperReportImages),baitMapImages:take(r.baitMapImages),rodentStationImages:take(r.rodentStationImages)}}
+  const gallery=(title,arr)=>arr?.length?`<div style="margin-top:16px"><b>${title}</b><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">${arr.map(x=>`<img src="${x.data||x}" style="width:120px;height:120px;object-fit:cover;border-radius:10px;border:1px solid #ddd">`).join('')}</div></div>`:'';
+  window.openReportDetails=function(id){const r=(db.reports||[]).find(x=>String(x.id)===String(id));if(!r)return showToast('التقرير غير موجود');const s=uniqueSections(r);document.getElementById('appContent').innerHTML=`<div class="card"><div class="section-title">📄 تفاصيل التقرير</div><div style="line-height:2"><b>العميل:</b> ${esc(r.client||'-')}<br><b>رقم الزيارة:</b> ${esc(r.visitNumber||r.number||'-')}<br><b>الفني:</b> ${esc(r.tech||'-')}<br><b>نوع الزيارة:</b> ${esc(r.type||'-')}<br><b>التاريخ:</b> ${esc(r.date||'-')}<br><b>المواد المستخدمة:</b> ${esc(r.materials||'غير مسجل')}<br><b>الملاحظات:</b> ${esc(r.notes||'لا توجد')}<br><b>الآفات المرصودة:</b> ${esc((r.pests||[]).join('، ')||'غير مسجل')}<br><b>الحالة:</b> ${esc(r.status||'مكتمل')}</div>${gallery('📸 صور التنفيذ',s.executionImages)}${gallery('🐜 صور الآفات المرصودة',s.pestImages)}${gallery('📄 صور التقرير الورقي',s.paperReportImages)}${gallery('🗺️ صورة خريطة الطعوم',s.baitMapImages)}${gallery('📸 صور محطات ومصائد القوارض',s.rodentStationImages)}<button class="submit-btn green" style="margin-top:18px" onclick="downloadReportPDF(${r.id})">⬇️ تحميل التقرير PDF</button><button class="submit-btn" style="margin-top:10px;background:#64748b" onclick="renderPanel('reports')">رجوع</button></div>`};try{openReportDetails=window.openReportDetails}catch(e){}
+  window.downloadReportPDF=async function(id){const r=(db.reports||[]).find(x=>String(x.id)===String(id));if(!r)return; if(typeof html2pdf==='undefined')return showToast('تعذر تحميل أداة PDF');const s=uniqueSections(r),wrap=document.createElement('div');wrap.dir='rtl';wrap.style='font-family:Cairo,Arial;padding:25px;background:#fff;color:#111;width:794px';wrap.innerHTML=`<div style="text-align:center;border-bottom:3px solid #1a3a5c;padding-bottom:14px"><h1 style="color:#1a3a5c;margin:0">خطوة محترف</h1><div>تقرير زيارة فنية</div></div><table style="width:100%;border-collapse:collapse;margin-top:18px">${[['العميل',r.client],['رقم العقد',r.clientId],['رقم الزيارة',r.visitNumber||r.number],['الفني',r.tech],['نوع الزيارة',r.type],['التاريخ',r.date],['المواد المستخدمة',r.materials],['الملاحظات',r.notes],['الآفات المرصودة',(r.pests||[]).join('، ')],['الحالة',r.status||'مكتمل']].map(a=>`<tr><td style="border:1px solid #ddd;padding:8px;font-weight:bold;width:28%">${esc(a[0])}</td><td style="border:1px solid #ddd;padding:8px">${esc(a[1]||'-')}</td></tr>`).join('')}</table>${gallery('صور التنفيذ',s.executionImages)}${gallery('صور الآفات المرصودة',s.pestImages)}${gallery('صورة التقرير الورقي',s.paperReportImages)}${gallery('خريطة الطعوم',s.baitMapImages)}${gallery('محطات ومصائد القوارض',s.rodentStationImages)}<div style="margin-top:20px;text-align:center;color:#666;font-size:11px">تم إنشاء التقرير من بوابة المتعاقدين — خطوة محترف</div>`;document.body.appendChild(wrap);try{await html2pdf().set({margin:8,filename:`تقرير_${String(r.client||'عميل').replace(/\s+/g,'_')}_${r.date||today()}.pdf`,image:{type:'jpeg',quality:.95},html2canvas:{scale:1.5,useCORS:true},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},pagebreak:{mode:['css','legacy']}}).from(wrap).save()}finally{wrap.remove()}};
+
+  window.adminEmergency=function(){return `<div class="section-title">📥 الطوارئ والشكاوى والاقتراحات</div><div id="emergencyTable"><div class="card">جاري تحميل الطلبات...</div></div>`};try{adminEmergency=window.adminEmergency}catch(e){}
+  window.loadEmergencyRequests=async function(){const box=document.getElementById('emergencyTable');if(!box)return;try{const [eSnap,cSnap]=await Promise.all([firebase.database().ref('emergencyRequests').once('value'),firebase.database().ref('complaintRequests').once('value')]);const items=[];Object.entries(eSnap.val()||{}).forEach(([key,v])=>items.push({...v,key,kind:'طوارئ',path:'emergencyRequests'}));Object.entries(cSnap.val()||{}).forEach(([key,v])=>items.push({...v,key,kind:v.type||'شكوى/اقتراح',path:'complaintRequests'}));items.sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));const active=items.filter(x=>!['تمت المعالجة','تم التنفيذ'].includes(x.status)),done=items.filter(x=>['تمت المعالجة','تم التنفيذ'].includes(x.status));const render=list=>list.length?list.map(x=>`<div class="card"><div style="font-weight:800;color:var(--primary)">${esc(x.kind)} — ${esc(x.clientName||'-')}</div><div style="line-height:1.9;margin-top:8px"><b>الموضوع:</b> ${esc(x.subject||x.location||'-')}<br><b>التفاصيل:</b> ${esc(x.details||x.description||'-')}<br><b>الحالة:</b> ${esc(x.status||'جديد')}<br><b>التاريخ:</b> ${esc(x.createdAt||'-')}</div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="submit-btn" style="width:auto" onclick="updateServiceRequest('${x.path}','${x.key}','جاري المعالجة')">جاري المعالجة</button><button class="submit-btn green" style="width:auto" onclick="updateServiceRequest('${x.path}','${x.key}','تمت المعالجة')">تمت المعالجة</button></div></div>`).join(''):'<div class="card">لا توجد طلبات</div>';box.innerHTML=`<div class="section-title">طلبات مفتوحة (${active.length})</div>${render(active)}<details class="card"><summary style="font-weight:800;cursor:pointer">📦 الطلبات المعالجة (${done.length})</summary><div style="margin-top:12px">${render(done)}</div></details>`}catch(e){box.innerHTML='<div class="card">تعذر تحميل الطلبات</div>'}};try{loadEmergencyRequests=window.loadEmergencyRequests}catch(e){}
+  window.updateServiceRequest=async function(path,key,status){await firebase.database().ref(`${path}/${key}`).update({status,updatedAt:new Date().toISOString(),handledBy:(typeof currentUser!=='undefined'&&currentUser?.name)||'المدير'});showToast('تم تحديث الحالة');loadEmergencyRequests()};
+
+  const oldGet=window.getPanelHTML||getPanelHTML;window.getPanelHTML=function(id){if(id==='home'&&currentRole==='client')return clientHome();if(id==='payments'&&currentRole==='client')return clientPayments();if(id==='emergency_admin'&&currentRole==='admin')return adminEmergency();return oldGet(id)};try{getPanelHTML=window.getPanelHTML}catch(e){}
+  const oldInit=window.initPanelJS||initPanelJS;window.initPanelJS=function(id){if(oldInit)oldInit(id);if(id==='emergency_admin')setTimeout(loadEmergencyRequests,100)};try{initPanelJS=window.initPanelJS}catch(e){}
 })();
 </script>
 
