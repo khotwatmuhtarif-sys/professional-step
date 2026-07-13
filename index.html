@@ -8100,5 +8100,329 @@ saveVisitReport=window.saveVisitReport;
 })();
 </script>
 
+
+<style id="v1917-stage1-style">
+/* ===== v1.9.17 Stage 1 ===== */
+.login-password-wrap{position:relative;margin-bottom:12px}
+.login-password-wrap .login-input{margin-bottom:0;padding-left:52px}
+.login-password-eye{position:absolute;left:8px;top:50%;transform:translateY(-50%);width:38px;height:38px;border:0;border-radius:9px;background:rgba(255,255,255,.12);color:#fff;cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center}
+.login-password-eye:hover{background:rgba(255,255,255,.22)}
+.admin-collapsible-title{cursor:pointer;user-select:none;border-radius:10px;padding:10px 12px;margin-top:8px;background:#f8fafc;border:1px solid var(--border)}
+.admin-collapsible-title::after{display:none!important}
+.admin-collapsible-title .collapse-arrow{margin-right:auto;font-size:14px;color:var(--text-light)}
+.admin-collapsible-content{overflow:hidden;transition:max-height .25s ease,opacity .2s ease;margin-bottom:16px}
+.admin-collapsible-content.is-collapsed{display:none!important}
+.login-success-note{background:#e8f5e9!important;color:#166534!important;border:1px solid #86efac!important}
+</style>
+<script id="v1917-stage1-script">
+(function(){
+  'use strict';
+  const safeText = v => String(v == null ? '' : v).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+
+  function installPasswordEye(){
+    const input=document.getElementById('loginPass');
+    if(!input || input.closest('.login-password-wrap')) return;
+    const wrap=document.createElement('div');
+    wrap.className='login-password-wrap';
+    input.parentNode.insertBefore(wrap,input);
+    wrap.appendChild(input);
+    const btn=document.createElement('button');
+    btn.type='button';
+    btn.className='login-password-eye';
+    btn.setAttribute('aria-label','إظهار كلمة المرور');
+    btn.title='إظهار كلمة المرور';
+    btn.textContent='👁️';
+    btn.addEventListener('click',function(){
+      const show=input.type==='password';
+      input.type=show?'text':'password';
+      btn.textContent=show?'🙈':'👁️';
+      btn.title=show?'إخفاء كلمة المرور':'إظهار كلمة المرور';
+      btn.setAttribute('aria-label',btn.title);
+      input.focus();
+    });
+    wrap.appendChild(btn);
+  }
+
+  function installLoginSuccess(){
+    if(typeof window.doLogin!=='function' || window.doLogin.__v1917Wrapped) return;
+    const original=window.doLogin;
+    const wrapped=async function(){
+      const result=await original.apply(this,arguments);
+      const app=document.getElementById('appScreen');
+      if(app && app.classList.contains('active')){
+        if(typeof showToast==='function') showToast('✅ تم تسجيل الدخول بنجاح — تم نقلك إلى حسابك');
+        setTimeout(()=>{
+          app.scrollIntoView({behavior:'smooth',block:'start'});
+          window.scrollTo({top:app.offsetTop||0,behavior:'smooth'});
+        },120);
+      }
+      return result;
+    };
+    wrapped.__v1917Wrapped=true;
+    window.doLogin=wrapped;
+    try{doLogin=wrapped}catch(e){}
+  }
+
+  const collapseTitles=['مؤشرات التحصيل','إحصائيات العقود','إحصائيات مالية','توزيع طرق الدفع'];
+  function applyAdminCollapsibles(){
+    const role=(typeof currentRole!=='undefined'?currentRole:window.currentRole);
+    if(role!=='admin') return;
+    const root=document.getElementById('appContent');
+    if(!root) return;
+    [...root.querySelectorAll('.section-title')].forEach((title,index)=>{
+      const clean=(title.textContent||'').replace(/[💰📋🔄🔥]/g,'').trim();
+      if(!collapseTitles.some(x=>clean.includes(x))) return;
+      if(title.dataset.v1917Collapse==='1') return;
+      const content=title.nextElementSibling;
+      if(!content) return;
+      title.dataset.v1917Collapse='1';
+      title.classList.add('admin-collapsible-title');
+      const label=collapseTitles.find(x=>clean.includes(x))||clean;
+      title.innerHTML='<span>'+safeText(label)+'</span><span class="collapse-arrow">▼</span>';
+      content.classList.add('admin-collapsible-content');
+      const key='v1917_admin_section_'+label;
+      const setState=collapsed=>{
+        content.classList.toggle('is-collapsed',collapsed);
+        const arrow=title.querySelector('.collapse-arrow');
+        if(arrow) arrow.textContent=collapsed?'▲':'▼';
+        title.setAttribute('aria-expanded',String(!collapsed));
+        try{sessionStorage.setItem(key,collapsed?'1':'0')}catch(e){}
+      };
+      let collapsed=false;
+      try{collapsed=sessionStorage.getItem(key)==='1'}catch(e){}
+      setState(collapsed);
+      title.addEventListener('click',()=>setState(!content.classList.contains('is-collapsed')));
+    });
+  }
+
+  function requestActions(x){
+    const status=String(x.status||'جديد');
+    if(['تمت المعالجة','تم التنفيذ'].includes(status)) return '';
+    if(status==='جاري المعالجة'){
+      return '<button class="submit-btn green" style="width:auto" onclick="updateServiceRequest(\''+x.path+'\',\''+x.key+'\',\'تمت المعالجة\')">تمت المعالجة</button>';
+    }
+    return '<button class="submit-btn" style="width:auto" onclick="updateServiceRequest(\''+x.path+'\',\''+x.key+'\',\'جاري المعالجة\')">جاري المعالجة</button>';
+  }
+
+  window.loadEmergencyRequests=async function(){
+    const box=document.getElementById('emergencyTable');
+    if(!box)return;
+    try{
+      const [eSnap,cSnap]=await Promise.all([
+        firebase.database().ref('emergencyRequests').once('value'),
+        firebase.database().ref('complaintRequests').once('value')
+      ]);
+      const items=[];
+      Object.entries(eSnap.val()||{}).forEach(([key,v])=>items.push({...v,key,kind:'طوارئ',path:'emergencyRequests'}));
+      Object.entries(cSnap.val()||{}).forEach(([key,v])=>items.push({...v,key,kind:v.type||'شكوى/اقتراح',path:'complaintRequests'}));
+      items.sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
+      const isDone=x=>['تمت المعالجة','تم التنفيذ'].includes(String(x.status||''));
+      const active=items.filter(x=>!isDone(x)), done=items.filter(isDone);
+      const render=list=>list.length?list.map(x=>`<div class="card"><div style="font-weight:800;color:var(--primary)">${safeText(x.kind)} — ${safeText(x.clientName||'-')}</div><div style="line-height:1.9;margin-top:8px"><b>الموضوع:</b> ${safeText(x.subject||x.location||'-')}<br><b>التفاصيل:</b> ${safeText(x.details||x.description||'-')}<br><b>الحالة:</b> ${safeText(x.status||'جديد')}<br><b>التاريخ:</b> ${safeText(x.createdAt||'-')}</div>${requestActions(x)?'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'+requestActions(x)+'</div>':''}</div>`).join(''):'<div class="card">لا توجد طلبات</div>';
+      box.innerHTML=`<div class="section-title">طلبات مفتوحة (${active.length})</div>${render(active)}<details class="card"><summary style="font-weight:800;cursor:pointer">📦 الطلبات المعالجة (${done.length})</summary><div style="margin-top:12px">${render(done)}</div></details>`;
+    }catch(e){
+      console.error(e);
+      box.innerHTML='<div class="card">تعذر تحميل الطلبات</div>';
+    }
+  };
+  try{loadEmergencyRequests=window.loadEmergencyRequests}catch(e){}
+
+  function wrapRenderPanel(){
+    if(typeof window.renderPanel!=='function' || window.renderPanel.__v1917Wrapped) return;
+    const original=window.renderPanel;
+    const wrapped=function(){
+      const r=original.apply(this,arguments);
+      setTimeout(applyAdminCollapsibles,0);
+      return r;
+    };
+    wrapped.__v1917Wrapped=true;
+    window.renderPanel=wrapped;
+    try{renderPanel=wrapped}catch(e){}
+  }
+
+  function verifyPayAllFeature(){
+    if(typeof window.openPayRemainingModal==='function' && typeof window.clientUploadPayAllReceipt==='function') return;
+    console.warn('ميزة دفع جميع المتبقي غير مكتملة في النسخة الأساسية.');
+  }
+
+  function init(){
+    installPasswordEye();
+    installLoginSuccess();
+    wrapRenderPanel();
+    applyAdminCollapsibles();
+    verifyPayAllFeature();
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',init); else init();
+  setTimeout(init,400);
+})();
+</script>
+
+
+
+<style id="v1918-pdf-style">
+/* ===== v1.9.18 PDF Stabilization ===== */
+.pdf-export-root{position:fixed!important;left:-12000px!important;top:0!important;width:794px!important;background:#fff!important;color:#111!important;z-index:-1!important;opacity:1!important;visibility:visible!important;display:block!important;direction:rtl!important;font-family:'Cairo',Arial,sans-serif!important}
+.pdf-export-root *{box-sizing:border-box}
+.pdf-export-root table{display:table!important;white-space:normal!important;overflow:visible!important}
+.pdf-export-root img{max-width:100%;height:auto}
+</style>
+<script id="v1918-pdf-script">
+(function(){
+  'use strict';
+  const escPdf=v=>String(v==null?'':v).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const money=v=>Number(v||0).toLocaleString('ar-SA',{maximumFractionDigits:2});
+  const filenameSafe=v=>String(v||'ملف').replace(/[\\/:*?"<>|]+/g,'-').replace(/\s+/g,'_');
+
+  async function waitForPdfAssets(root){
+    try{ if(document.fonts && document.fonts.ready) await document.fonts.ready; }catch(e){}
+    const imgs=[...root.querySelectorAll('img')];
+    await Promise.all(imgs.map(img=>new Promise(resolve=>{
+      if(img.complete){ resolve(); return; }
+      const done=()=>resolve();
+      img.addEventListener('load',done,{once:true});
+      img.addEventListener('error',done,{once:true});
+      setTimeout(done,8000);
+    })));
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+  }
+
+  async function saveElementAsPdf(root,filename){
+    if(typeof html2pdf==='undefined') throw new Error('مكتبة PDF غير متاحة');
+    document.body.appendChild(root);
+    try{
+      await waitForPdfAssets(root);
+      await html2pdf().set({
+        margin:[8,8,10,8],
+        filename,
+        image:{type:'jpeg',quality:0.98},
+        html2canvas:{scale:2,useCORS:true,allowTaint:true,backgroundColor:'#ffffff',logging:false,scrollX:0,scrollY:0,windowWidth:794},
+        jsPDF:{unit:'mm',format:'a4',orientation:'portrait',compress:true},
+        pagebreak:{mode:['avoid-all','css','legacy'],before:'.pdf-page-break',avoid:['tr','.pdf-avoid-break']}
+      }).from(root).save();
+    } finally {
+      root.remove();
+    }
+  }
+
+  function pdfHeader(title,subtitle){
+    return `<div style="padding:24px 28px 14px;border-bottom:4px solid #1a3a5c;text-align:center;background:#fff">
+      <div style="font-size:30px;font-weight:900;color:#1a3a5c;line-height:1.2">خطوة محترف</div>
+      <div style="font-size:18px;font-weight:800;margin-top:5px">${escPdf(title)}</div>
+      ${subtitle?`<div style="font-size:12px;color:#64748b;margin-top:4px">${escPdf(subtitle)}</div>`:''}
+    </div>`;
+  }
+
+  function infoTable(rows){
+    return `<table style="width:100%;border-collapse:collapse;margin-top:16px;font-size:13px">
+      <tbody>${rows.map(([k,v])=>`<tr><td style="border:1px solid #cbd5e1;padding:8px 10px;background:#f8fafc;font-weight:800;width:28%">${escPdf(k)}</td><td style="border:1px solid #cbd5e1;padding:8px 10px">${escPdf(v||'-')}</td></tr>`).join('')}</tbody>
+    </table>`;
+  }
+
+  function pdfGallery(title,arr){
+    const items=(arr||[]).map(x=>x&&typeof x==='object'?(x.data||x.url||x.src):x).filter(Boolean);
+    if(!items.length) return '';
+    return `<div class="pdf-avoid-break" style="margin-top:18px"><div style="font-size:15px;font-weight:900;color:#1a3a5c;border-right:4px solid #2e7d32;padding-right:8px;margin-bottom:10px">${escPdf(title)}</div><div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px">${items.map(src=>`<div style="border:1px solid #cbd5e1;border-radius:8px;padding:5px;background:#fff"><img src="${src}" style="display:block;width:100%;height:220px;object-fit:contain;border-radius:5px;background:#f8fafc"></div>`).join('')}</div></div>`;
+  }
+
+  window.downloadReportPDF=async function(id){
+    const r=(db.reports||[]).find(x=>String(x.id)===String(id));
+    if(!r) return showToast('التقرير غير موجود');
+    const c=(db.clients||[]).find(x=>String(x.id)===String(r.clientId))||{};
+    const s=(typeof uniqueSections==='function')?uniqueSections(r):{
+      executionImages:r.executionImages||r.images||[],pestImages:r.pestImages||[],paperReportImages:r.paperReportImages||[],baitMapImages:r.baitMapImages||[],rodentStationImages:r.rodentStationImages||[]
+    };
+    const root=document.createElement('div');
+    root.className='pdf-export-root';
+    root.dir='rtl';
+    root.innerHTML=`<div style="width:794px;min-height:1123px;background:#fff;padding-bottom:24px">
+      ${pdfHeader('تقرير زيارة فنية',`تاريخ الإصدار: ${new Date().toLocaleDateString('ar-SA')}`)}
+      <div style="padding:0 28px">
+        ${infoTable([
+          ['اسم العميل',r.client||c.name],['رقم العقد',c.contractNo||c.contractNumber||r.contractNo||r.clientId],['رقم الزيارة',r.visitNumber||r.number],['إجمالي الزيارات',r.visitTotal||c.visits||(c.visitSchedule||[]).length],['الفني',r.tech||r.employeeName],['نوع الزيارة',r.type],['التاريخ الافتراضي',r.scheduledVisitDate||r.defaultVisitDate||r.date],['تاريخ التنفيذ الفعلي',r.actualExecutionDate||r.executionDate||r.date],['المواد المستخدمة',r.materials],['الملاحظات والتوصيات',r.notes||r.recommendations],['الآفات المرصودة',Array.isArray(r.pests)?r.pests.join('، '):r.pests],['حالة التقرير',r.status||'مكتمل']
+        ])}
+        ${pdfGallery('صور التنفيذ',s.executionImages)}
+        ${pdfGallery('صور الآفات المرصودة',s.pestImages)}
+        ${pdfGallery('صور التقرير الورقي',s.paperReportImages)}
+        ${pdfGallery('خريطة الطعوم والمصائد',s.baitMapImages)}
+        ${pdfGallery('صور محطات ومصائد القوارض',s.rodentStationImages)}
+        <div class="pdf-avoid-break" style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:28px;padding-top:18px;border-top:1px solid #cbd5e1">
+          <div style="height:90px;border:1px solid #cbd5e1;border-radius:8px;padding:10px"><b>توقيع ممثل العميل:</b></div>
+          <div style="height:90px;border:1px solid #cbd5e1;border-radius:8px;padding:10px"><b>توقيع الفني:</b></div>
+        </div>
+        <div style="text-align:center;color:#64748b;font-size:10px;margin-top:20px">تم إنشاء هذا التقرير إلكترونيًا من بوابة المتعاقدين — خطوة محترف</div>
+      </div>
+    </div>`;
+    try{
+      showToast('جاري تجهيز التقرير PDF...');
+      await saveElementAsPdf(root,`تقرير_${filenameSafe(r.client||c.name)}_زيارة_${filenameSafe(r.visitNumber||r.number||'')}.pdf`);
+      showToast('✅ تم تحميل التقرير PDF');
+    }catch(e){ console.error(e); root.remove(); showToast('❌ تعذر إنشاء ملف PDF، حاول مرة أخرى'); }
+  };
+
+  window.downloadVisitSchedulePDF=async function(){
+    const c=(typeof currentClientObj==='function'?currentClientObj():null)||(typeof clientNow==='function'?clientNow():null);
+    if(!c) return showToast('تعذر تحديد العميل');
+    const visits=Array.isArray(c.visitSchedule)?c.visitSchedule:[];
+    if(!visits.length) return showToast('لا يوجد جدول زيارات محفوظ لهذا العميل');
+    const reports=(db.reports||[]).filter(r=>String(r.clientId)===String(c.id));
+    const sorted=visits.map((v,i)=>({...v,__index:i})).sort((a,b)=>String(a.date||a.scheduledDate||'').localeCompare(String(b.date||b.scheduledDate||'')));
+    const rows=sorted.map((v,i)=>{
+      const rep=reports.find(r=>String(r.visitId||'')===String(v.id||'') || Number(r.visitIndex)===Number(v.__index) || Number(r.visitNumber)===Number(v.number||v.__index+1));
+      const actual=v.executionDate||v.doneDate||v.completedAt||rep?.actualExecutionDate||rep?.executionDate||'-';
+      const status=v.status|| (rep?'مكتملة':'مجدولة');
+      return `<tr>
+        <td style="border:1px solid #94a3b8;padding:7px;text-align:center">${escPdf(v.number||i+1)}</td>
+        <td style="border:1px solid #94a3b8;padding:7px;text-align:center">${escPdf(v.date||v.scheduledDate||'-')}</td>
+        <td style="border:1px solid #94a3b8;padding:7px;text-align:center">${escPdf(actual)}</td>
+        <td style="border:1px solid #94a3b8;padding:7px">${escPdf(v.type||'زيارة دورية')}</td>
+        <td style="border:1px solid #94a3b8;padding:7px">${escPdf(v.tech||rep?.tech||'-')}</td>
+        <td style="border:1px solid #94a3b8;padding:7px;text-align:center">${escPdf(status)}</td>
+        <td style="border:1px solid #94a3b8;padding:7px;min-width:95px"></td>
+      </tr>`;
+    }).join('');
+    const root=document.createElement('div');root.className='pdf-export-root';root.dir='rtl';
+    root.innerHTML=`<div style="width:794px;min-height:1123px;background:#fff;padding-bottom:24px">
+      ${pdfHeader('جدول الزيارات',`كشف زيارات العقد كاملًا`)}
+      <div style="padding:0 24px">
+        ${infoTable([['اسم العميل',c.name],['رقم العقد',c.contractNo||c.contractNumber||c.id],['تاريخ بداية العقد',c.startDate||c.contractStartDate],['تاريخ نهاية العقد',c.endDate||c.contractEndDate],['عدد الزيارات',visits.length],['طريقة الدفع',c.paymentMethod||'-']])}
+        <table style="width:100%;border-collapse:collapse;margin-top:18px;font-size:10.5px;table-layout:fixed">
+          <thead><tr style="background:#1a3a5c;color:#fff"><th style="border:1px solid #1a3a5c;padding:8px;width:6%">م</th><th style="padding:8px;width:14%">التاريخ المجدول</th><th style="padding:8px;width:14%">تاريخ التنفيذ</th><th style="padding:8px;width:18%">نوع الزيارة</th><th style="padding:8px;width:14%">الفني</th><th style="padding:8px;width:14%">الحالة</th><th style="padding:8px;width:20%">توقيع العميل</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <div class="pdf-avoid-break" style="margin-top:28px;display:grid;grid-template-columns:1fr 1fr;gap:24px">
+          <div style="height:110px;border:1px solid #94a3b8;border-radius:8px;padding:12px"><b>اسم ممثل العميل:</b><br><br><b>التوقيع:</b></div>
+          <div style="height:110px;border:1px solid #94a3b8;border-radius:8px;padding:12px"><b>الختم:</b></div>
+        </div>
+        <div style="text-align:center;color:#64748b;font-size:10px;margin-top:20px">خطوة محترف — كشف زيارات قابل للطباعة والتوقيع</div>
+      </div>
+    </div>`;
+    try{
+      showToast('جاري تجهيز جدول الزيارات PDF...');
+      await saveElementAsPdf(root,`جدول_زيارات_${filenameSafe(c.name)}_${filenameSafe(c.contractNo||c.contractNumber||c.id)}.pdf`);
+      showToast('✅ تم تحميل جدول الزيارات PDF');
+    }catch(e){ console.error(e); root.remove(); showToast('❌ تعذر إنشاء جدول الزيارات PDF'); }
+  };
+
+  window.clientVisitSchedulePanel=function(){
+    const c=(typeof currentClientObj==='function'?currentClientObj():null)||(typeof clientNow==='function'?clientNow():null);
+    const vs=Array.isArray(c?.visitSchedule)?c.visitSchedule:[];
+    return `<div class="section-title">📆 جدول زياراتي</div>
+      <button class="submit-btn green" style="margin-bottom:12px" onclick="downloadVisitSchedulePDF()">⬇️ تحميل جدول الزيارات PDF</button>
+      <div class="card" style="overflow-x:auto"><table class="client-visit-table"><thead><tr><th>#</th><th>الموعد الافتراضي</th><th>موعد التنفيذ</th><th>الحالة</th><th>التقرير</th></tr></thead><tbody>${vs.length?vs.map((v,i)=>{const r=(typeof reportForVisit==='function')?reportForVisit(c,v,i):null;return `<tr><td>${escPdf(v.number||i+1)}</td><td>${escPdf(v.date||'-')}</td><td>${escPdf(v.executionDate||v.doneDate||v.completedAt||r?.actualExecutionDate||'-')}</td><td>${typeof paymentStatusBadge==='function'?paymentStatusBadge(v.status||'مجدولة'):escPdf(v.status||'مجدولة')}</td><td>${r?`<button class="mini-btn" onclick="openReportDetails(${Number(r.id)})">عرض التقرير</button>`:'لم يرفع'}</td></tr>`}).join(''):'<tr><td colspan="5">لا يوجد جدول زيارات محفوظ</td></tr>'}</tbody></table></div>
+      <button class="submit-btn" style="background:#64748b" onclick="renderPanel('home')">رجوع</button>`;
+  };
+  try{ clientVisitSchedulePanel=window.clientVisitSchedulePanel; }catch(e){}
+
+  /* إزالة زر التصدير العام من قائمة التقارير والإبقاء على التحميل داخل التقرير فقط */
+  const oldClientReportsV1918=window.clientReports;
+  if(typeof oldClientReportsV1918==='function'){
+    window.clientReports=function(){
+      const html=oldClientReportsV1918.apply(this,arguments);
+      return String(html).replace(/<button[^>]*exportCurrentViewPDF[^>]*>[\s\S]*?<\/button>/i,'');
+    };
+    try{ clientReports=window.clientReports; }catch(e){}
+  }
+})();
+</script>
 </body>
 </html>
