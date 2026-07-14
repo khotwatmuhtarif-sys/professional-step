@@ -54,17 +54,15 @@
     window.loadReportsFromFirebase = async function() {
   try {
     const snapshot = await db_fire.ref('reports').get();
-
-    if (snapshot.exists()) {
-      const data = snapshot.val();
-
-      db.reports = Object.values(data)
-        .sort((a, b) => (b.id || 0) - (a.id || 0));
-        
-      saveDB();
-    }
+    const data = snapshot.exists() ? snapshot.val() : {};
+    db.reports = Object.values(data || {})
+      .sort((a, b) => (b.id || 0) - (a.id || 0));
+    saveDB();
+    return db.reports;
   } catch(e) {
     console.log('خطأ تحميل التقارير:', e);
+    if (typeof showToast === 'function') showToast('⚠️ تعذر تحميل التقارير من السحابة');
+    return db.reports || [];
   }
 };
 
@@ -1127,6 +1125,8 @@ html, body {
 }
 
 </style>
+<!-- v1.9.21: تحميل jsPDF مباشرة -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 </head>
 <body>
@@ -1326,7 +1326,13 @@ async function doLogin() {
   document.getElementById('navUserAvatar').textContent = '🏢';
   document.getElementById('loginScreen').classList.remove('active');
   document.getElementById('appScreen').classList.add('active');
-  renderNav();
+  if (typeof window.loadClientsFromFirebase === 'function') {
+    await window.loadClientsFromFirebase();
+  }
+  if (typeof window.loadReportsFromFirebase === 'function') {
+    await window.loadReportsFromFirebase();
+  }
+renderNav();
   renderPanel('home');
 }
 
@@ -1371,7 +1377,13 @@ function renderNav() {
   `).join('');
 }
 
-function renderPanel(panelId, btn, skipHistory = false) {
+async function renderPanel(panelId, btn, skipHistory = false) {
+    if (currentRole === 'client' && panelId === 'reports' &&
+        typeof window.loadReportsFromFirebase === 'function') {
+      const content = document.getElementById('appContent');
+      if (content) content.innerHTML = '<div class="card">⏳ جاري تحميل أحدث التقارير...</div>';
+      await window.loadReportsFromFirebase();
+    }
 
     if (!skipHistory && currentPanel && currentPanel !== panelId) {
         history.pushState(
@@ -8557,9 +8569,21 @@ async function renderPage(page,stage){
   if(canvasLooksBlank(canvas))throw new Error('تم اكتشاف صفحة PDF فارغة قبل التنزيل');
   page.remove(); return canvas;
 }
+async function ensureJsPDF(){
+  if(window.jspdf&&window.jspdf.jsPDF)return window.jspdf.jsPDF;
+  await new Promise((resolve,reject)=>{
+    const s=document.createElement('script');
+    s.src='https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js';
+    s.async=true;
+    s.onload=resolve;
+    s.onerror=()=>reject(new Error('تعذر تحميل مكتبة jsPDF'));
+    document.head.appendChild(s);
+  });
+  if(!(window.jspdf&&window.jspdf.jsPDF))throw new Error('jsPDF غير متاحة بعد إعادة المحاولة');
+  return window.jspdf.jsPDF;
+}
 async function savePages(pages,filename){
-  const JsPDF=window.jspdf&&window.jspdf.jsPDF;
-  if(!JsPDF)throw new Error('jsPDF غير متاحة');
+  const JsPDF=await ensureJsPDF();
   const mask=document.createElement('div');mask.className='pdf-busy-mask';mask.innerHTML='جاري إنشاء التقرير PDF...<br>لا تغلق الصفحة';
   const stage=document.createElement('div');stage.style.cssText='position:fixed;top:0;left:0;width:794px;height:1123px;z-index:2147483646;background:#fff;overflow:hidden;';
   document.body.append(stage,mask);
