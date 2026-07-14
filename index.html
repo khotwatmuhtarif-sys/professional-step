@@ -1125,7 +1125,8 @@ html, body {
 }
 
 </style>
-<!-- v1.9.21: تحميل jsPDF مباشرة -->
+<!-- v1.9.22: تحميل html2canvas و jsPDF مباشرة -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 </head>
@@ -8569,6 +8570,30 @@ async function renderPage(page,stage){
   if(canvasLooksBlank(canvas))throw new Error('تم اكتشاف صفحة PDF فارغة قبل التنزيل');
   page.remove(); return canvas;
 }
+async function ensureHtml2Canvas(){
+  if(typeof window.html2canvas === 'function') return window.html2canvas;
+  await new Promise((resolve,reject)=>{
+    const existing=document.querySelector('script[data-html2canvas-fallback="1"]');
+    if(existing){
+      existing.addEventListener('load',resolve,{once:true});
+      existing.addEventListener('error',reject,{once:true});
+      setTimeout(resolve,4000);
+      return;
+    }
+    const s=document.createElement('script');
+    s.src='https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
+    s.async=true;
+    s.dataset.html2canvasFallback='1';
+    s.onload=resolve;
+    s.onerror=()=>reject(new Error('تعذر تحميل مكتبة html2canvas'));
+    document.head.appendChild(s);
+  });
+  if(typeof window.html2canvas !== 'function'){
+    throw new Error('html2canvas غير متاحة بعد إعادة المحاولة');
+  }
+  return window.html2canvas;
+}
+
 async function ensureJsPDF(){
   if(window.jspdf&&window.jspdf.jsPDF)return window.jspdf.jsPDF;
   await new Promise((resolve,reject)=>{
@@ -8583,6 +8608,7 @@ async function ensureJsPDF(){
   return window.jspdf.jsPDF;
 }
 async function savePages(pages,filename){
+  await ensureHtml2Canvas();
   const JsPDF=await ensureJsPDF();
   const mask=document.createElement('div');mask.className='pdf-busy-mask';mask.innerHTML='جاري إنشاء التقرير PDF...<br>لا تغلق الصفحة';
   const stage=document.createElement('div');stage.style.cssText='position:fixed;top:0;left:0;width:794px;height:1123px;z-index:2147483646;background:#fff;overflow:hidden;';
