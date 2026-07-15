@@ -15,6 +15,7 @@
 <!-- Firebase CDN - نسخة تعمل بشكل كامل -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <script>
   // انتظر تحميل Firebase
   function initFirebase() {
@@ -36,6 +37,38 @@
     }
 
     const db_fire = firebase.database();
+    const auth_fire = firebase.auth();
+    window.firebaseDB = db_fire;
+    window.firebaseAuth = auth_fire;
+
+    // v2.0.0 Security Stage 1: حساب المدير الموثق في Firebase Authentication
+    const SECURITY_ADMIN_UID = 'yKby7TRcicUeFOlUyrYMxK5QU8o2';
+
+    window.loginAdminWithFirebaseAuth = async function(email, password) {
+      const credential = await auth_fire.signInWithEmailAndPassword(email, password);
+      const authUser = credential && credential.user;
+      if (!authUser) throw new Error('لم يتم العثور على المستخدم بعد تسجيل الدخول');
+      if (authUser.uid !== SECURITY_ADMIN_UID) {
+        await auth_fire.signOut();
+        throw new Error('هذا الحساب غير مصرح له بالدخول كمدير');
+      }
+
+      // ينشئ سجل صلاحية المدير تلقائياً؛ لا حاجة للإضافة اليدوية في قاعدة البيانات.
+      const profile = {
+        uid: authUser.uid,
+        email: authUser.email || email,
+        role: 'admin',
+        active: true,
+        name: 'محمد بن صالح',
+        updatedAt: new Date().toISOString()
+      };
+      await db_fire.ref('users/' + authUser.uid).update(profile);
+      return profile;
+    };
+
+    window.logoutFirebaseAuth = async function() {
+      try { await auth_fire.signOut(); } catch(e) { console.warn('تعذر إنهاء جلسة Firebase:', e); }
+    };
 
     window.loadClientsFromFirebase = async function() {
       try {
@@ -1272,6 +1305,11 @@ function selectRole(role, btn) {
 
     
     document.getElementById('loginError').style.display = 'none';
+    const userInput = document.getElementById('loginUser');
+    if (userInput) {
+      userInput.placeholder = role === 'admin' ? 'البريد الإلكتروني للمدير' : 'اسم المستخدم';
+      userInput.type = role === 'admin' ? 'email' : 'text';
+    }
 }
 
 async function doLogin() {
@@ -1281,36 +1319,88 @@ async function doLogin() {
   errorEl.style.display = 'none';
 
   if (!username || !password) {
-    errorEl.textContent = '⚠️ أدخل اسم المستخدم وكلمة المرور';
+    errorEl.textContent = currentRole === 'admin'
+      ? '⚠️ أدخل البريد الإلكتروني وكلمة المرور'
+      : '⚠️ أدخل اسم المستخدم وكلمة المرور';
     errorEl.style.color = '#ef5350';
     errorEl.style.display = 'block';
     return;
   }
 
-  // 1. تحقق من الإدارة والفنيين أولاً (محلي)
-  const user = db.users.find(u => u.username === username && u.password === password);
-  if (user) {
-    currentRole = user.role;
-    currentUser = user;
-    document.getElementById('navUserName').textContent = user.name;
-    document.getElementById('navUserRole').textContent = user.role === 'admin' ? 'التحكم بالنظام' : 'فني ميداني';
-    document.getElementById('navUserAvatar').textContent = user.role === 'admin' ? '🖥️' : '👷';
+  // v2.0.0 Stage 1: المدير يدخل حصراً عبر Firebase Authentication.
+  if (currentRole === 'admin') {
+    errorEl.textContent = '⏳ جاري التحقق الآمن من حساب المدير...';
+    errorEl.style.color = 'rgba(255,255,255,0.75)';
+    errorEl.style.display = 'block';
+    try {
+      if (typeof window.loginAdminWithFirebaseAuth !== 'function') {
+        throw new Error('خدمة المصادقة لم تكتمل بعد؛ حدّث الصفحة وحاول مرة أخرى');
+      }
+      const profile = await window.loginAdminWithFirebaseAuth(username, password);
+      currentRole = 'admin';
+      currentUser = profile;
+      currentClientId = null;
+      document.getElementById('navUserName').textContent = profile.name || 'مدير النظام';
+      document.getElementById('navUserRole').textContent = 'التحكم بالنظام';
+      document.getElementById('navUserAvatar').textContent = '🖥️';
+      document.getElementById('loginScreen').classList.remove('active');
+      document.getElementById('appScreen').classList.add('active');
+      if (typeof window.loadClientsFromFirebase === 'function') await window.loadClientsFromFirebase();
+      if (typeof window.loadReportsFromFirebase === 'function') await window.loadReportsFromFirebase();
+      errorEl.style.display = 'none';
+      renderNav();
+      await renderPanel('home');
+      if (typeof showToast === 'function') showToast('✅ تم تسجيل الدخول الآمن بنجاح');
+      return;
+    } catch (e) {
+      console.error('Firebase Auth admin login error:', e);
+      const code = String(e && e.code || '');
+      let message = e && e.message ? e.message : 'تعذر تسجيل الدخول';
+      if (code.includes('invalid-credential') || code.includes('wrong-password') || code.includes('user-not-found')) {
+        message = 'البريد الإلكتروني أو كلمة المرور غير صحيحة';
+      } else if (code.includes('too-many-requests')) {
+        message = 'تم إيقاف المحاولات مؤقتاً بسبب تكرارها؛ انتظر قليلاً ثم حاول';
+      } else if (code.includes('network-request-failed')) {
+        message = 'تعذر الاتصال بخدمة المصادقة؛ تحقق من الإنترنت';
+      }
+      errorEl.textContent = '⚠️ ' + message;
+      errorEl.style.color = '#ef5350';
+      errorEl.style.display = 'block';
+      return;
+    }
+  }
+
+  // مرحلة انتقالية: الفنيون والعملاء يبقون على الدخول الحالي حتى إنشاء حساباتهم في Authentication.
+  const localEmployee = (db.users || []).find(u =>
+    u.role === 'employee' && u.username === username && u.password === password
+  );
+  if (currentRole === 'employee' && localEmployee) {
+    currentUser = localEmployee;
+    currentClientId = null;
+    document.getElementById('navUserName').textContent = localEmployee.name;
+    document.getElementById('navUserRole').textContent = 'فني ميداني';
+    document.getElementById('navUserAvatar').textContent = '👷';
     document.getElementById('loginScreen').classList.remove('active');
     document.getElementById('appScreen').classList.add('active');
-    await window.loadClientsFromFirebase();
-        await window.loadReportsFromFirebase();
+    if (typeof window.loadClientsFromFirebase === 'function') await window.loadClientsFromFirebase();
+    if (typeof window.loadReportsFromFirebase === 'function') await window.loadReportsFromFirebase();
     renderNav();
-    renderPanel('home');
+    await renderPanel('home');
     return;
   }
 
-  // 2. تحقق من العملاء في Firebase
+  if (currentRole !== 'client') {
+    errorEl.textContent = '⚠️ اسم المستخدم أو كلمة المرور غير صحيحة';
+    errorEl.style.color = '#ef5350';
+    errorEl.style.display = 'block';
+    return;
+  }
+
   errorEl.textContent = '⏳ جاري التحقق...';
   errorEl.style.color = 'rgba(255,255,255,0.7)';
   errorEl.style.display = 'block';
 
   const clientUser = await window.loginFromFirebase(username, password);
-
   if (!clientUser) {
     errorEl.textContent = '⚠️ اسم المستخدم أو كلمة المرور غير صحيحة';
     errorEl.style.color = '#ef5350';
@@ -1318,7 +1408,6 @@ async function doLogin() {
     return;
   }
 
-  // دخول العميل
   currentRole = 'client';
   currentUser = clientUser;
   currentClientId = clientUser.id;
@@ -1327,17 +1416,16 @@ async function doLogin() {
   document.getElementById('navUserAvatar').textContent = '🏢';
   document.getElementById('loginScreen').classList.remove('active');
   document.getElementById('appScreen').classList.add('active');
-  if (typeof window.loadClientsFromFirebase === 'function') {
-    await window.loadClientsFromFirebase();
-  }
-  if (typeof window.loadReportsFromFirebase === 'function') {
-    await window.loadReportsFromFirebase();
-  }
-renderNav();
-  renderPanel('home');
+  if (typeof window.loadClientsFromFirebase === 'function') await window.loadClientsFromFirebase();
+  if (typeof window.loadReportsFromFirebase === 'function') await window.loadReportsFromFirebase();
+  renderNav();
+  await renderPanel('home');
 }
 
-function doLogout() {
+async function doLogout() {
+  if (typeof window.logoutFirebaseAuth === 'function') await window.logoutFirebaseAuth();
+  currentUser = null;
+  currentClientId = null;
   document.getElementById('appScreen').classList.remove('active');
   document.getElementById('loginScreen').classList.add('active');
 }
