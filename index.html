@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>خطوة محترف — بوابة المتعاقدين</title>
+<!-- v2.0.1 Security Stage 1: تحديث UID حساب المدير -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -42,7 +43,7 @@
     window.firebaseAuth = auth_fire;
 
     // v2.0.0 Security Stage 1: حساب المدير الموثق في Firebase Authentication
-    const SECURITY_ADMIN_UID = 'yKby7TRcicUeFOlUyrYMxK5QU8o2';
+    const SECURITY_ADMIN_UID = 'eWomU02gXnbcyI8tYLUxWoLC6Rr1';
 
     window.loginAdminWithFirebaseAuth = async function(email, password) {
       const credential = await auth_fire.signInWithEmailAndPassword(email, password);
