@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<!-- v2.0.1 Security Stage 1: تحديث UID حساب المدير -->
+<!-- v2.0.2 Security Stage 1: تصحيح مفتاح Firebase API -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -27,13 +27,14 @@
 
     if (!firebase.apps.length) {
       firebase.initializeApp({
-        apiKey: "AIzaSyDudd2Y4qfxHJJXpxrDNlnGWPQaBnlKQro",
+        apiKey: "AIzaSyDudd2Y4qfxHJJXpxrDN1nGWPQaBnlKQro",
         authDomain: "stepro-contractors.firebaseapp.com",
         databaseURL: "https://stepro-contractors-default-rtdb.europe-west1.firebasedatabase.app",
         projectId: "stepro-contractors",
         storageBucket: "stepro-contractors.firebasestorage.app",
         messagingSenderId: "69302004635",
-        appId: "1:69302004635:web:f72bfaeb8e75de2d438f3e"
+        appId: "1:69302004635:web:f72bfaeb8e75de2d438f3e",
+        measurementId: "G-1ZLK1Y6FG8"
       });
     }
 
