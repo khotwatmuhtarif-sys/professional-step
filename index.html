@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<!-- v2.0.2 Security Stage 1: تصحيح مفتاح Firebase API -->
+<!-- v2.1.0 Role-Based Authentication: صلاحيات users/{uid} بدون UID ثابت -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -43,30 +43,70 @@
     window.firebaseDB = db_fire;
     window.firebaseAuth = auth_fire;
 
-    // v2.0.0 Security Stage 1: حساب المدير الموثق في Firebase Authentication
-    const SECURITY_ADMIN_UID = 'eWomU02gXnbcyI8tYLUxWoLC6Rr1';
+    // v2.1.0: الصلاحيات تُقرأ من users/{uid} ولا يوجد UID مدير ثابت داخل الملف.
+    const ALLOWED_AUTH_ROLES = ['admin', 'employee', 'client'];
 
-    window.loginAdminWithFirebaseAuth = async function(email, password) {
+    window.loginUserWithFirebaseAuth = async function(email, password) {
       const credential = await auth_fire.signInWithEmailAndPassword(email, password);
       const authUser = credential && credential.user;
       if (!authUser) throw new Error('لم يتم العثور على المستخدم بعد تسجيل الدخول');
-      if (authUser.uid !== SECURITY_ADMIN_UID) {
-        await auth_fire.signOut();
-        throw new Error('هذا الحساب غير مصرح له بالدخول كمدير');
+
+      const userRef = db_fire.ref('users/' + authUser.uid);
+      let profileSnap = await userRef.get();
+      let profile = profileSnap.exists() ? profileSnap.val() : null;
+
+      // تهيئة المدير الأول فقط عندما تكون مجموعة users فارغة تماماً.
+      if (!profile) {
+        const usersSnap = await db_fire.ref('users').get();
+        const hasAnyUsers = usersSnap.exists() && usersSnap.numChildren() > 0;
+        if (hasAnyUsers) {
+          await auth_fire.signOut();
+          throw new Error('الحساب موثق، لكن لم تُمنح له صلاحية داخل النظام');
+        }
+        profile = {
+          uid: authUser.uid,
+          email: authUser.email || email,
+          role: 'admin',
+          active: true,
+          name: (authUser.displayName || 'مدير النظام'),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        await userRef.set(profile);
       }
 
-      // ينشئ سجل صلاحية المدير تلقائياً؛ لا حاجة للإضافة اليدوية في قاعدة البيانات.
-      const profile = {
+      const role = String(profile.role || '').toLowerCase();
+      if (!ALLOWED_AUTH_ROLES.includes(role)) {
+        await auth_fire.signOut();
+        throw new Error('صلاحية الحساب غير معروفة');
+      }
+      if (profile.active === false) {
+        await auth_fire.signOut();
+        throw new Error('هذا الحساب موقوف؛ راجع مدير النظام');
+      }
+
+      const normalizedProfile = {
+        ...profile,
         uid: authUser.uid,
-        email: authUser.email || email,
-        role: 'admin',
-        active: true,
-        name: 'محمد بن صالح',
-        updatedAt: new Date().toISOString()
+        email: authUser.email || profile.email || email,
+        role,
+        active: profile.active !== false,
+        name: profile.name || authUser.displayName || authUser.email || 'مستخدم',
+        lastLoginAt: new Date().toISOString()
       };
-      await db_fire.ref('users/' + authUser.uid).update(profile);
-      return profile;
+      await userRef.update({
+        email: normalizedProfile.email,
+        role: normalizedProfile.role,
+        active: normalizedProfile.active,
+        name: normalizedProfile.name,
+        lastLoginAt: normalizedProfile.lastLoginAt,
+        updatedAt: new Date().toISOString()
+      });
+      return normalizedProfile;
     };
+
+    // توافق مع الاسم القديم حتى لا تتأثر أي أجزاء أخرى في الملف.
+    window.loginAdminWithFirebaseAuth = window.loginUserWithFirebaseAuth;
 
     window.logoutFirebaseAuth = async function() {
       try { await auth_fire.signOut(); } catch(e) { console.warn('تعذر إنهاء جلسة Firebase:', e); }
@@ -1329,33 +1369,46 @@ async function doLogin() {
     return;
   }
 
-  // v2.0.0 Stage 1: المدير يدخل حصراً عبر Firebase Authentication.
-  if (currentRole === 'admin') {
-    errorEl.textContent = '⏳ جاري التحقق الآمن من حساب المدير...';
+  // v2.1.0: أي حساب Firebase يُوجَّه تلقائياً حسب role في users/{uid}.
+  if (currentRole === 'admin' || username.includes('@')) {
+    errorEl.textContent = '⏳ جاري التحقق الآمن من الحساب والصلاحيات...';
     errorEl.style.color = 'rgba(255,255,255,0.75)';
     errorEl.style.display = 'block';
     try {
-      if (typeof window.loginAdminWithFirebaseAuth !== 'function') {
+      if (typeof window.loginUserWithFirebaseAuth !== 'function') {
         throw new Error('خدمة المصادقة لم تكتمل بعد؛ حدّث الصفحة وحاول مرة أخرى');
       }
-      const profile = await window.loginAdminWithFirebaseAuth(username, password);
-      currentRole = 'admin';
+      const profile = await window.loginUserWithFirebaseAuth(username, password);
+      currentRole = profile.role;
       currentUser = profile;
-      currentClientId = null;
-      document.getElementById('navUserName').textContent = profile.name || 'مدير النظام';
-      document.getElementById('navUserRole').textContent = 'التحكم بالنظام';
-      document.getElementById('navUserAvatar').textContent = '🖥️';
+      currentClientId = profile.role === 'client' ? (profile.clientId || profile.id || null) : null;
+
+      const roleUi = {
+        admin: { label: 'التحكم بالنظام', avatar: '🖥️' },
+        employee: { label: 'فني ميداني', avatar: '👷' },
+        client: { label: 'عميل متعاقد', avatar: '🏢' }
+      }[profile.role];
+      document.getElementById('navUserName').textContent = profile.name || 'مستخدم';
+      document.getElementById('navUserRole').textContent = roleUi.label;
+      document.getElementById('navUserAvatar').textContent = roleUi.avatar;
       document.getElementById('loginScreen').classList.remove('active');
       document.getElementById('appScreen').classList.add('active');
       if (typeof window.loadClientsFromFirebase === 'function') await window.loadClientsFromFirebase();
       if (typeof window.loadReportsFromFirebase === 'function') await window.loadReportsFromFirebase();
+
+      // ربط حساب العميل ببياناته عند توفر clientId في ملف الصلاحية.
+      if (profile.role === 'client' && currentClientId != null) {
+        const linkedClient = (db.clients || []).find(c => String(c.id) === String(currentClientId));
+        if (linkedClient) currentUser = { ...linkedClient, ...profile, id: linkedClient.id };
+      }
+
       errorEl.style.display = 'none';
       renderNav();
       await renderPanel('home');
-      if (typeof showToast === 'function') showToast('✅ تم تسجيل الدخول الآمن بنجاح');
+      if (typeof showToast === 'function') showToast('✅ تم تسجيل الدخول وتطبيق الصلاحية بنجاح');
       return;
     } catch (e) {
-      console.error('Firebase Auth admin login error:', e);
+      console.error('Firebase role-based login error:', e);
       const code = String(e && e.code || '');
       let message = e && e.message ? e.message : 'تعذر تسجيل الدخول';
       if (code.includes('invalid-credential') || code.includes('wrong-password') || code.includes('user-not-found')) {
