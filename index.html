@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<!-- v2.1.0 Role-Based Authentication: صلاحيات users/{uid} بدون UID ثابت -->
+<!-- v2.2.0 User Management: مصادقة حسب الصلاحيات + إدارة المستخدمين + سجل النشاط -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -43,70 +43,138 @@
     window.firebaseDB = db_fire;
     window.firebaseAuth = auth_fire;
 
-    // v2.1.0: الصلاحيات تُقرأ من users/{uid} ولا يوجد UID مدير ثابت داخل الملف.
-    const ALLOWED_AUTH_ROLES = ['admin', 'employee', 'client'];
-
+    // v2.2.0: مصادقة موحدة حسب الصلاحية المخزنة في users/{uid}
     window.loginUserWithFirebaseAuth = async function(email, password) {
       const credential = await auth_fire.signInWithEmailAndPassword(email, password);
       const authUser = credential && credential.user;
       if (!authUser) throw new Error('لم يتم العثور على المستخدم بعد تسجيل الدخول');
 
       const userRef = db_fire.ref('users/' + authUser.uid);
-      let profileSnap = await userRef.get();
-      let profile = profileSnap.exists() ? profileSnap.val() : null;
+      const snapshot = await userRef.get();
+      let profile = snapshot.exists() ? snapshot.val() : null;
 
-      // تهيئة المدير الأول فقط عندما تكون مجموعة users فارغة تماماً.
+      // تهيئة أول مدير فقط عندما تكون عقدة users فارغة تماماً.
       if (!profile) {
-        const usersSnap = await db_fire.ref('users').get();
-        const hasAnyUsers = usersSnap.exists() && usersSnap.numChildren() > 0;
-        if (hasAnyUsers) {
+        const usersSnapshot = await db_fire.ref('users').limitToFirst(1).get();
+        if (!usersSnapshot.exists()) {
+          profile = {
+            uid: authUser.uid,
+            email: authUser.email || email,
+            name: 'مدير النظام',
+            role: 'admin',
+            active: true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            lastLoginAt: new Date().toISOString()
+          };
+          await userRef.set(profile);
+        } else {
           await auth_fire.signOut();
-          throw new Error('الحساب موثق، لكن لم تُمنح له صلاحية داخل النظام');
+          throw new Error('الحساب موجود في المصادقة لكنه غير مضاف إلى مستخدمي النظام');
         }
-        profile = {
-          uid: authUser.uid,
-          email: authUser.email || email,
-          role: 'admin',
-          active: true,
-          name: (authUser.displayName || 'مدير النظام'),
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        };
-        await userRef.set(profile);
       }
 
-      const role = String(profile.role || '').toLowerCase();
-      if (!ALLOWED_AUTH_ROLES.includes(role)) {
+      if (profile.active === false) {
+        await auth_fire.signOut();
+        throw new Error('هذا الحساب موقوف. راجع مدير النظام');
+      }
+      const allowedRoles = ['admin','supervisor','employee','customer_service','client'];
+      if (!allowedRoles.includes(profile.role)) {
         await auth_fire.signOut();
         throw new Error('صلاحية الحساب غير معروفة');
       }
-      if (profile.active === false) {
-        await auth_fire.signOut();
-        throw new Error('هذا الحساب موقوف؛ راجع مدير النظام');
-      }
 
-      const normalizedProfile = {
-        ...profile,
+      const updates = {
         uid: authUser.uid,
         email: authUser.email || profile.email || email,
-        role,
-        active: profile.active !== false,
-        name: profile.name || authUser.displayName || authUser.email || 'مستخدم',
-        lastLoginAt: new Date().toISOString()
-      };
-      await userRef.update({
-        email: normalizedProfile.email,
-        role: normalizedProfile.role,
-        active: normalizedProfile.active,
-        name: normalizedProfile.name,
-        lastLoginAt: normalizedProfile.lastLoginAt,
+        lastLoginAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
-      });
-      return normalizedProfile;
+      };
+      await userRef.update(updates);
+      profile = Object.assign({}, profile, updates);
+      await window.writeAuditLog('login', 'تسجيل دخول', { role: profile.role, email: profile.email }, profile);
+      return profile;
+    };
+    window.loginAdminWithFirebaseAuth = window.loginUserWithFirebaseAuth;
+
+    window.writeAuditLog = async function(action, description, details, actorOverride) {
+      try {
+        const actor = actorOverride || window.currentUser || null;
+        const authUser = auth_fire.currentUser;
+        const ref = db_fire.ref('auditLogs').push();
+        await ref.set({
+          id: ref.key,
+          action: action || 'unknown',
+          description: description || '',
+          details: details || {},
+          actorUid: actor && actor.uid || authUser && authUser.uid || null,
+          actorName: actor && actor.name || authUser && authUser.email || 'غير معروف',
+          actorRole: actor && actor.role || null,
+          createdAt: new Date().toISOString()
+        });
+      } catch(e) { console.warn('تعذر حفظ سجل النشاط:', e); }
     };
 
-    // توافق مع الاسم القديم حتى لا تتأثر أي أجزاء أخرى في الملف.
-    window.loginAdminWithFirebaseAuth = window.loginUserWithFirebaseAuth;
+    window.listSystemUsers = async function() {
+      const snap = await db_fire.ref('users').get();
+      const data = snap.exists() ? snap.val() : {};
+      return Object.values(data || {}).sort((a,b) => String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
+    };
+
+    window.createSystemUser = async function(userData) {
+      const current = auth_fire.currentUser;
+      if (!current) throw new Error('يجب تسجيل الدخول كمدير');
+      const myProfileSnap = await db_fire.ref('users/' + current.uid).get();
+      const myProfile = myProfileSnap.val() || {};
+      if (myProfile.role !== 'admin' || myProfile.active === false) throw new Error('هذه العملية متاحة للمدير فقط');
+
+      const secondaryName = 'UserCreator-' + Date.now();
+      const secondaryApp = firebase.initializeApp(firebase.app().options, secondaryName);
+      try {
+        const secondaryAuth = secondaryApp.auth();
+        const credential = await secondaryAuth.createUserWithEmailAndPassword(userData.email, userData.password);
+        const uid = credential.user.uid;
+        const now = new Date().toISOString();
+        const profile = {
+          uid,
+          name: userData.name,
+          email: userData.email,
+          role: userData.role,
+          active: true,
+          city: userData.city || '',
+          phone: userData.phone || '',
+          clientId: userData.clientId || null,
+          createdAt: now,
+          createdBy: current.uid,
+          updatedAt: now,
+          lastLoginAt: null
+        };
+        await db_fire.ref('users/' + uid).set(profile);
+        await secondaryAuth.signOut();
+        await window.writeAuditLog('user_create', 'إنشاء مستخدم جديد', {uid, name:profile.name, email:profile.email, role:profile.role});
+        return profile;
+      } finally {
+        try { await secondaryApp.delete(); } catch(e) {}
+      }
+    };
+
+    window.updateSystemUser = async function(uid, changes) {
+      const current = auth_fire.currentUser;
+      if (!current) throw new Error('يجب تسجيل الدخول');
+      const me = (await db_fire.ref('users/' + current.uid).get()).val() || {};
+      if (me.role !== 'admin') throw new Error('هذه العملية متاحة للمدير فقط');
+      if (uid === current.uid && changes.active === false) throw new Error('لا يمكنك إيقاف حسابك الحالي');
+      changes.updatedAt = new Date().toISOString();
+      await db_fire.ref('users/' + uid).update(changes);
+      await window.writeAuditLog('user_update', 'تحديث بيانات مستخدم', {uid, changes});
+      return true;
+    };
+
+    window.loadAuditLogs = async function(limit) {
+      const snap = await db_fire.ref('auditLogs').orderByChild('createdAt').limitToLast(limit || 100).get();
+      const data = snap.exists() ? snap.val() : {};
+      return Object.values(data || {}).sort((a,b) => String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
+    };
 
     window.logoutFirebaseAuth = async function() {
       try { await auth_fire.signOut(); } catch(e) { console.warn('تعذر إنهاء جلسة Firebase:', e); }
@@ -524,7 +592,7 @@ html, body {
 
 .bottomnav.client-nav { grid-template-columns: repeat(4, 1fr); }
 .bottomnav.employee-nav { grid-template-columns: repeat(4, 1fr); }
-.bottomnav.admin-nav { grid-template-columns: repeat(5, 1fr); }
+.bottomnav.admin-nav { grid-template-columns: repeat(7, minmax(0,1fr)); }
 
 .nav-item {
   display: flex;
@@ -1359,127 +1427,66 @@ async function doLogin() {
   const password = document.getElementById('loginPass').value.trim();
   const errorEl = document.getElementById('loginError');
   errorEl.style.display = 'none';
-
   if (!username || !password) {
-    errorEl.textContent = currentRole === 'admin'
-      ? '⚠️ أدخل البريد الإلكتروني وكلمة المرور'
-      : '⚠️ أدخل اسم المستخدم وكلمة المرور';
-    errorEl.style.color = '#ef5350';
-    errorEl.style.display = 'block';
-    return;
+    errorEl.textContent = '⚠️ أدخل البريد الإلكتروني أو اسم المستخدم وكلمة المرور';
+    errorEl.style.color = '#ef5350'; errorEl.style.display = 'block'; return;
   }
 
-  // v2.1.0: أي حساب Firebase يُوجَّه تلقائياً حسب role في users/{uid}.
-  if (currentRole === 'admin' || username.includes('@')) {
-    errorEl.textContent = '⏳ جاري التحقق الآمن من الحساب والصلاحيات...';
-    errorEl.style.color = 'rgba(255,255,255,0.75)';
-    errorEl.style.display = 'block';
+  // البريد الإلكتروني يدخل عبر Firebase Authentication وتحدد الواجهة من الصلاحية الفعلية.
+  if (username.includes('@')) {
+    errorEl.textContent = '⏳ جاري التحقق من الحساب...';
+    errorEl.style.color = 'rgba(255,255,255,0.75)'; errorEl.style.display = 'block';
     try {
-      if (typeof window.loginUserWithFirebaseAuth !== 'function') {
-        throw new Error('خدمة المصادقة لم تكتمل بعد؛ حدّث الصفحة وحاول مرة أخرى');
-      }
       const profile = await window.loginUserWithFirebaseAuth(username, password);
-      currentRole = profile.role;
-      currentUser = profile;
-      currentClientId = profile.role === 'client' ? (profile.clientId || profile.id || null) : null;
-
-      const roleUi = {
-        admin: { label: 'التحكم بالنظام', avatar: '🖥️' },
-        employee: { label: 'فني ميداني', avatar: '👷' },
-        client: { label: 'عميل متعاقد', avatar: '🏢' }
-      }[profile.role];
-      document.getElementById('navUserName').textContent = profile.name || 'مستخدم';
-      document.getElementById('navUserRole').textContent = roleUi.label;
-      document.getElementById('navUserAvatar').textContent = roleUi.avatar;
+      currentUser = profile; window.currentUser = profile;
+      currentClientId = profile.clientId || null;
+      const roleMap = {admin:'admin', supervisor:'employee', employee:'employee', customer_service:'employee', client:'client'};
+      currentRole = roleMap[profile.role] || 'client';
+      const roleLabels = {admin:'مدير النظام',supervisor:'مشرف',employee:'فني ميداني',customer_service:'خدمة العملاء',client:'عميل متعاقد'};
+      const roleIcons = {admin:'🖥️',supervisor:'🧑‍💼',employee:'👷',customer_service:'🎧',client:'🏢'};
+      document.getElementById('navUserName').textContent = profile.name || profile.email;
+      document.getElementById('navUserRole').textContent = roleLabels[profile.role] || 'مستخدم';
+      document.getElementById('navUserAvatar').textContent = roleIcons[profile.role] || '👤';
       document.getElementById('loginScreen').classList.remove('active');
       document.getElementById('appScreen').classList.add('active');
       if (typeof window.loadClientsFromFirebase === 'function') await window.loadClientsFromFirebase();
       if (typeof window.loadReportsFromFirebase === 'function') await window.loadReportsFromFirebase();
-
-      // ربط حساب العميل ببياناته عند توفر clientId في ملف الصلاحية.
-      if (profile.role === 'client' && currentClientId != null) {
-        const linkedClient = (db.clients || []).find(c => String(c.id) === String(currentClientId));
-        if (linkedClient) currentUser = { ...linkedClient, ...profile, id: linkedClient.id };
-      }
-
-      errorEl.style.display = 'none';
-      renderNav();
-      await renderPanel('home');
-      if (typeof showToast === 'function') showToast('✅ تم تسجيل الدخول وتطبيق الصلاحية بنجاح');
-      return;
-    } catch (e) {
-      console.error('Firebase role-based login error:', e);
-      const code = String(e && e.code || '');
-      let message = e && e.message ? e.message : 'تعذر تسجيل الدخول';
-      if (code.includes('invalid-credential') || code.includes('wrong-password') || code.includes('user-not-found')) {
-        message = 'البريد الإلكتروني أو كلمة المرور غير صحيحة';
-      } else if (code.includes('too-many-requests')) {
-        message = 'تم إيقاف المحاولات مؤقتاً بسبب تكرارها؛ انتظر قليلاً ثم حاول';
-      } else if (code.includes('network-request-failed')) {
-        message = 'تعذر الاتصال بخدمة المصادقة؛ تحقق من الإنترنت';
-      }
-      errorEl.textContent = '⚠️ ' + message;
-      errorEl.style.color = '#ef5350';
-      errorEl.style.display = 'block';
-      return;
+      errorEl.style.display = 'none'; renderNav(); await renderPanel('home');
+      showToast('✅ تم تسجيل الدخول بنجاح'); return;
+    } catch(e) {
+      console.error(e);
+      const code=String(e&&e.code||''); let message=e&&e.message||'تعذر تسجيل الدخول';
+      if (/invalid-credential|wrong-password|user-not-found/.test(code)) message='البريد الإلكتروني أو كلمة المرور غير صحيحة';
+      else if (code.includes('too-many-requests')) message='تم إيقاف المحاولات مؤقتاً؛ حاول لاحقاً';
+      else if (code.includes('network-request-failed')) message='تعذر الاتصال؛ تحقق من الإنترنت';
+      errorEl.textContent='⚠️ '+message; errorEl.style.color='#ef5350'; errorEl.style.display='block'; return;
     }
   }
 
-  // مرحلة انتقالية: الفنيون والعملاء يبقون على الدخول الحالي حتى إنشاء حساباتهم في Authentication.
-  const localEmployee = (db.users || []).find(u =>
-    u.role === 'employee' && u.username === username && u.password === password
-  );
-  if (currentRole === 'employee' && localEmployee) {
-    currentUser = localEmployee;
-    currentClientId = null;
-    document.getElementById('navUserName').textContent = localEmployee.name;
-    document.getElementById('navUserRole').textContent = 'فني ميداني';
-    document.getElementById('navUserAvatar').textContent = '👷';
-    document.getElementById('loginScreen').classList.remove('active');
-    document.getElementById('appScreen').classList.add('active');
-    if (typeof window.loadClientsFromFirebase === 'function') await window.loadClientsFromFirebase();
-    if (typeof window.loadReportsFromFirebase === 'function') await window.loadReportsFromFirebase();
-    renderNav();
-    await renderPanel('home');
-    return;
+  // توافق انتقالي مع حسابات الفنيين والعملاء القديمة باسم المستخدم.
+  const localEmployee = (db.users || []).find(u => u.role === 'employee' && u.username === username && u.password === password);
+  if (localEmployee) {
+    currentRole='employee'; currentUser=localEmployee; window.currentUser=localEmployee; currentClientId=null;
+    document.getElementById('navUserName').textContent=localEmployee.name;
+    document.getElementById('navUserRole').textContent='فني ميداني (حساب قديم)';
+    document.getElementById('navUserAvatar').textContent='👷';
+    document.getElementById('loginScreen').classList.remove('active'); document.getElementById('appScreen').classList.add('active');
+    await window.loadClientsFromFirebase?.(); await window.loadReportsFromFirebase?.(); renderNav(); await renderPanel('home'); return;
   }
-
-  if (currentRole !== 'client') {
-    errorEl.textContent = '⚠️ اسم المستخدم أو كلمة المرور غير صحيحة';
-    errorEl.style.color = '#ef5350';
-    errorEl.style.display = 'block';
-    return;
-  }
-
-  errorEl.textContent = '⏳ جاري التحقق...';
-  errorEl.style.color = 'rgba(255,255,255,0.7)';
-  errorEl.style.display = 'block';
 
   const clientUser = await window.loginFromFirebase(username, password);
-  if (!clientUser) {
-    errorEl.textContent = '⚠️ اسم المستخدم أو كلمة المرور غير صحيحة';
-    errorEl.style.color = '#ef5350';
-    errorEl.style.display = 'block';
-    return;
-  }
-
-  currentRole = 'client';
-  currentUser = clientUser;
-  currentClientId = clientUser.id;
-  document.getElementById('navUserName').textContent = clientUser.name;
-  document.getElementById('navUserRole').textContent = 'عميل متعاقد';
-  document.getElementById('navUserAvatar').textContent = '🏢';
-  document.getElementById('loginScreen').classList.remove('active');
-  document.getElementById('appScreen').classList.add('active');
-  if (typeof window.loadClientsFromFirebase === 'function') await window.loadClientsFromFirebase();
-  if (typeof window.loadReportsFromFirebase === 'function') await window.loadReportsFromFirebase();
-  renderNav();
-  await renderPanel('home');
+  if (!clientUser) { errorEl.textContent='⚠️ اسم المستخدم أو كلمة المرور غير صحيحة'; errorEl.style.color='#ef5350'; errorEl.style.display='block'; return; }
+  currentRole='client'; currentUser=clientUser; window.currentUser=clientUser; currentClientId=clientUser.id;
+  document.getElementById('navUserName').textContent=clientUser.name;
+  document.getElementById('navUserRole').textContent='عميل متعاقد (حساب قديم)'; document.getElementById('navUserAvatar').textContent='🏢';
+  document.getElementById('loginScreen').classList.remove('active'); document.getElementById('appScreen').classList.add('active');
+  await window.loadClientsFromFirebase?.(); await window.loadReportsFromFirebase?.(); renderNav(); await renderPanel('home');
 }
 
 async function doLogout() {
   if (typeof window.logoutFirebaseAuth === 'function') await window.logoutFirebaseAuth();
-  currentUser = null;
+  if (currentUser && typeof window.writeAuditLog === 'function') await window.writeAuditLog('logout','تسجيل خروج',{});
+  currentUser = null; window.currentUser = null;
   currentClientId = null;
   document.getElementById('appScreen').classList.remove('active');
   document.getElementById('loginScreen').classList.add('active');
@@ -1505,6 +1512,7 @@ const navs = {
     { id: 'all_reports', icon: '📊', label: 'التقارير' },
     { id: 'all_visits', icon: '📅', label: 'الزيارات' },
     { id: 'emergency_admin', icon: '🚨', label: 'الطوارئ' },
+    { id: 'users_admin', icon: '🔐', label: 'المستخدمون' },
     { id: 'settings', icon: '⚙️', label: 'الإعدادات' },
   ]
 };
@@ -1572,6 +1580,7 @@ function getPanelHTML(id) {
     all_reports: adminAllReports(),
     all_visits: adminVisits(),
     emergency_admin: adminEmergency(),
+    users_admin: adminUsersManagement(),
     settings: adminSettings(),
   };
   return panels[id] || '<p>الصفحة غير موجودة</p>';
@@ -3253,6 +3262,62 @@ ${visitsWithReports.length ? `
         </div>
     `;
 }
+// ===== v2.2.0 USER MANAGEMENT =====
+function roleArabic(role) {
+  return ({admin:'مدير',supervisor:'مشرف',employee:'فني ميداني',customer_service:'خدمة عملاء',client:'عميل متعاقد'})[role] || role || '—';
+}
+function safeText(v){ return String(v==null?'':v).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m])); }
+function formatSystemDate(v){ if(!v)return '—'; try{return new Date(v).toLocaleString('ar-SA');}catch(e){return v;} }
+
+function adminUsersManagement(){
+  if (!currentUser || currentUser.role !== 'admin') return '<div class="card">⛔ هذه الصفحة متاحة للمدير فقط.</div>';
+  setTimeout(loadUsersManagement, 0);
+  return `
+    <div class="section-title">🔐 إدارة المستخدمين والصلاحيات</div>
+    <div class="stats-row cols-4" id="usersStats"><div class="stat-card">⏳ جاري التحميل...</div></div>
+    <div class="card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+      <button class="submit-btn green" style="width:auto" onclick="openModal('addEmployee')">+ إنشاء حساب</button>
+      <button class="submit-btn" style="width:auto" onclick="loadUsersManagement()">🔄 تحديث</button>
+      <input id="usersSearch" class="form-input" style="flex:1;min-width:220px" placeholder="ابحث بالاسم أو البريد..." oninput="filterUsersTable()">
+    </div>
+    <div id="usersTableWrap"><div class="card">⏳ جاري تحميل المستخدمين...</div></div>
+    <div class="section-title">🧾 سجل النشاط</div>
+    <div id="auditLogsWrap"><div class="card">⏳ جاري تحميل السجل...</div></div>`;
+}
+
+let systemUsersCache=[];
+async function loadUsersManagement(){
+  try{
+    systemUsersCache=await window.listSystemUsers();
+    const active=systemUsersCache.filter(u=>u.active!==false).length;
+    const admins=systemUsersCache.filter(u=>u.role==='admin').length;
+    const employees=systemUsersCache.filter(u=>['employee','supervisor','customer_service'].includes(u.role)).length;
+    const clients=systemUsersCache.filter(u=>u.role==='client').length;
+    const stats=document.getElementById('usersStats');
+    if(stats) stats.innerHTML=`<div class="stat-card"><span class="stat-num">${systemUsersCache.length}</span><span class="stat-label">إجمالي الحسابات</span></div><div class="stat-card"><span class="stat-num green">${active}</span><span class="stat-label">حساب نشط</span></div><div class="stat-card"><span class="stat-num gold">${employees}</span><span class="stat-label">الموظفون</span></div><div class="stat-card"><span class="stat-num">${admins+clients}</span><span class="stat-label">مديرون وعملاء</span></div>`;
+    renderUsersTable(systemUsersCache);
+    const logs=await window.loadAuditLogs(50); renderAuditLogs(logs);
+  }catch(e){ const w=document.getElementById('usersTableWrap'); if(w)w.innerHTML=`<div class="card" style="color:var(--red)">⚠️ ${safeText(e.message)}</div>`; }
+}
+function renderUsersTable(users){
+  const wrap=document.getElementById('usersTableWrap'); if(!wrap)return;
+  if(!users.length){wrap.innerHTML='<div class="card">لا توجد حسابات.</div>';return;}
+  wrap.innerHTML=`<div class="card" style="overflow:auto"><table class="data-table"><thead><tr><th>المستخدم</th><th>الصلاحية</th><th>المدينة</th><th>الحالة</th><th>آخر دخول</th><th>الإجراء</th></tr></thead><tbody>${users.map(u=>`<tr data-search="${safeText((u.name||'')+' '+(u.email||''))}"><td><b>${safeText(u.name||'—')}</b><br><small dir="ltr">${safeText(u.email||'—')}</small></td><td><select class="form-select" style="min-width:130px;padding:6px" onchange="changeSystemUserRole('${safeText(u.uid)}',this.value)" ${u.uid===currentUser.uid?'disabled':''}>${['admin','supervisor','employee','customer_service','client'].map(r=>`<option value="${r}" ${u.role===r?'selected':''}>${roleArabic(r)}</option>`).join('')}</select></td><td>${safeText(u.city||'—')}</td><td><span class="status-badge ${u.active===false?'expired':'active'}">${u.active===false?'موقوف':'نشط'}</span></td><td>${formatSystemDate(u.lastLoginAt)}</td><td><button class="submit-btn ${u.active===false?'green':'red'}" style="width:auto;padding:7px 10px;font-size:11px" onclick="toggleSystemUser('${safeText(u.uid)}',${u.active===false})" ${u.uid===currentUser.uid?'disabled title="حسابك الحالي"':''}>${u.active===false?'تفعيل':'إيقاف'}</button></td></tr>`).join('')}</tbody></table></div>`;
+}
+function filterUsersTable(){ const q=(document.getElementById('usersSearch')?.value||'').toLowerCase(); renderUsersTable(systemUsersCache.filter(u=>((u.name||'')+' '+(u.email||'')).toLowerCase().includes(q))); }
+async function toggleSystemUser(uid, activate){ try{await window.updateSystemUser(uid,{active:activate});showToast(activate?'✅ تم تفعيل الحساب':'✅ تم إيقاف الحساب');await loadUsersManagement();}catch(e){alert(e.message);} }
+async function changeSystemUserRole(uid, role){ if(!confirm('تأكيد تغيير صلاحية هذا المستخدم إلى: '+roleArabic(role)+'؟')){await loadUsersManagement();return;} try{await window.updateSystemUser(uid,{role});showToast('✅ تم تحديث الصلاحية');await loadUsersManagement();}catch(e){alert(e.message);await loadUsersManagement();} }
+function renderAuditLogs(logs){ const w=document.getElementById('auditLogsWrap'); if(!w)return; w.innerHTML=!logs.length?'<div class="card">لا يوجد نشاط مسجل.</div>':`<div class="card" style="overflow:auto"><table class="data-table"><thead><tr><th>التاريخ</th><th>المستخدم</th><th>النشاط</th><th>الوصف</th></tr></thead><tbody>${logs.map(x=>`<tr><td>${formatSystemDate(x.createdAt)}</td><td>${safeText(x.actorName||'—')}</td><td>${safeText(x.action||'—')}</td><td>${safeText(x.description||'—')}</td></tr>`).join('')}</tbody></table></div>`; }
+function toggleClientLinkField(){ const role=document.getElementById('sysUserRole')?.value; const box=document.getElementById('clientLinkField'); if(box)box.style.display=role==='client'?'block':'none'; }
+async function submitCreateSystemUser(){
+  const btn=document.getElementById('createSysUserBtn');
+  const data={name:document.getElementById('sysUserName')?.value.trim(),email:document.getElementById('sysUserEmail')?.value.trim(),password:document.getElementById('sysUserPassword')?.value,role:document.getElementById('sysUserRole')?.value,city:document.getElementById('sysUserCity')?.value,phone:document.getElementById('sysUserPhone')?.value.trim(),clientId:Number(document.getElementById('sysUserClientId')?.value)||null};
+  if(!data.name||!data.email||!data.password){alert('أدخل الاسم والبريد وكلمة المرور');return;} if(data.password.length<6){alert('كلمة المرور يجب ألا تقل عن 6 أحرف');return;}
+  try{btn.disabled=true;btn.textContent='⏳ جاري إنشاء الحساب...';await window.createSystemUser(data);closeModal();showToast('✅ تم إنشاء الحساب بنجاح');if(currentPanel==='users_admin')await loadUsersManagement();}
+  catch(e){alert('تعذر إنشاء الحساب: '+e.message);}
+  finally{if(btn){btn.disabled=false;btn.textContent='حفظ وإنشاء الحساب';}}
+}
+
 // ===== ADMIN SETTINGS =====
 function adminSettings() {
   return `
@@ -3273,19 +3338,10 @@ function adminSettings() {
       <button class="submit-btn" onclick="showToast('✅ تم حفظ الإعدادات')">💾 حفظ التغييرات</button>
     </div>
 
-    <div class="section-title">👥 إدارة المستخدمين</div>
+    <div class="section-title">🔐 إدارة الحسابات والصلاحيات</div>
     <div class="card">
-      <div class="visit-item">
-        <div class="visit-dot done" style="font-size:20px;">👷</div>
-        <div class="visit-info"><div class="visit-title">لا يوجد فنيين بعد</div><div class="visit-date">أضف فنيين من الإعدادات</div></div>
-        <span class="status-badge active">نشط</span>
-      </div>
-      <div class="visit-item">
-        <div class="visit-dot done" style="font-size:20px;">👷</div>
-        
-        <span class="status-badge active">نشط</span>
-      </div>
-      <button class="submit-btn" style="margin-top:12px;" onclick="openModal('addEmployee')">+ إضافة موظف</button>
+      <p style="color:var(--text-light);margin-bottom:12px;">أنشئ حسابات Firebase وحدد صلاحيات كل مستخدم، أو أوقف الحساب عند الحاجة.</p>
+      <button class="submit-btn" onclick="renderPanel('users_admin')">فتح إدارة المستخدمين</button>
     </div>
   `;
 }
@@ -3479,13 +3535,16 @@ onchange="renderPaymentSchedulePreview()">
     `
   },
   addEmployee: {
-    title: '➕ إضافة موظف جديد',
+    title: '➕ إنشاء حساب مستخدم',
     html: `
-      <div class="form-group"><label class="form-label">الاسم الكامل</label><input type="text" class="form-input" placeholder="اسم الموظف"></div>
-      <div class="form-group"><label class="form-label">الدور</label><select class="form-select"><option>فني ميداني</option><option>مشرف</option><option>خدمة عملاء</option></select></div>
-      <div class="form-group"><label class="form-label">المدينة</label><select class="form-select"><option>جدة</option><option>الرياض</option><option>مكة المكرمة</option></select></div>
-      <div class="form-group"><label class="form-label">رقم الجوال</label><input type="text" class="form-input" placeholder="05xxxxxxxx"></div>
-      <button class="submit-btn green" onclick="showToast('✅ تم إضافة الموظف وإرسال بيانات الدخول!'); closeModal();">حفظ الموظف</button>
+      <div class="form-group"><label class="form-label">الاسم الكامل *</label><input id="sysUserName" type="text" class="form-input" placeholder="اسم المستخدم"></div>
+      <div class="form-group"><label class="form-label">البريد الإلكتروني *</label><input id="sysUserEmail" type="email" class="form-input" placeholder="name@example.com" dir="ltr"></div>
+      <div class="form-group"><label class="form-label">كلمة المرور المؤقتة *</label><input id="sysUserPassword" type="password" class="form-input" minlength="6" placeholder="6 أحرف على الأقل" dir="ltr"></div>
+      <div class="form-group"><label class="form-label">الصلاحية *</label><select id="sysUserRole" class="form-select" onchange="toggleClientLinkField()"><option value="employee">فني ميداني</option><option value="supervisor">مشرف</option><option value="customer_service">خدمة عملاء</option><option value="client">عميل متعاقد</option><option value="admin">مدير</option></select></div>
+      <div class="form-group"><label class="form-label">المدينة</label><select id="sysUserCity" class="form-select"><option value="">غير محدد</option><option>جدة</option><option>الرياض</option><option>مكة المكرمة</option></select></div>
+      <div class="form-group"><label class="form-label">رقم الجوال</label><input id="sysUserPhone" type="text" class="form-input" placeholder="05xxxxxxxx" dir="ltr"></div>
+      <div id="clientLinkField" class="form-group" style="display:none"><label class="form-label">رقم العميل المرتبط</label><input id="sysUserClientId" type="number" class="form-input" placeholder="مثال: 1048"></div>
+      <button id="createSysUserBtn" class="submit-btn green" onclick="submitCreateSystemUser()">حفظ وإنشاء الحساب</button>
     `
   },
   newClient: {
