@@ -128,17 +128,39 @@
       const myProfile = myProfileSnap.val() || {};
       if (myProfile.role !== 'admin' || myProfile.active === false) throw new Error('هذه العملية متاحة للمدير فقط');
 
+      const normalizedEmail = String(userData.email || '').trim().toLowerCase();
+      const usersSnap = await db_fire.ref('users').get();
+      const existingUsers = usersSnap.exists() ? Object.values(usersSnap.val() || {}) : [];
+      const existingProfile = existingUsers.find(u => String(u.email || '').trim().toLowerCase() === normalizedEmail);
+      if (existingProfile) {
+        throw new Error('هذا البريد مستخدم بالفعل لحساب موجود باسم: ' + (existingProfile.name || existingProfile.email || 'مستخدم آخر') + '. استخدم بريدًا مختلفًا.');
+      }
+
       const secondaryName = 'UserCreator-' + Date.now();
       const secondaryApp = firebase.initializeApp(firebase.app().options, secondaryName);
       try {
         const secondaryAuth = secondaryApp.auth();
-        const credential = await secondaryAuth.createUserWithEmailAndPassword(userData.email, userData.password);
+        let credential;
+        try {
+          credential = await secondaryAuth.createUserWithEmailAndPassword(normalizedEmail, userData.password);
+        } catch (authError) {
+          if (authError && authError.code === 'auth/email-already-in-use') {
+            throw new Error('هذا البريد مستخدم بالفعل في Firebase. لا يمكن إنشاء حسابين بالبريد نفسه؛ استخدم بريدًا مختلفًا.');
+          }
+          if (authError && authError.code === 'auth/invalid-email') {
+            throw new Error('صيغة البريد الإلكتروني غير صحيحة.');
+          }
+          if (authError && authError.code === 'auth/weak-password') {
+            throw new Error('كلمة المرور ضعيفة؛ يجب ألا تقل عن 6 أحرف.');
+          }
+          throw authError;
+        }
         const uid = credential.user.uid;
         const now = new Date().toISOString();
         const profile = {
           uid,
           name: userData.name,
-          email: userData.email,
+          email: normalizedEmail,
           role: userData.role,
           active: true,
           city: userData.city || '',
@@ -171,9 +193,12 @@
     };
 
     window.loadAuditLogs = async function(limit) {
-      const snap = await db_fire.ref('auditLogs').orderByChild('createdAt').limitToLast(limit || 100).get();
+      // جلب السجل ثم ترتيبه محلياً حتى يعمل بدون إضافة .indexOn إلى قواعد Firebase.
+      const snap = await db_fire.ref('auditLogs').get();
       const data = snap.exists() ? snap.val() : {};
-      return Object.values(data || {}).sort((a,b) => String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
+      return Object.values(data || {})
+        .sort((a,b) => String(b.createdAt||'').localeCompare(String(a.createdAt||'')))
+        .slice(0, limit || 100);
     };
 
     window.logoutFirebaseAuth = async function() {
@@ -3296,7 +3321,13 @@ async function loadUsersManagement(){
     const stats=document.getElementById('usersStats');
     if(stats) stats.innerHTML=`<div class="stat-card"><span class="stat-num">${systemUsersCache.length}</span><span class="stat-label">إجمالي الحسابات</span></div><div class="stat-card"><span class="stat-num green">${active}</span><span class="stat-label">حساب نشط</span></div><div class="stat-card"><span class="stat-num gold">${employees}</span><span class="stat-label">الموظفون</span></div><div class="stat-card"><span class="stat-num">${admins+clients}</span><span class="stat-label">مديرون وعملاء</span></div>`;
     renderUsersTable(systemUsersCache);
-    const logs=await window.loadAuditLogs(50); renderAuditLogs(logs);
+    try {
+      const logs=await window.loadAuditLogs(50);
+      renderAuditLogs(logs);
+    } catch(logError) {
+      const auditWrap=document.getElementById('auditLogsWrap');
+      if(auditWrap) auditWrap.innerHTML=`<div class="card" style="color:var(--red)">⚠️ تعذر تحميل سجل النشاط: ${safeText(logError.message)}</div>`;
+    }
   }catch(e){ const w=document.getElementById('usersTableWrap'); if(w)w.innerHTML=`<div class="card" style="color:var(--red)">⚠️ ${safeText(e.message)}</div>`; }
 }
 function renderUsersTable(users){
