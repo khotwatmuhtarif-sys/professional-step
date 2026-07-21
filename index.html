@@ -44,7 +44,7 @@
     window.firebaseAuth = auth_fire;
 
     // v2.2.0: مصادقة موحدة حسب الصلاحية المخزنة في users/{uid}
-    window.loginUserWithFirebaseAuth = async function(email, password, expectedPortal) {
+    window.loginUserWithFirebaseAuth = async function(email, password) {
       const credential = await auth_fire.signInWithEmailAndPassword(email, password);
       const authUser = credential && credential.user;
       if (!authUser) throw new Error('لم يتم العثور على المستخدم بعد تسجيل الدخول');
@@ -82,23 +82,6 @@
       if (!allowedRoles.includes(profile.role)) {
         await auth_fire.signOut();
         throw new Error('صلاحية الحساب غير معروفة');
-      }
-
-      // منع استخدام بيانات حساب في بوابة مختلفة عن نوعه المختار.
-      if (expectedPortal) {
-        const portalByRole = {
-          admin: 'admin',
-          supervisor: 'employee',
-          employee: 'employee',
-          customer_service: 'employee',
-          client: 'client'
-        };
-        const actualPortal = portalByRole[profile.role];
-        if (actualPortal !== expectedPortal) {
-          await auth_fire.signOut();
-          const portalLabels = { admin: 'التحكم بالنظام', employee: 'الموظف أو الفني', client: 'العميل المتعاقد' };
-          throw new Error('هذا الحساب لا يخص بوابة ' + (portalLabels[expectedPortal] || 'الدخول المحددة'));
-        }
       }
 
       const updates = {
@@ -1459,32 +1442,61 @@ function selectRole(role, btn) {
     document.getElementById('loginError').style.display = 'none';
     const userInput = document.getElementById('loginUser');
     if (userInput) {
-      userInput.placeholder = role === 'admin' ? 'البريد الإلكتروني للمدير' : 'اسم المستخدم';
-      userInput.type = role === 'admin' ? 'email' : 'text';
+      if (role === 'admin') {
+        userInput.placeholder = 'البريد الإلكتروني للمدير';
+        userInput.type = 'email';
+      } else if (role === 'employee') {
+        userInput.placeholder = 'البريد الإلكتروني أو اسم مستخدم الفني القديم';
+        userInput.type = 'text';
+      } else {
+        userInput.placeholder = 'اسم المستخدم أو البريد الإلكتروني للعميل';
+        userInput.type = 'text';
+      }
     }
 }
 
 async function doLogin() {
   const username = document.getElementById('loginUser').value.trim();
-  const password = document.getElementById('loginPass').value.trim();
-  const requestedPortal = currentRole;
+  const password = document.getElementById('loginPass').value;
   const errorEl = document.getElementById('loginError');
   errorEl.style.display = 'none';
+
   if (!username || !password) {
-    errorEl.textContent = '⚠️ أدخل البريد الإلكتروني أو اسم المستخدم وكلمة المرور';
-    errorEl.style.color = '#ef5350'; errorEl.style.display = 'block'; return;
+    errorEl.textContent = '⚠️ أدخل بيانات الدخول وكلمة المرور';
+    errorEl.style.color = '#ef5350';
+    errorEl.style.display = 'block';
+    return;
   }
 
-  // البريد الإلكتروني يدخل عبر Firebase Authentication وتحدد الواجهة من الصلاحية الفعلية.
+  const selectedPortal = currentRole; // client | employee | admin
+  const allowedByPortal = {
+    client: ['client'],
+    employee: ['employee', 'supervisor', 'customer_service'],
+    admin: ['admin']
+  };
+
+  const denyWrongPortal = async function(profileRole) {
+    const labels = { client:'العميل المتعاقد', employee:'الموظف أو الفني', admin:'التحكم بالنظام' };
+    await window.logoutFirebaseAuth?.();
+    throw new Error(`هذا الحساب لا يخص بوابة ${labels[selectedPortal] || 'المحددة'}. اختر نوع الدخول الصحيح`);
+  };
+
+  // حسابات Firebase: البريد مطلوب للمدير والموظفين، ومتاح للعميل الحديث.
   if (username.includes('@')) {
-    errorEl.textContent = '⏳ جاري التحقق من الحساب...';
-    errorEl.style.color = 'rgba(255,255,255,0.75)'; errorEl.style.display = 'block';
+    errorEl.textContent = '⏳ جاري التحقق من الحساب والصلاحية...';
+    errorEl.style.color = 'rgba(255,255,255,0.75)';
+    errorEl.style.display = 'block';
     try {
-      const profile = await window.loginUserWithFirebaseAuth(username, password, requestedPortal);
-      currentUser = profile; window.currentUser = profile;
-      currentClientId = profile.clientId || null;
-      const roleMap = {admin:'admin', supervisor:'employee', employee:'employee', customer_service:'employee', client:'client'};
-      currentRole = roleMap[profile.role] || 'client';
+      const profile = await window.loginUserWithFirebaseAuth(username, password);
+      if (!(allowedByPortal[selectedPortal] || []).includes(profile.role)) {
+        await denyWrongPortal(profile.role);
+      }
+
+      currentUser = profile;
+      window.currentUser = profile;
+      currentClientId = profile.role === 'client' ? (profile.clientId || null) : null;
+      currentRole = selectedPortal;
+
       const roleLabels = {admin:'مدير النظام',supervisor:'مشرف',employee:'فني ميداني',customer_service:'خدمة العملاء',client:'عميل متعاقد'};
       const roleIcons = {admin:'🖥️',supervisor:'🧑‍💼',employee:'👷',customer_service:'🎧',client:'🏢'};
       document.getElementById('navUserName').textContent = profile.name || profile.email;
@@ -1492,46 +1504,83 @@ async function doLogin() {
       document.getElementById('navUserAvatar').textContent = roleIcons[profile.role] || '👤';
       document.getElementById('loginScreen').classList.remove('active');
       document.getElementById('appScreen').classList.add('active');
-      if (typeof window.loadClientsFromFirebase === 'function') await window.loadClientsFromFirebase();
-      if (typeof window.loadReportsFromFirebase === 'function') await window.loadReportsFromFirebase();
-      errorEl.style.display = 'none'; renderNav(); await renderPanel('home');
-      showToast('✅ تم تسجيل الدخول بنجاح'); return;
+      await window.loadClientsFromFirebase?.();
+      await window.loadReportsFromFirebase?.();
+      errorEl.style.display = 'none';
+      renderNav();
+      await renderPanel('home');
+      showToast('✅ تم تسجيل الدخول بنجاح');
+      return;
     } catch(e) {
       console.error(e);
-      const code=String(e&&e.code||''); let message=e&&e.message||'تعذر تسجيل الدخول';
-      if (/invalid-credential|wrong-password|user-not-found/.test(code)) message='البريد الإلكتروني أو كلمة المرور غير صحيحة';
-      else if (code.includes('too-many-requests')) message='تم إيقاف المحاولات مؤقتاً؛ حاول لاحقاً';
-      else if (code.includes('network-request-failed')) message='تعذر الاتصال؛ تحقق من الإنترنت';
-      errorEl.textContent='⚠️ '+message; errorEl.style.color='#ef5350'; errorEl.style.display='block'; return;
+      const code = String(e && e.code || '');
+      let message = e && e.message || 'تعذر تسجيل الدخول';
+      if (/invalid-credential|wrong-password|user-not-found/.test(code)) message = 'البريد الإلكتروني أو كلمة المرور غير صحيحة';
+      else if (code.includes('too-many-requests')) message = 'تم إيقاف المحاولات مؤقتاً؛ حاول لاحقاً';
+      else if (code.includes('network-request-failed')) message = 'تعذر الاتصال؛ تحقق من الإنترنت';
+      errorEl.textContent = '⚠️ ' + message;
+      errorEl.style.color = '#ef5350';
+      errorEl.style.display = 'block';
+      return;
     }
   }
 
-  // توافق انتقالي مع حسابات الفنيين والعملاء القديمة باسم المستخدم.
-  const localEmployee = requestedPortal === 'employee'
-    ? (db.users || []).find(u => u.role === 'employee' && u.username === username && u.password === password)
-    : null;
-  if (localEmployee) {
-    currentRole='employee'; currentUser=localEmployee; window.currentUser=localEmployee; currentClientId=null;
-    document.getElementById('navUserName').textContent=localEmployee.name;
-    document.getElementById('navUserRole').textContent='فني ميداني (حساب قديم)';
-    document.getElementById('navUserAvatar').textContent='👷';
-    document.getElementById('loginScreen').classList.remove('active'); document.getElementById('appScreen').classList.add('active');
-    await window.loadClientsFromFirebase?.(); await window.loadReportsFromFirebase?.(); renderNav(); await renderPanel('home'); return;
+  // الحسابات القديمة باسم المستخدم لا تعمل إلا من الأيقونة المطابقة لها.
+  if (selectedPortal === 'employee') {
+    const localEmployee = (db.users || []).find(u =>
+      u.role === 'employee' && u.username === username && u.password === password
+    );
+    if (!localEmployee) {
+      errorEl.textContent = '⚠️ بيانات الموظف أو الفني غير صحيحة';
+      errorEl.style.color = '#ef5350';
+      errorEl.style.display = 'block';
+      return;
+    }
+    currentRole = 'employee';
+    currentUser = localEmployee;
+    window.currentUser = localEmployee;
+    currentClientId = null;
+    document.getElementById('navUserName').textContent = localEmployee.name;
+    document.getElementById('navUserRole').textContent = 'فني ميداني';
+    document.getElementById('navUserAvatar').textContent = '👷';
+    document.getElementById('loginScreen').classList.remove('active');
+    document.getElementById('appScreen').classList.add('active');
+    await window.loadClientsFromFirebase?.();
+    await window.loadReportsFromFirebase?.();
+    renderNav();
+    await renderPanel('home');
+    return;
   }
 
-  if (requestedPortal !== 'client') {
-    errorEl.textContent='⚠️ بيانات الحساب لا تخص نوع الدخول المحدد';
-    errorEl.style.color='#ef5350'; errorEl.style.display='block'; return;
+  if (selectedPortal === 'client') {
+    const clientUser = await window.loginFromFirebase(username, password);
+    if (!clientUser) {
+      errorEl.textContent = '⚠️ اسم المستخدم أو كلمة المرور غير صحيحة';
+      errorEl.style.color = '#ef5350';
+      errorEl.style.display = 'block';
+      return;
+    }
+    currentRole = 'client';
+    currentUser = clientUser;
+    window.currentUser = clientUser;
+    currentClientId = clientUser.id;
+    document.getElementById('navUserName').textContent = clientUser.name;
+    document.getElementById('navUserRole').textContent = 'عميل متعاقد';
+    document.getElementById('navUserAvatar').textContent = '🏢';
+    document.getElementById('loginScreen').classList.remove('active');
+    document.getElementById('appScreen').classList.add('active');
+    await window.loadClientsFromFirebase?.();
+    await window.loadReportsFromFirebase?.();
+    renderNav();
+    await renderPanel('home');
+    return;
   }
-  const clientUser = await window.loginFromFirebase(username, password);
-  if (!clientUser) { errorEl.textContent='⚠️ اسم المستخدم أو كلمة المرور غير صحيحة'; errorEl.style.color='#ef5350'; errorEl.style.display='block'; return; }
-  currentRole='client'; currentUser=clientUser; window.currentUser=clientUser; currentClientId=clientUser.id;
-  document.getElementById('navUserName').textContent=clientUser.name;
-  document.getElementById('navUserRole').textContent='عميل متعاقد (حساب قديم)'; document.getElementById('navUserAvatar').textContent='🏢';
-  document.getElementById('loginScreen').classList.remove('active'); document.getElementById('appScreen').classList.add('active');
-  await window.loadClientsFromFirebase?.(); await window.loadReportsFromFirebase?.(); renderNav(); await renderPanel('home');
+
+  // التحكم بالنظام لا يقبل اسم مستخدم قديم، بل حساب مدير موثق بالبريد فقط.
+  errorEl.textContent = '⚠️ دخول التحكم بالنظام يتطلب البريد الإلكتروني لحساب المدير';
+  errorEl.style.color = '#ef5350';
+  errorEl.style.display = 'block';
 }
-
 async function doLogout() {
   if (typeof window.logoutFirebaseAuth === 'function') await window.logoutFirebaseAuth();
   if (currentUser && typeof window.writeAuditLog === 'function') await window.writeAuditLog('logout','تسجيل خروج',{});
@@ -1551,14 +1600,12 @@ const navs = {
   ],
   employee: [
     { id: 'home', icon: '🏠', label: 'الرئيسية' },
-    { id: 'operations', icon: '🧭', label: 'مهامي' },
     { id: 'visits', icon: '📅', label: 'الزيارات' },
     { id: 'report_upload', icon: '📤', label: 'رفع تقرير' },
     { id: 'clients_list', icon: '👥', label: 'العملاء' },
   ],
   admin: [
     { id: 'home', icon: '🏠', label: 'الرئيسية' },
-    { id: 'operations', icon: '🧭', label: 'التشغيل' },
     { id: 'all_clients', icon: '👥', label: 'العملاء' },
     { id: 'all_reports', icon: '📊', label: 'التقارير' },
     { id: 'all_visits', icon: '📅', label: 'الزيارات' },
@@ -1626,7 +1673,6 @@ function getPanelHTML(id) {
     visits: employeeVisits(),
     report_upload: employeeUpload(),
     clients_list: employeeClients(),
-    operations: operationsPanel(),
     // ADMIN
     all_clients: adminClients(),
     all_reports: adminAllReports(),
@@ -7537,7 +7583,6 @@ saveVisitReport=window.saveVisitReport;
       if(id==='visits') return employeeVisits();
       if(id==='report_upload') return employeeUpload();
       if(id==='clients_list') return employeeClients();
-      if(id==='operations') return (typeof window.operationsPanel==='function' ? window.operationsPanel() : (typeof operationsPanel==='function' ? operationsPanel() : '<div class="card">⚠️ تعذر تحميل شاشة التشغيل</div>'));
       if(id==='tech_reports') return (typeof employeeMyReports==='function'?employeeMyReports():employeeReports());
       if(id==='client_log') return (typeof employeeClientLog==='function'?employeeClientLog():employeeClients());
       if(id==='all_clients') return adminClients();
@@ -7560,13 +7605,6 @@ saveVisitReport=window.saveVisitReport;
   const oldRenderPanel=window.renderPanel || (typeof renderPanel==='function'?renderPanel:null);
   window.renderPanel=function(panelId, btn, skipHistory){
     try{
-      const allowedPanelsByPortal = {
-        client: ['home','reports','map','payments','client_emergency','client_complaints','client_ratings'],
-        employee: ['home','operations','visits','report_upload','clients_list','tech_reports','client_log'],
-        admin: ['home','operations','all_clients','all_reports','all_visits','emergency_admin','users_admin','settings']
-      };
-      const activePortal = (typeof currentRole!=='undefined' && currentRole) || window.currentRole || 'client';
-      if (!(allowedPanelsByPortal[activePortal] || []).includes(panelId)) panelId = 'home';
       if(!skipHistory && window.currentPanel && window.currentPanel!==panelId){ try{ history.pushState({panel:panelId},'', '#'+panelId); }catch(_){ } }
       document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
       if(btn) btn.classList.add('active');
@@ -8917,68 +8955,6 @@ window.downloadReportPDF=async function(id){
   }catch(e){console.error('REPORT_PDF_ERROR',e);showToast(`❌ تعذر إنشاء التقرير: ${e.message||'خطأ غير معروف'}`)}
 };
 try{downloadReportPDF=window.downloadReportPDF}catch(e){}
-})();
-</script>
-
-<style>
-.ops-toolbar{display:grid;grid-template-columns:2fr 1fr 1fr 1fr auto;gap:10px;align-items:end}.ops-board{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.ops-col{background:#eef3f8;border:1px solid var(--border);border-radius:14px;padding:10px;min-height:180px}.ops-col h3{font-size:13px;color:var(--primary);margin-bottom:10px}.ops-task{background:#fff;border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:9px;box-shadow:0 2px 8px rgba(0,0,0,.04)}.ops-task-title{font-weight:800;font-size:14px}.ops-meta{font-size:11px;color:var(--text-light);line-height:1.8;margin-top:5px}.ops-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}.ops-actions button{width:auto!important;padding:6px 9px!important;font-size:11px!important}.ops-status{display:inline-block;padding:3px 9px;border-radius:20px;font-size:10px;font-weight:700}.ops-scheduled{background:#e3f2fd;color:#1565c0}.ops-en_route{background:#fff3e0;color:#e65100}.ops-in_progress{background:#fff8e1;color:#8d6e00}.ops-completed{background:#e8f5e9;color:#2e7d32}.ops-missed{background:#fce4ec;color:#c62828}@media(max-width:800px){.ops-toolbar{grid-template-columns:1fr 1fr}.ops-board{grid-template-columns:1fr}.ops-toolbar .wide{grid-column:1/-1}}
-</style>
-<script>
-(function(){
-'use strict';
-window.opsTasks=[];
-const OPS_PATH='fieldOperations';
-const OPS_STATUS={scheduled:'مجدولة',en_route:'في الطريق',in_progress:'بدأ العمل',completed:'مكتملة',missed:'لم تُنفذ'};
-function opsEsc(v){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
-function opsNow(){return new Date().toISOString();}
-function opsDate(v){if(!v)return '—';try{return new Date(v).toLocaleString('ar-SA')}catch(e){return v}}
-function opsIsAdmin(){return currentRole==='admin';}
-function opsAssigneeMatch(t){const u=currentUser||{};return [t.assigneeUid,t.assigneeEmail,t.assigneeName].some(x=>x&&[u.uid,u.email,u.name].includes(x));}
-window.loadOperations=async function(){
-  if(!window.firebaseDB)return [];
-  const snap=await window.firebaseDB.ref(OPS_PATH).get();
-  const rows=snap.exists()?Object.entries(snap.val()||{}).map(([key,v])=>({key,...v})):[];
-  window.opsTasks=rows.sort((a,b)=>String(a.scheduledAt||'').localeCompare(String(b.scheduledAt||'')));
-  return window.opsTasks;
-};
-async function opsSave(task){
-  const ref=task.key?window.firebaseDB.ref(`${OPS_PATH}/${task.key}`):window.firebaseDB.ref(OPS_PATH).push();
-  const payload={...task,key:undefined,updatedAt:opsNow(),updatedBy:currentUser?.name||currentUser?.email||'مستخدم'};
-  if(!task.key){payload.createdAt=opsNow();payload.createdBy=currentUser?.name||currentUser?.email||'مدير';}
-  await ref.update(payload); return ref.key;
-}
-window.operationsPanel=function(){
-  return `<div class="section-title">🧭 ${opsIsAdmin()?'إدارة التشغيل الميداني':'مهامي الميدانية'}</div><div id="opsRoot"><div class="card">⏳ جاري تحميل المهام...</div></div>`;
-};
-window.initOperationsPanel=async function(){try{await loadOperations();renderOperations()}catch(e){console.error(e);document.getElementById('opsRoot').innerHTML='<div class="card">⚠️ تعذر تحميل مهام التشغيل.</div>'}};
-window.renderOperations=function(){
-  const root=document.getElementById('opsRoot'); if(!root)return;
-  const all=opsIsAdmin()?window.opsTasks:window.opsTasks.filter(opsAssigneeMatch);
-  const city=document.getElementById('opsCityFilter')?.value||'';const tech=document.getElementById('opsTechFilter')?.value||'';const day=document.getElementById('opsDayFilter')?.value||'';const q=(document.getElementById('opsSearch')?.value||'').trim().toLowerCase();
-  const rows=all.filter(t=>(!city||t.city===city)&&(!tech||t.assigneeUid===tech)&&(!day||String(t.scheduledAt||'').slice(0,10)===day)&&(!q||JSON.stringify(t).toLowerCase().includes(q)));
-  const users=(window.systemUsersCache||[]).filter(u=>['employee','supervisor'].includes(u.role)&&u.active!==false);
-  root.innerHTML=`${opsIsAdmin()?`<div class="card ops-toolbar"><div class="wide"><label class="form-label">بحث</label><input id="opsSearch" class="form-input" placeholder="اسم العميل أو الموقع" oninput="renderOperations()"></div><div><label class="form-label">اليوم</label><input id="opsDayFilter" type="date" class="form-input" onchange="renderOperations()"></div><div><label class="form-label">المدينة</label><select id="opsCityFilter" class="form-select" onchange="renderOperations()"><option value="">الكل</option>${['جدة','مكة','الرياض'].map(x=>`<option>${x}</option>`).join('')}</select></div><div><label class="form-label">الفني</label><select id="opsTechFilter" class="form-select" onchange="renderOperations()"><option value="">الكل</option>${users.map(u=>`<option value="${opsEsc(u.uid)}">${opsEsc(u.name||u.email)}</option>`).join('')}</select></div><button class="submit-btn green" onclick="openOpsTaskModal()">+ مهمة جديدة</button></div>`:''}<div class="stats-row cols-4"><div class="stat-card"><span class="stat-num">${rows.length}</span><span class="stat-label">إجمالي المهام</span></div><div class="stat-card"><span class="stat-num orange">${rows.filter(x=>x.status==='scheduled').length}</span><span class="stat-label">مجدولة</span></div><div class="stat-card"><span class="stat-num gold">${rows.filter(x=>['en_route','in_progress'].includes(x.status)).length}</span><span class="stat-label">قيد التنفيذ</span></div><div class="stat-card"><span class="stat-num green">${rows.filter(x=>x.status==='completed').length}</span><span class="stat-label">مكتملة</span></div></div><div class="ops-board">${['scheduled','en_route','in_progress','completed'].map(st=>`<div class="ops-col"><h3>${OPS_STATUS[st]} (${rows.filter(x=>x.status===st).length})</h3>${rows.filter(x=>x.status===st).map(opsTaskCard).join('')||'<div style="font-size:12px;color:#94a3b8">لا توجد مهام</div>'}</div>`).join('')}</div>`;
-};
-function opsTaskCard(t){
- const next={scheduled:'en_route',en_route:'in_progress',in_progress:'completed'}[t.status];
- return `<div class="ops-task"><div style="display:flex;justify-content:space-between;gap:8px"><div class="ops-task-title">${opsEsc(t.clientName||'عميل')}</div><span class="ops-status ops-${opsEsc(t.status||'scheduled')}">${OPS_STATUS[t.status]||t.status}</span></div><div class="ops-meta">📍 ${opsEsc(t.city||'—')} — ${opsEsc(t.location||'—')}<br>🕒 ${opsDate(t.scheduledAt)}<br>👷 ${opsEsc(t.assigneeName||'غير مسند')}<br>🧰 ${opsEsc(t.serviceType||'زيارة دورية')}</div>${t.notes?`<div class="ops-meta">📝 ${opsEsc(t.notes)}</div>`:''}<div class="ops-actions">${next?`<button class="submit-btn green" onclick="advanceOpsTask('${opsEsc(t.key)}','${next}')">${next==='en_route'?'🚗 في الطريق':next==='in_progress'?'▶️ بدء العمل':'✅ إنهاء'}</button>`:''}${opsIsAdmin()?`<button class="submit-btn" onclick="openOpsTaskModal('${opsEsc(t.key)}')">تعديل</button><button class="submit-btn red" onclick="deleteOpsTask('${opsEsc(t.key)}')">حذف</button>`:''}${!opsIsAdmin()&&t.status==='completed'?`<button class="submit-btn" onclick="openReportForTask('${opsEsc(t.key)}')">📤 رفع تقرير</button>`:''}</div></div>`;
-}
-window.openOpsTaskModal=function(key){
- const t=window.opsTasks.find(x=>x.key===key)||{};const users=(window.systemUsersCache||[]).filter(u=>['employee','supervisor'].includes(u.role)&&u.active!==false);
- const clients=db.clients||[];
- openModal('opsTask');setTimeout(()=>{const box=document.querySelector('#modalContent,#modalBody,.modal-content,.modal-box');if(!box)return;box.innerHTML=`<div class="modal-header"><div class="modal-title">${key?'تعديل المهمة':'مهمة ميدانية جديدة'}</div><button class="modal-close" onclick="closeModal()">×</button></div><input type="hidden" id="opsKey" value="${opsEsc(key||'')}"><div class="form-group"><label class="form-label">العميل *</label><select id="opsClient" class="form-select">${clients.map(c=>`<option value="${opsEsc(c.id)}" ${String(c.id)===String(t.clientId)?'selected':''}>${opsEsc(c.name)}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">نوع الخدمة</label><input id="opsService" class="form-input" value="${opsEsc(t.serviceType||'زيارة دورية')}"></div><div class="form-group"><label class="form-label">موعد الزيارة *</label><input id="opsWhen" type="datetime-local" class="form-input" value="${opsEsc((t.scheduledAt||'').slice(0,16))}"></div><div class="form-group"><label class="form-label">المدينة</label><select id="opsCity" class="form-select">${['جدة','مكة','الرياض'].map(x=>`<option ${t.city===x?'selected':''}>${x}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">الموقع</label><input id="opsLocation" class="form-input" value="${opsEsc(t.location||'')}"></div><div class="form-group"><label class="form-label">إسناد إلى</label><select id="opsAssignee" class="form-select"><option value="">غير مسند</option>${users.map(u=>`<option value="${opsEsc(u.uid)}" ${u.uid===t.assigneeUid?'selected':''}>${opsEsc(u.name||u.email)}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">ملاحظات</label><textarea id="opsNotes" class="form-textarea">${opsEsc(t.notes||'')}</textarea></div><button class="submit-btn green" onclick="saveOpsTaskForm()">💾 حفظ المهمة</button>`},50);
-};
-window.saveOpsTaskForm=async function(){
- const key=document.getElementById('opsKey').value;const clientId=document.getElementById('opsClient').value;const c=(db.clients||[]).find(x=>String(x.id)===String(clientId))||{};const uid=document.getElementById('opsAssignee').value;const u=(window.systemUsersCache||[]).find(x=>x.uid===uid)||{};
- const old=window.opsTasks.find(x=>x.key===key)||{};const task={...old,key,clientId,clientName:c.name||'عميل',serviceType:document.getElementById('opsService').value,scheduledAt:document.getElementById('opsWhen').value,city:document.getElementById('opsCity').value,location:document.getElementById('opsLocation').value,assigneeUid:uid,assigneeName:u.name||'',assigneeEmail:u.email||'',notes:document.getElementById('opsNotes').value,status:old.status||'scheduled'};
- if(!task.clientId||!task.scheduledAt)return showToast('⚠️ أكمل العميل والموعد');await opsSave(task);await window.writeAuditLog?.('operation_saved',`${key?'تعديل':'إنشاء'} مهمة للعميل ${task.clientName}`,{taskKey:key||'new'});closeModal();showToast('✅ تم حفظ المهمة');await loadOperations();renderOperations();
-};
-window.advanceOpsTask=async function(key,status){const t=window.opsTasks.find(x=>x.key===key);if(!t)return;const patch={status};if(status==='en_route')patch.enRouteAt=opsNow();if(status==='in_progress')patch.startedAt=opsNow();if(status==='completed')patch.completedAt=opsNow();await window.firebaseDB.ref(`${OPS_PATH}/${key}`).update(patch);await window.writeAuditLog?.('operation_status',`${t.clientName}: ${OPS_STATUS[status]}`,{taskKey:key,status});await loadOperations();renderOperations();};
-window.deleteOpsTask=async function(key){if(!confirm('حذف المهمة نهائياً؟'))return;await window.firebaseDB.ref(`${OPS_PATH}/${key}`).remove();await loadOperations();renderOperations();showToast('تم حذف المهمة');};
-window.openReportForTask=function(key){const t=window.opsTasks.find(x=>x.key===key);window.currentOpsTask=t||null;renderPanel('report_upload');setTimeout(()=>{const s=document.getElementById('reportClientSelect');if(s&&t)s.value=t.clientId;const type=document.getElementById('serviceType');if(type&&t)type.value=t.serviceType||'زيارة دورية';},80)};
-const oldInit=window.initPanelJS||initPanelJS;window.initPanelJS=function(id){try{oldInit(id)}catch(e){console.warn(e)}if(id==='operations')initOperationsPanel();};try{initPanelJS=window.initPanelJS}catch(e){}
-const oldEmployeeHome=employeeHome;window.employeeHome=employeeHome=function(){const mine=(window.opsTasks||[]).filter(opsAssigneeMatch);const today=new Date().toISOString().slice(0,10);return `<div class="welcome-header"><h2>أهلاً، ${opsEsc(currentUser?.name||'الفني')} 👷</h2><p>تابع مهامك الميدانية من مكان واحد</p></div><div class="stats-row cols-3"><div class="stat-card"><span class="stat-num orange">${mine.filter(x=>String(x.scheduledAt||'').slice(0,10)===today).length}</span><span class="stat-label">زيارات اليوم</span></div><div class="stat-card"><span class="stat-num gold">${mine.filter(x=>['en_route','in_progress'].includes(x.status)).length}</span><span class="stat-label">قيد التنفيذ</span></div><div class="stat-card"><span class="stat-num green">${mine.filter(x=>x.status==='completed').length}</span><span class="stat-label">مكتملة</span></div></div><button class="submit-btn green" onclick="renderPanel('operations')">🧭 فتح مهامي</button>`};
-window.employeeVisits=employeeVisits=function(){return operationsPanel()};
 })();
 </script>
 
