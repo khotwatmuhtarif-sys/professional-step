@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<!-- v2.2.0 User Management: مصادقة حسب الصلاحيات + إدارة المستخدمين + سجل النشاط -->
+<!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -7485,6 +7485,7 @@ saveVisitReport=window.saveVisitReport;
       if(id==='all_reports') return adminAllReports();
       if(id==='all_visits') return adminVisits();
       if(id==='emergency_admin') return adminEmergency();
+      if(id==='users_admin') return adminUsersManagement();
       if(id==='settings') return adminSettings();
       if(id==='client_emergency') return clientEmergency();
       if(id==='client_complaints') return clientComplaints();
