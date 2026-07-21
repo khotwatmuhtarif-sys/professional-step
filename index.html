@@ -44,7 +44,7 @@
     window.firebaseAuth = auth_fire;
 
     // v2.2.0: مصادقة موحدة حسب الصلاحية المخزنة في users/{uid}
-    window.loginUserWithFirebaseAuth = async function(email, password) {
+    window.loginUserWithFirebaseAuth = async function(email, password, expectedPortal) {
       const credential = await auth_fire.signInWithEmailAndPassword(email, password);
       const authUser = credential && credential.user;
       if (!authUser) throw new Error('لم يتم العثور على المستخدم بعد تسجيل الدخول');
@@ -82,6 +82,23 @@
       if (!allowedRoles.includes(profile.role)) {
         await auth_fire.signOut();
         throw new Error('صلاحية الحساب غير معروفة');
+      }
+
+      // منع استخدام بيانات حساب في بوابة مختلفة عن نوعه المختار.
+      if (expectedPortal) {
+        const portalByRole = {
+          admin: 'admin',
+          supervisor: 'employee',
+          employee: 'employee',
+          customer_service: 'employee',
+          client: 'client'
+        };
+        const actualPortal = portalByRole[profile.role];
+        if (actualPortal !== expectedPortal) {
+          await auth_fire.signOut();
+          const portalLabels = { admin: 'التحكم بالنظام', employee: 'الموظف أو الفني', client: 'العميل المتعاقد' };
+          throw new Error('هذا الحساب لا يخص بوابة ' + (portalLabels[expectedPortal] || 'الدخول المحددة'));
+        }
       }
 
       const updates = {
@@ -1450,6 +1467,7 @@ function selectRole(role, btn) {
 async function doLogin() {
   const username = document.getElementById('loginUser').value.trim();
   const password = document.getElementById('loginPass').value.trim();
+  const requestedPortal = currentRole;
   const errorEl = document.getElementById('loginError');
   errorEl.style.display = 'none';
   if (!username || !password) {
@@ -1462,7 +1480,7 @@ async function doLogin() {
     errorEl.textContent = '⏳ جاري التحقق من الحساب...';
     errorEl.style.color = 'rgba(255,255,255,0.75)'; errorEl.style.display = 'block';
     try {
-      const profile = await window.loginUserWithFirebaseAuth(username, password);
+      const profile = await window.loginUserWithFirebaseAuth(username, password, requestedPortal);
       currentUser = profile; window.currentUser = profile;
       currentClientId = profile.clientId || null;
       const roleMap = {admin:'admin', supervisor:'employee', employee:'employee', customer_service:'employee', client:'client'};
@@ -1489,7 +1507,9 @@ async function doLogin() {
   }
 
   // توافق انتقالي مع حسابات الفنيين والعملاء القديمة باسم المستخدم.
-  const localEmployee = (db.users || []).find(u => u.role === 'employee' && u.username === username && u.password === password);
+  const localEmployee = requestedPortal === 'employee'
+    ? (db.users || []).find(u => u.role === 'employee' && u.username === username && u.password === password)
+    : null;
   if (localEmployee) {
     currentRole='employee'; currentUser=localEmployee; window.currentUser=localEmployee; currentClientId=null;
     document.getElementById('navUserName').textContent=localEmployee.name;
@@ -1499,6 +1519,10 @@ async function doLogin() {
     await window.loadClientsFromFirebase?.(); await window.loadReportsFromFirebase?.(); renderNav(); await renderPanel('home'); return;
   }
 
+  if (requestedPortal !== 'client') {
+    errorEl.textContent='⚠️ بيانات الحساب لا تخص نوع الدخول المحدد';
+    errorEl.style.color='#ef5350'; errorEl.style.display='block'; return;
+  }
   const clientUser = await window.loginFromFirebase(username, password);
   if (!clientUser) { errorEl.textContent='⚠️ اسم المستخدم أو كلمة المرور غير صحيحة'; errorEl.style.color='#ef5350'; errorEl.style.display='block'; return; }
   currentRole='client'; currentUser=clientUser; window.currentUser=clientUser; currentClientId=clientUser.id;
@@ -7513,6 +7537,7 @@ saveVisitReport=window.saveVisitReport;
       if(id==='visits') return employeeVisits();
       if(id==='report_upload') return employeeUpload();
       if(id==='clients_list') return employeeClients();
+      if(id==='operations') return (typeof window.operationsPanel==='function' ? window.operationsPanel() : (typeof operationsPanel==='function' ? operationsPanel() : '<div class="card">⚠️ تعذر تحميل شاشة التشغيل</div>'));
       if(id==='tech_reports') return (typeof employeeMyReports==='function'?employeeMyReports():employeeReports());
       if(id==='client_log') return (typeof employeeClientLog==='function'?employeeClientLog():employeeClients());
       if(id==='all_clients') return adminClients();
@@ -7535,6 +7560,13 @@ saveVisitReport=window.saveVisitReport;
   const oldRenderPanel=window.renderPanel || (typeof renderPanel==='function'?renderPanel:null);
   window.renderPanel=function(panelId, btn, skipHistory){
     try{
+      const allowedPanelsByPortal = {
+        client: ['home','reports','map','payments','client_emergency','client_complaints','client_ratings'],
+        employee: ['home','operations','visits','report_upload','clients_list','tech_reports','client_log'],
+        admin: ['home','operations','all_clients','all_reports','all_visits','emergency_admin','users_admin','settings']
+      };
+      const activePortal = (typeof currentRole!=='undefined' && currentRole) || window.currentRole || 'client';
+      if (!(allowedPanelsByPortal[activePortal] || []).includes(panelId)) panelId = 'home';
       if(!skipHistory && window.currentPanel && window.currentPanel!==panelId){ try{ history.pushState({panel:panelId},'', '#'+panelId); }catch(_){ } }
       document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
       if(btn) btn.classList.add('active');
