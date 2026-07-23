@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>خطوة محترف — بوابة المتعاقدين</title>
+<meta name="app-version" content="2.3.2">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -6725,16 +6726,16 @@ saveVisitReport=window.saveVisitReport;
   }
   function canEmployeeEdit(r){
     if(currentRole==='admin') return true;
-    if(currentRole!=='employee') return false;
-    const me=String(currentUser?.name||currentUser?.username||'');
-    return [r.tech,r.employeeName,r.employeeUsername].map(x=>String(x||'')).some(x=>x && (x===me || x.includes(me) || me.includes(x)));
+    // v2.3.2: أي فني يقدر يعدل أي تقرير، مو بس تقاريره
+    if(currentRole==='employee') return true;
+    return false;
   }
   window.employeeReports=function(){
-    const me=String(currentUser?.name||currentUser?.username||'');
-    const mine=reports().filter(r=>[r.tech,r.employeeName,r.employeeUsername].map(x=>String(x||'')).some(x=>x && (x===me || x.includes(me) || me.includes(x))));
-    const grouped={}; mine.forEach(r=>{const c=reportClient(r)||{}; const key=String(c.id||r.clientId||r.client||'other'); if(!grouped[key]) grouped[key]={client:c,reports:[]}; grouped[key].reports.push(r);});
+    // v2.3.2: "تقاريري" تعرض الآن تقارير جميع الفنيين لكل العملاء، وتبقى قابلة للتعديل من أي فني
+    const all=reports().slice();
+    const grouped={}; all.forEach(r=>{const c=reportClient(r)||{}; const key=String(c.id||r.clientId||r.client||'other'); if(!grouped[key]) grouped[key]={client:c,reports:[]}; grouped[key].reports.push(r);});
     const blocks=Object.values(grouped).map(g=>{g.reports.sort((a,b)=>(Number(a.visitNumber||999)-Number(b.visitNumber||999))||String(a.date||'').localeCompare(String(b.date||''))); return `<div class="card"><div class="section-title">🏢 ${e(g.client.name||g.reports[0]?.client||'عميل')}</div>${g.reports.map(r=>`<div class="report-card" onclick="openReportDetails(${Number(r.id)})"><div class="report-icon">📄</div><div class="report-info"><div class="report-title">${e(reportVisitLabel(g.client,r))} — ${e(r.type||'زيارة')}</div><div class="report-date">${e(r.actualExecutionDate||r.date||'')} ${r.lastEditedBy?`| آخر تعديل: ${e(r.lastEditedBy)}`:''}</div></div><span class="visit-badge done">تعديل</span></div>`).join('')}</div>`}).join('');
-    return `<div class="section-title">📋 تقاريري</div>${blocks||'<div class="card">لا توجد تقارير مرفوعة من حسابك حتى الآن</div>'}`;
+    return `<div class="section-title">📋 تقاريري</div>${blocks||'<div class="card">لا توجد تقارير مرفوعة حتى الآن</div>'}`;
   };
 
   window.adminAllReports=function(){
@@ -8808,7 +8809,51 @@ const previousInitFinal=window.initPanelJS||initPanelJS;window.initPanelJS=funct
 async function waitAssets(root){try{if(document.fonts?.ready)await document.fonts.ready}catch(e){};await Promise.all([...root.querySelectorAll('img')].map(img=>new Promise(res=>{if(img.complete)return res();img.onload=img.onerror=res;setTimeout(res,7000)})));await new Promise(r=>setTimeout(r,200));}
 async function reliablePdf(root,filename){if(typeof html2pdf==='undefined')throw new Error('مكتبة PDF غير متاحة');const mask=document.createElement('div');mask.className='pdf-busy-mask';mask.innerHTML='جاري تجهيز ملف PDF...<br>يرجى الانتظار';document.body.appendChild(mask);root.classList.remove('pdf-export-root');root.classList.add('pdf-live-root');document.body.appendChild(root);try{await waitAssets(root);await html2pdf().set({margin:[8,8,10,8],filename,image:{type:'jpeg',quality:.98},html2canvas:{scale:1.7,useCORS:true,allowTaint:true,backgroundColor:'#fff',logging:false,scrollX:0,scrollY:0,windowWidth:794,windowHeight:1123},jsPDF:{unit:'mm',format:'a4',orientation:'portrait',compress:true},pagebreak:{mode:['css','legacy'],avoid:['tr','.pdf-avoid-break']}}).from(root).save()}finally{root.remove();mask.remove()}}
 const oldReportPdf=window.downloadReportPDF;window.__legacyDownloadReportPDF_3=async function(id){const r=(db.reports||[]).find(x=>String(x.id)===String(id));if(!r)return showToast('التقرير غير موجود');const c=(db.clients||[]).find(x=>String(x.id)===String(r.clientId))||{};const sections=typeof uniqueSections==='function'?uniqueSections(r):{executionImages:r.executionImages||r.images||[],pestImages:r.pestImages||[],paperReportImages:r.paperReportImages||[],baitMapImages:r.baitMapImages||[],rodentStationImages:r.rodentStationImages||[]};const imgs=(title,arr)=>{arr=(arr||[]).map(x=>x?.data||x?.url||x).filter(Boolean);return arr.length?`<div class="pdf-avoid-break" style="margin-top:18px"><h3 style="color:#1a3a5c">${E(title)}</h3><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">${arr.map(src=>`<img src="${src}" style="width:100%;height:210px;object-fit:contain;border:1px solid #ddd">`).join('')}</div></div>`:''};const rows=[['اسم العميل',r.client||c.name],['رقم العقد',c.contractNo||c.contractNumber||r.clientId],['رقم الزيارة',r.visitNumber||r.number],['الفني',r.tech||r.employeeName],['نوع الزيارة',r.type],['التاريخ',r.date],['المواد المستخدمة',r.materials],['الملاحظات',r.notes||r.recommendations],['الآفات المرصودة',Array.isArray(r.pests)?r.pests.join('، '):r.pests],['الحالة',r.status||'مكتمل']];const root=document.createElement('div');root.dir='rtl';root.innerHTML=`<div style="width:794px;min-height:1123px;background:#fff;padding:28px"><div style="text-align:center;border-bottom:4px solid #1a3a5c;padding-bottom:15px"><h1 style="margin:0;color:#1a3a5c">خطوة محترف</h1><h2>تقرير زيارة فنية</h2></div><table style="width:100%;border-collapse:collapse;margin-top:18px">${rows.map(([k,v])=>`<tr><td style="border:1px solid #ccc;padding:9px;font-weight:800;width:28%;background:#f8fafc">${E(k)}</td><td style="border:1px solid #ccc;padding:9px">${E(v||'-')}</td></tr>`).join('')}</table>${imgs('صور التنفيذ',sections.executionImages)}${imgs('صور الآفات',sections.pestImages)}${imgs('صور التقرير الورقي',sections.paperReportImages)}${imgs('خريطة الطعوم والمصائد',sections.baitMapImages)}${imgs('محطات ومصائد القوارض',sections.rodentStationImages)}<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:25px"><div style="height:90px;border:1px solid #aaa;padding:10px">توقيع العميل:</div><div style="height:90px;border:1px solid #aaa;padding:10px">توقيع الفني:</div></div></div>`;try{await reliablePdf(root,`تقرير_${String(r.client||c.name||'عميل').replace(/\s+/g,'_')}_زيارة_${r.visitNumber||r.number||''}.pdf`);showToast('✅ تم تحميل التقرير PDF')}catch(e){console.error(e);showToast('❌ تعذر إنشاء التقرير PDF')}};
-const oldVisitPdf=window.downloadVisitSchedulePDF;window.downloadVisitSchedulePDF=async function(){const c=clientNowFinal(),m=visitsMetrics(c);if(!m.schedule.length)return showToast('لا يوجد جدول زيارات محفوظ');const root=document.createElement('div');root.dir='rtl';const rows=m.schedule.map((v,i)=>`<tr><td style="border:1px solid #999;padding:7px">${E(v.number||i+1)}</td><td style="border:1px solid #999;padding:7px">${E(v.date||'-')}</td><td style="border:1px solid #999;padding:7px">${E(v.executionDate||v.doneDate||v.completedAt||'-')}</td><td style="border:1px solid #999;padding:7px">${E(v.tech||'سيتم التحديد')}</td><td style="border:1px solid #999;padding:7px">${completeStatus(v.status)||v.executionDate?'منفذة':E(v.status||'مجدولة')}</td><td style="border:1px solid #999;padding:7px"></td></tr>`).join('');root.innerHTML=`<div style="width:794px;min-height:1123px;background:#fff;padding:28px"><div style="text-align:center;border-bottom:4px solid #1a3a5c"><h1 style="color:#1a3a5c">خطوة محترف</h1><h2>جدول زيارات العميل</h2></div><p><b>العميل:</b> ${E(c.name||'-')} &nbsp; <b>رقم العقد:</b> ${E(c.contractNo||c.contractNumber||c.id||'-')}</p><table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr style="background:#1a3a5c;color:white"><th style="padding:8px">م</th><th>المجدول</th><th>التنفيذ</th><th>الفني</th><th>الحالة</th><th>توقيع العميل</th></tr></thead><tbody>${rows}</tbody></table><div style="display:grid;grid-template-columns:1fr 1fr;gap:25px;margin-top:30px"><div style="height:100px;border:1px solid #999;padding:10px">اسم ممثل العميل وتوقيعه:</div><div style="height:100px;border:1px solid #999;padding:10px">الختم:</div></div></div>`;try{await reliablePdf(root,`جدول_زيارات_${String(c.name||'عميل').replace(/\s+/g,'_')}.pdf`);showToast('✅ تم تحميل جدول الزيارات PDF')}catch(e){console.error(e);showToast('❌ تعذر إنشاء جدول الزيارات PDF')}};
+window.downloadVisitSchedulePDF=async function(){
+  const c=clientNowFinal(),m=visitsMetrics(c);
+  if(!m.schedule.length)return showToast('لا يوجد جدول زيارات محفوظ');
+  const rows=m.schedule.map((v,i)=>`<tr><td style="border:1px solid #999;padding:7px;text-align:center">${E(v.number||i+1)}</td><td style="border:1px solid #999;padding:7px;text-align:center">${E(v.date||'-')}</td><td style="border:1px solid #999;padding:7px;text-align:center">${E(v.executionDate||v.doneDate||v.completedAt||'-')}</td><td style="border:1px solid #999;padding:7px;text-align:center">${E(v.tech||'سيتم التحديد')}</td><td style="border:1px solid #999;padding:7px;text-align:center">${completeStatus(v.status)||v.executionDate?'منفذة':E(v.status||'مجدولة')}</td><td style="border:1px solid #999;padding:7px"></td></tr>`).join('');
+  const page=document.createElement('div');
+  page.dir='rtl';
+  page.style.cssText='width:794px;min-height:1123px;background:#fff;color:#111;padding:28px;box-sizing:border-box;font-family:Cairo,Arial,sans-serif;position:relative;overflow:hidden;';
+  page.innerHTML=`<div style="text-align:center;border-bottom:4px solid #1a3a5c;padding-bottom:14px;margin-bottom:18px"><h1 style="margin:0;color:#1a3a5c;font-size:28px">خطوة محترف</h1><div style="font-size:18px;font-weight:800;margin-top:6px">جدول زيارات العميل</div></div><p style="font-size:13px"><b>العميل:</b> ${E(c.name||'-')} &nbsp;&nbsp; <b>رقم العقد:</b> ${E(c.contractNo||c.contractNumber||c.id||'-')}</p><table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr style="background:#1a3a5c;color:#fff"><th style="padding:8px">م</th><th>المجدول</th><th>التنفيذ</th><th>الفني</th><th>الحالة</th><th>توقيع العميل</th></tr></thead><tbody>${rows}</tbody></table><div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:28px"><div style="height:100px;border:1px solid #94a3b8;border-radius:8px;padding:10px">اسم ممثل العميل وتوقيعه:</div><div style="height:100px;border:1px solid #94a3b8;border-radius:8px;padding:10px">الختم:</div></div>`;
+  const mask=document.createElement('div');
+  mask.className='pdf-busy-mask';
+  mask.innerHTML='جاري إنشاء جدول الزيارات PDF...<br>يرجى الانتظار';
+  const stage=document.createElement('div');
+  stage.style.cssText='position:fixed;top:0;left:0;width:794px;height:1123px;z-index:2147483646;background:#fff;overflow:hidden;';
+  document.body.append(stage,mask);
+  try{
+    stage.appendChild(page);
+    try{if(document.fonts&&document.fonts.ready)await document.fonts.ready}catch(e){}
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+    if(typeof html2canvas!=='function')throw new Error('html2canvas غير متاحة');
+    const canvas=await html2canvas(page,{scale:1.35,useCORS:true,allowTaint:false,backgroundColor:'#ffffff',logging:false,scrollX:0,scrollY:0,width:794,height:1123,windowWidth:794,windowHeight:1123});
+    const ctx=canvas.getContext('2d',{willReadFrequently:true});
+    let nonWhite=0;const pts=40;
+    if(ctx&&canvas.width>=10&&canvas.height>=10){
+      for(let y=0;y<pts;y++)for(let x=0;x<pts;x++){
+        const px=Math.floor((x+.5)*canvas.width/pts),py=Math.floor((y+.5)*canvas.height/pts);
+        const d=ctx.getImageData(Math.min(px,canvas.width-1),Math.min(py,canvas.height-1),1,1).data;
+        if(d[3]>0&&(d[0]<248||d[1]<248||d[2]<248))nonWhite++;
+      }
+    }
+    if(nonWhite<8)throw new Error('تم اكتشاف صفحة PDF فارغة قبل التنزيل');
+    if(typeof window.jspdf==='undefined'||!window.jspdf.jsPDF)throw new Error('jsPDF غير متاحة');
+    const {jsPDF}=window.jspdf;
+    const pdf=new jsPDF({orientation:'portrait',unit:'mm',format:'a4',compress:true});
+    const data=canvas.toDataURL('image/jpeg',0.95);
+    pdf.addImage(data,'JPEG',0,0,210,297,undefined,'FAST');
+    pdf.save(`جدول_زيارات_${String(c.name||'عميل').replace(/\s+/g,'_')}.pdf`);
+    showToast('✅ تم تحميل جدول الزيارات PDF');
+  }catch(e){
+    console.error('SCHEDULE_PDF_ERROR',e);
+    showToast(`❌ تعذر إنشاء جدول الزيارات: ${e.message||'خطأ غير معروف'}`);
+  }finally{
+    stage.remove();mask.remove();
+  }
+};
+try{downloadVisitSchedulePDF=window.downloadVisitSchedulePDF}catch(e){}
 })();
 </script>
 
@@ -8955,6 +9000,47 @@ window.downloadReportPDF=async function(id){
   }catch(e){console.error('REPORT_PDF_ERROR',e);showToast(`❌ تعذر إنشاء التقرير: ${e.message||'خطأ غير معروف'}`)}
 };
 try{downloadReportPDF=window.downloadReportPDF}catch(e){}
+})();
+</script>
+
+<style id="v2320-update-checker-style">
+#appUpdateBanner{position:fixed;left:0;right:0;bottom:0;z-index:2147483647;background:#1a3a5c;color:#fff;padding:12px 16px;display:none;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;font-size:14px;font-weight:700;box-shadow:0 -4px 18px rgba(0,0,0,.25)}
+#appUpdateBanner button{background:#22c55e;color:#06210f;border:0;border-radius:8px;padding:9px 16px;font-weight:800;font-size:13px;cursor:pointer}
+#appUpdateBanner button:active{transform:scale(.97)}
+</style>
+<div id="appUpdateBanner">🔄 يوجد تحديث جديد للنظام <button onclick="window.__applyAppUpdate()">تحديث الآن</button></div>
+<script id="v2320-update-checker-script">
+(function(){
+'use strict';
+// v2.3.2: تحقق دوري من وجود إصدار جديد على السيرفر وتنبيه المستخدم لتحديث الصفحة
+// بدون الحاجة لمسح بيانات المتصفح يدوياً، وبدون التأثير على جلسته الحالية.
+const CURRENT_VERSION=(document.querySelector('meta[name="app-version"]')||{}).content||'0';
+let updateAvailable=false;
+async function checkForUpdate(){
+  if(updateAvailable)return;
+  try{
+    const url=location.pathname+'?v='+Date.now();
+    const res=await fetch(url,{cache:'no-store'});
+    if(!res.ok)return;
+    const html=await res.text();
+    const m=html.match(/name=["']app-version["']\s+content=["']([^"']+)["']/i);
+    const serverVersion=m?m[1]:null;
+    if(serverVersion&&serverVersion!==CURRENT_VERSION){
+      updateAvailable=true;
+      const banner=document.getElementById('appUpdateBanner');
+      if(banner)banner.style.display='flex';
+    }
+  }catch(e){ /* تجاهل أخطاء الشبكة المؤقتة */ }
+}
+window.__applyAppUpdate=function(){
+  // إعادة تحميل تجبر المتصفح على جلب النسخة الجديدة فعلياً بدل الكاش
+  location.href=location.pathname+'?v='+Date.now();
+};
+// تحقق أول مرة بعد قليل من فتح التطبيق، ثم كل 10 دقائق، وكل ما رجع المستخدم للتبويب
+setTimeout(checkForUpdate,15000);
+setInterval(checkForUpdate,10*60*1000);
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible')checkForUpdate(); });
+window.addEventListener('focus',checkForUpdate);
 })();
 </script>
 
