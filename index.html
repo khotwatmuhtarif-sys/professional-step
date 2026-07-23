@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.2">
+<meta name="app-version" content="2.3.5">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -1349,6 +1349,7 @@ html, body {
         <div class="user-role" id="navUserRole">—</div>
       </div>
       <div class="user-avatar" id="navUserAvatar">👤</div>
+      <button class="logout-btn" id="langToggleBtn" onclick="window.toggleAppLanguage&&window.toggleAppLanguage()" style="margin-inline-end:6px;">EN</button>
       <button class="logout-btn" onclick="doLogout()">خروج</button>
     </div>
   </nav>
@@ -4768,6 +4769,20 @@ async function adminDeletePaymentRow(clientId, paymentNumber){
 async function adminMarkPaymentPaid(clientId, paymentNumber) {
   const client = db.clients.find(c => String(c.id) === String(clientId));
   if (!client) return;
+
+  // v2.3.3: نجيب أحدث نسخة من بيانات العميل من Firebase مباشرة قبل أي تعديل،
+  // عشان ما نطيح فوق إيصال رفعه العميل بعد آخر تحميل للبيانات عند المدير
+  // (الحفظ يستبدل كامل بيانات العميل، فأي نسخة قديمة عند المدير كانت تمسح الإيصال).
+  try {
+    if (typeof db_fire !== 'undefined') {
+      const snap = await db_fire.ref('clients/' + clientId).get();
+      if (snap.exists()) {
+        const fresh = snap.val();
+        if (Array.isArray(fresh.payments)) client.payments = fresh.payments;
+      }
+    }
+  } catch(e) { console.warn('تعذر تحديث بيانات العميل قبل الاعتماد:', e); }
+
   const payment = normalizePayments(client).find(p => Number(p.number) === Number(paymentNumber));
   if (!payment) return;
 
@@ -5583,6 +5598,16 @@ saveVisitReport=window.saveVisitReport;
   window.adminApprovePayAll = async function(clientId){
     const client = getClientById(clientId); if(!client || !client.payAllRequest) return;
     if(!confirm('هل تريد اعتماد دفع جميع المتبقي وتحويل الدفعات المشمولة إلى مدفوعة؟')) return;
+    // v2.3.3: نفس حماية عدم الكتابة فوق بيانات أحدث من Firebase
+    try{
+      if(typeof db_fire!=='undefined'){
+        const snap=await db_fire.ref('clients/'+clientId).get();
+        if(snap.exists()){
+          const fresh=snap.val();
+          if(Array.isArray(fresh.payments)) client.payments=fresh.payments;
+        }
+      }
+    }catch(e){ console.warn('تعذر تحديث بيانات العميل قبل اعتماد دفع الكل:', e); }
     const req = client.payAllRequest; const nums = req.includedNumbers || [];
     normalizePayments(client).forEach(p => {
       if(nums.includes(p.number)){
@@ -9041,6 +9066,160 @@ setTimeout(checkForUpdate,15000);
 setInterval(checkForUpdate,10*60*1000);
 document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible')checkForUpdate(); });
 window.addEventListener('focus',checkForUpdate);
+})();
+</script>
+
+<script id="v2330-lang-toggle-script">
+(function(){
+'use strict';
+// v2.3.4: إصلاح شاشة "الزيارات" للفني (كانت فاضية تماماً - دالة غير مكتملة من الأصل)
+window.employeeVisits = function(){
+  const myName = String((typeof currentUser!=='undefined'&&currentUser)?(currentUser.name||currentUser.username||''):'').trim();
+  const clientsArr = Array.isArray(window.db&&window.db.clients) ? window.db.clients : (Array.isArray(db&&db.clients)?db.clients:[]);
+  const rows = [];
+  clientsArr.forEach(c=>{
+    const sched = Array.isArray(c.visitSchedule) ? c.visitSchedule : [];
+    sched.forEach((v,i)=>{
+      const doneFlag = ['منفذة','مكتملة','تم التنفيذ','completed','done'].includes(String(v.status||'').trim().toLowerCase()) || !!(v.executionDate||v.doneDate||v.completedAt);
+      const assignedToMe = !myName || !v.tech || String(v.tech).trim()===myName;
+      if(!doneFlag && assignedToMe) rows.push({client:c, visit:v, idx:i});
+    });
+  });
+  rows.sort((a,b)=>String(a.visit.date||'').localeCompare(String(b.visit.date||'')));
+  const esc = window.escapeHtml || (s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])));
+  const list = rows.map(r=>`<div class="visit-item" onclick="renderPanel('client_history');setTimeout(function(){window.openClientDetails&&window.openClientDetails(${Number(r.client.id)})},80)">
+      <div class="visit-dot">📅</div>
+      <div class="visit-info"><div class="visit-title">${esc(r.client.name||'عميل')}</div><div class="visit-date">${esc(r.visit.date||'-')} — زيارة رقم ${esc(String(r.visit.number||r.idx+1))}</div></div>
+      <span class="visit-badge">${esc(r.visit.tech||'غير محدد')}</span>
+    </div>`).join('');
+  return `<div class="section-title">📅 جدول الزيارات</div>${list || '<div class="card">لا توجد زيارات مجدولة حالياً</div>'}`;
+};
+try{ employeeVisits = window.employeeVisits; }catch(e){}
+
+// v2.3.4: زر تبديل اللغة (عربي/إنجليزي) لشاشات العميل والفني.
+// ملاحظة: هذي نسخة أولى تغطي أهم النصوص الثابتة (القوائم، عناوين الأقسام، الأزرار، الحالات).
+// النصوص الديناميكية (أسماء العملاء، التواريخ المدخلة) تبقى كما هي لأنها بيانات وليست واجهة.
+// أي نص ناقص من الترجمة، أضفه لقاموس DICT أدناه بنفس الشكل بالضبط (مع الإيموجي إذا موجود).
+
+const DICT = {
+  'خروج':'Logout','مستخدم':'User','فني ميداني':'Field Technician','عميل متعاقد':'Client',
+  'الرئيسية':'Home','تقاريري':'My Reports','المصائد':'Traps','الدفع':'Payments',
+  'الزيارات':'Visits','رفع تقرير':'Upload Report','العملاء':'Clients',
+  'أحدث التقارير':'Latest Reports','⚡ إجراءات سريعة':'⚡ Quick Actions','✏️ تعديل التقرير':'✏️ Edit Report',
+  '⭐ تقييم الزيارة':'⭐ Rate the Visit','🏦 بيانات التحويل البنكي':'🏦 Bank Transfer Details',
+  '👥 قائمة عملائي':'👥 My Clients List','💰 إحصائيات مالية':'💰 Financial Stats',
+  '💰 جدول الدفعات الحالي':'💰 Current Payment Schedule','💰 جدول الدفعات المتوقع':'💰 Expected Payment Schedule',
+  '💰 دفع جميع المتبقي':'💰 Pay All Remaining','💰 طلب دفع جميع المتبقي':'💰 Request to Pay All Remaining',
+  '💰 مؤشرات التحصيل':'💰 Collection Indicators','💳 إدارة دفعات العميل':'💳 Manage Client Payments',
+  '💳 دفعاتي':'💳 My Payments','💳 ملخص التحصيل':'💳 Collection Summary','📄 تفاصيل التقرير':'📄 Report Details',
+  '📄 تقارير الزيارات السابقة':'📄 Previous Visit Reports','📄 تقاريري الدورية':'📄 My Periodic Reports',
+  '📅 الزيارة القادمة':'📅 Next Visit','📅 تفاصيل الزيارة':'📅 Visit Details','📅 جدول الزيارات':'📅 Visit Schedule',
+  '📅 جدول زيارات العميل':'📅 Client Visit Schedule','📅 زيارات اليوم':"📅 Today's Visits",
+  '📅 معلومات العقد':'📅 Contract Info','📆 جدول زياراتي':'📆 My Visit Schedule',
+  '📊 التقارير والإحصائيات':'📊 Reports & Stats','📊 جميع التقارير':'📊 All Reports',
+  '📊 جميع التقارير حسب العميل':'📊 All Reports by Client','📊 رصيد الزيارات':'📊 Visits Balance',
+  '📋 إحصائيات العقود':'📋 Contract Stats','📋 تفاصيل الزيارة':'📋 Visit Details','📋 تقاريري':'📋 My Reports',
+  '📋 سجل العميل للفني':'📋 Client History (Technician View)','📑 جدول الدفعات':'📑 Payment Schedule',
+  '📤 رفع تقرير زيارة':'📤 Upload Visit Report','📥 الطوارئ والشكاوى والاقتراحات':'📥 Emergency, Complaints & Suggestions',
+  '📦 طلباتي':'📦 My Requests','📷 معاينة الصورة':'📷 Image Preview','🔄 توزيع طرق الدفع':'🔄 Payment Methods Breakdown',
+  '🗺️ خريطة المصائد والطعوم':'🗺️ Traps & Bait Map','🚨 طلبات الطوارئ':'🚨 Emergency Requests',
+  'مدفوعة':'Paid','غير مدفوعة':'Unpaid','بانتظار المراجعة':'Pending Review','بانتظار مراجعة':'Pending Review',
+  'بانتظار اعتماد الإدارة':'Pending Admin Approval','مجدولة':'Scheduled','منفذة':'Completed','مكتملة':'Completed',
+  'متأخرة':'Overdue','دفعات متأخرة':'Overdue Payments','دفعات مدفوعة':'Paid Payments','الدفعات المتأخرة':'Overdue Payments',
+  'الزيارات المنفذة':'Completed Visits','مرفوع ✅':'Uploaded ✅','لم يرفع بعد ⏳':'Not uploaded yet ⏳','لم يرفع':'Not uploaded',
+  '👁️ عرض الإيصال':'👁️ View Receipt','تعديل':'Edit','حذف':'Delete','حفظ':'Save','إلغاء':'Cancel',
+  'إرسال التقييم':'Submit Rating','ابحث عن العميل':'Search for client','اضغط هنا لعرض التقرير':'Tap here to view the report',
+  'اعتماد كمدفوعة':'Approve as Paid','بحث العملاء':'Search Clients','تصوير أو تحميل التقرير الورقي':'Photograph or upload the paper report',
+  'تصوير أو تحميل صور الآفات':'Photograph or upload pest photos','تصوير أو تحميل صور التنفيذ':'Photograph or upload execution photos',
+  'تعديل موعد الزيارة':'Edit Visit Date','تعذر تحميل الطلبات.':'Failed to load requests.','تعذر تحميل الطلبات':'Failed to load requests',
+  'جاري التحميل...':'Loading...','جاري تحميل الطلبات...':'Loading requests...','جاري تحميل العملاء...':'Loading clients...',
+  'جاري تحميل جدول الزيارات...':'Loading visit schedule...','جاري تحميل طلباتك...':'Loading your requests...',
+  'حذف الدفعة':'Delete Payment','حفظ العميل':'Save Client','حفظ وإنشاء الحساب':'Save & Create Account',
+  'خطأ في تحميل البيانات':'Error loading data','رفع إيصال التحويل':'Upload Transfer Receipt',
+  'رفع صور محطات الطعوم ومصائد القوارض':'Upload bait stations & rodent trap photos','رفع صورة خريطة الطعوم':'Upload bait map photo',
+  'زيارات متبقية — اضغط لعرض الجدول':'Remaining visits — tap to view schedule',
+  'لا يوجد جدول زيارات محفوظ':'No saved visit schedule','لا يوجد عملاء بعد':'No clients yet',
+  'تحديث الآن':'Update Now','🔄 يوجد تحديث جديد للنظام':'🔄 A new system update is available',
+  'الاسم':'Name','البريد الإلكتروني':'Email','كلمة المرور':'Password','رقم العقد':'Contract No.',
+  'العميل':'Client','الفني':'Technician','الحالة':'Status','المجدول':'Scheduled','التنفيذ':'Execution',
+  'توقيع العميل':'Client Signature','سيتم التحديد':'To be assigned',
+  // نموذج رفع التقرير (أهم شاشة للفني)
+  'صور التنفيذ':'Execution Photos','صور الآفات':'Pest Photos','صورة تقرير المتابعة الورقي':'Paper Follow-up Report Photo',
+  'صورة خريطة الطعوم':'Bait Map Photo','صور محطات ومصائد القوارض':'Bait Stations & Rodent Traps Photos',
+  'لم يتم اختيار صور':'No photos selected','اكتب اسم العميل أو رقم العقد':'Type client name or contract no.',
+  'اختر العميل':'Select Client','رقم الزيارة':'Visit Number','يظهر تلقائياً من جدول الزيارات':'Shown automatically from the visit schedule',
+  'تاريخ الزيارة الافتراضي':'Default Visit Date','يظهر من جدول الزيارات':'Shown from the visit schedule',
+  'تاريخ التنفيذ الفعلي':'Actual Execution Date','نوع الخدمة':'Service Type','المواد المستخدمة':'Materials Used',
+  'ملاحظات الزيارة':'Visit Notes','📋 رفع التقرير':'📋 Submit Report','✅ تم رفع التقرير':'✅ Report Submitted',
+  'زيارة دورية':'Routine Visit','متابعة':'Follow-up','فحص مصائد الطعوم':'Bait Trap Inspection',
+  'مكافحة صراصير':'Cockroach Control','مكافحة نمل أبيض':'Termite Control','مكافحة قوارض':'Rodent Control',
+  'مكافحة طيور':'Bird Control','تقرير متابعة ميدانية (ورقي)':'Field Follow-up Report (Paper)',
+  'لا يوجد عملاء بعد':'No clients yet','لا يوجد عملاء مطابقون':'No matching clients','لا يوجد عملاء':'No clients',
+  'لا توجد زيارات مجدولة حالياً':'No visits scheduled currently','غير محدد':'Unassigned',
+  'رقم العقد (تلقائي)':'Contract No. (auto)','رقم العقد:':'Contract No.:',
+  'جاري تحميل...':'Loading...'
+};
+
+function translateAttr(root, attr){
+  if(!root) return;
+  const els = root.querySelectorAll ? root.querySelectorAll('['+attr+']') : [];
+  els.forEach(el=>{
+    const v = el.getAttribute(attr);
+    if(v && DICT[v.trim()]) el.setAttribute(attr, DICT[v.trim()]);
+  });
+}
+
+function translateNode(root){
+  if(!root) return;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+  const nodes = [];
+  let n; while((n = walker.nextNode())) nodes.push(n);
+  nodes.forEach(node=>{
+    const raw = node.nodeValue;
+    const trimmed = raw.trim();
+    if(!trimmed) return;
+    if(DICT[trimmed]){
+      node.nodeValue = raw.replace(trimmed, DICT[trimmed]);
+    }
+  });
+}
+
+function applyLanguage(){
+  const lang = localStorage.getItem('khotwah_lang') || 'ar';
+  const btn = document.getElementById('langToggleBtn');
+  if(btn) btn.textContent = lang === 'en' ? 'AR' : 'EN';
+  if(lang !== 'en') return;
+  ['appContent','bottomNav'].forEach(id=>{ translateNode(document.getElementById(id)); translateAttr(document.getElementById(id), 'placeholder'); });
+  const roleEl = document.getElementById('navUserRole'); if(roleEl) translateNode(roleEl);
+}
+
+window.toggleAppLanguage = function(){
+  const cur = localStorage.getItem('khotwah_lang') || 'ar';
+  localStorage.setItem('khotwah_lang', cur === 'en' ? 'ar' : 'en');
+  applyLanguage();
+};
+
+const prevRenderPanel = window.renderPanel;
+if(typeof prevRenderPanel === 'function'){
+  window.renderPanel = async function(){
+    const r = await prevRenderPanel.apply(this, arguments);
+    setTimeout(applyLanguage, 0);
+    return r;
+  };
+  try{ renderPanel = window.renderPanel; }catch(e){}
+}
+const prevRenderNav = window.renderNav;
+if(typeof prevRenderNav === 'function'){
+  window.renderNav = function(){
+    const r = prevRenderNav.apply(this, arguments);
+    setTimeout(applyLanguage, 0);
+    return r;
+  };
+  try{ renderNav = window.renderNav; }catch(e){}
+}
+document.addEventListener('DOMContentLoaded', applyLanguage);
+setTimeout(applyLanguage, 500);
+setInterval(function(){ if((localStorage.getItem('khotwah_lang')||'ar')==='en') applyLanguage(); }, 2000);
 })();
 </script>
 
