@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.5">
+<meta name="app-version" content="2.3.9">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -4484,7 +4484,9 @@ async function deleteReport(id) {
   saveDB();
   await removeReportFromFirebase(id);
   showToast('🗑️ تم حذف التقرير');
-  renderPanel('all_reports');
+  if (currentRole === 'employee') { renderPanel('reports'); }
+  else if (currentRole === 'client') { renderPanel('reports'); }
+  else { renderPanel('all_reports'); }
 }
 
 function adminAllReports() {
@@ -4592,7 +4594,7 @@ function openReportDetails(id) {
         <div style="margin-top:16px;padding:12px;background:#ecfdf5;border-radius:10px;text-align:center;color:#15803d;font-weight:bold;">✅ تم تقييم هذه الزيارة</div>
       `}
 
-      ${currentRole === 'admin' ? `
+      ${(currentRole === 'admin' || currentRole === 'employee') ? `
         <button class="submit-btn red" style="margin-top:10px;" onclick="deleteReport(${report.id})">🗑️ حذف التقرير</button>
       ` : ''}
 
@@ -4875,6 +4877,7 @@ function showClientSchedule(id) {
             <div class="visit-date">${v.date || '-'} — ${v.type || 'زيارة دورية'} | الفني: ${v.tech || 'غير محدد'}</div>
             <div class="visit-admin-actions">
               ${v.status !== 'منفذة' && v.status !== 'مكتمل' ? `<button class="submit-btn green" onclick="adminMarkVisitCompleted(${client.id}, ${idx}, 'schedule')">✅ تم التنفيذ</button>` : ''}
+              <button class="submit-btn" style="background:#f59e0b" onclick="editClientVisitRow(${client.id}, ${idx})">✏️ تعديل</button>
               <button class="submit-btn red" onclick="deleteClientVisit(${client.id}, ${idx}, 'schedule')">🗑️ حذف الزيارة</button>
             </div>
           </div>
@@ -4885,6 +4888,28 @@ function showClientSchedule(id) {
       <button class="submit-btn" style="margin-top:16px;" onclick="renderPanel('all_clients')">رجوع</button>
     </div>
   `;
+}
+
+async function editClientVisitRow(clientId, visitIndex){
+  const client = db.clients.find(c => String(c.id) === String(clientId));
+  if (!client || !client.visitSchedule || !client.visitSchedule[visitIndex]) return showToast('الزيارة غير موجودة');
+  const v = client.visitSchedule[visitIndex];
+  const newDate = prompt('التاريخ المجدول (YYYY-MM-DD):', v.date || '');
+  if (newDate === null) return;
+  const newExec = prompt('تاريخ التنفيذ الفعلي (اتركه فارغ إن لم تُنفَّذ بعد):', v.executionDate || '');
+  if (newExec === null) return;
+  const newTech = prompt('اسم الفني المسؤول:', v.tech || '');
+  if (newTech === null) return;
+  const newStatus = prompt('الحالة (مجدولة / منفذة):', v.status || 'مجدولة');
+  if (newStatus === null) return;
+  v.date = newDate.trim() || v.date;
+  v.executionDate = newExec.trim();
+  v.tech = newTech.trim();
+  v.status = newStatus.trim() || v.status;
+  saveDB();
+  if (typeof saveClientToFirebase === 'function') await saveClientToFirebase(client);
+  showToast('✅ تم تحديث الزيارة وستظهر فوراً عند العميل والفني');
+  showClientSchedule(clientId);
 }
 
 function showVisitList(type) {
@@ -5257,18 +5282,38 @@ saveVisitReport=window.saveVisitReport;
     const editingId = parseInt(String(idValue).replace('#',''));
     const oldClient = (db.clients || []).find(c => String(c.id) === String(editingId));
     const explicitStart = document.getElementById('contractStartDate')?.value || '';
+    const explicitVisits = parseInt(document.getElementById('newClientVisits')?.value) || 0;
     const beforeSchedule = oldClient?.visitSchedule ? JSON.stringify(oldClient.visitSchedule) : '';
+    // v2.3.6: نقارن فعلياً هل المدير غيّر تاريخ البداية أو عدد الزيارات، مو بس هل الحقل معبّى
+    const oldStart = String(oldClient?.contractStartDate || oldClient?.start || '');
+    const oldVisitsCount = Number(oldClient?.visits || 0);
+    const scheduleParamsChanged = !!(oldClient && (String(explicitStart) !== oldStart || (explicitVisits && explicitVisits !== oldVisitsCount)));
+    if(oldClient && beforeSchedule && scheduleParamsChanged){
+      let oldArr = []; try{ oldArr = JSON.parse(beforeSchedule); }catch(e){}
+      const hasExecuted = oldArr.some(v=>v.executionDate||v.doneDate||v.completedAt||['منفذة','مكتملة'].includes(v.status||''));
+      if(hasExecuted){
+        const proceed = confirm('⚠️ تنبيه: هذا العميل عنده زيارات منفذة مسبقاً بجدوله الحالي.\nتغيير تاريخ بداية العقد أو عدد الزيارات سيُنشئ جدول زيارات جديد بالكامل وقد يفقد سجل الزيارات المنفذة السابقة (بما فيها التقارير المرتبطة).\n\nهل تريد المتابعة وإنشاء جدول جديد فعلاً؟');
+        if(!proceed){
+          // نلغي التعديل على تاريخ البداية وعدد الزيارات فقط، ونكمل حفظ باقي الحقول بأمان
+          if(document.getElementById('contractStartDate')) document.getElementById('contractStartDate').value = oldStart;
+          if(document.getElementById('newClientVisits')) document.getElementById('newClientVisits').value = oldVisitsCount || '';
+        }
+      }
+    }
+    const explicitStartFinal = document.getElementById('contractStartDate')?.value || '';
+    const explicitVisitsFinal = parseInt(document.getElementById('newClientVisits')?.value) || 0;
+    const scheduleParamsChangedFinal = !!(oldClient && (String(explicitStartFinal) !== oldStart || (explicitVisitsFinal && explicitVisitsFinal !== oldVisitsCount)));
     await oldSaveNewClient_v18.apply(this, arguments);
     const saved = (db.clients || []).find(c => String(c.id) === String(editingId));
     if(saved){
-      if(explicitStart){
-        saved.contractStartDate = explicitStart;
-        saved.start = saved.start || explicitStart;
+      if(explicitStartFinal){
+        saved.contractStartDate = explicitStartFinal;
+        saved.start = saved.start || explicitStartFinal;
       } else if(oldClient?.contractStartDate || oldClient?.start){
         saved.contractStartDate = oldClient.contractStartDate || oldClient.start;
       }
-      /* إذا كان التعديل لم يغير بداية العقد بشكل واضح فلا نمسح الجدول القديم */
-      if(oldClient && !explicitStart && beforeSchedule){
+      /* لا نعيد توليد جدول الزيارات إلا إذا تغيّر تاريخ البداية أو عدد الزيارات فعلياً */
+      if(oldClient && beforeSchedule && !scheduleParamsChangedFinal){
         try { saved.visitSchedule = JSON.parse(beforeSchedule); } catch(e){}
       }
       saveDB();
@@ -8814,7 +8859,7 @@ window.clientHome=function(){
 };try{clientHome=window.clientHome}catch(e){}
 
 /* جدول الزيارات المرئي */
-window.clientVisitSchedulePanel=function(){const c=clientNowFinal(),m=visitsMetrics(c),vs=m.schedule;return `<div class="section-title">📆 جدول زياراتي</div><div class="stats-row cols-3"><div class="stat-card"><span class="stat-num">${m.total}</span><span class="stat-label">إجمالي الزيارات</span></div><div class="stat-card"><span class="stat-num green">${m.completed}</span><span class="stat-label">منفذة</span></div><div class="stat-card"><span class="stat-num gold">${m.remaining}</span><span class="stat-label">متبقية</span></div></div><button class="submit-btn green" style="margin-bottom:12px" onclick="downloadVisitSchedulePDF()">⬇️ تحميل جدول الزيارات PDF</button><div class="card" style="overflow-x:auto"><table class="client-visit-table"><thead><tr><th>#</th><th>التاريخ المجدول</th><th>تاريخ التنفيذ</th><th>الفني</th><th>الحالة</th><th>التقرير</th></tr></thead><tbody>${vs.length?vs.map((v,i)=>{const rep=m.reports.find(r=>String(r.visitNumber||r.number||r.visitId)===String(v.number||v.id||i+1));const done=completeStatus(v.status)||v.executionDate||v.doneDate||v.completedAt||rep;return `<tr><td>${E(v.number||i+1)}</td><td>${E(v.date||v.scheduledDate||'-')}</td><td>${E(v.executionDate||v.doneDate||v.completedAt||rep?.executionDate||rep?.date||'-')}</td><td>${E(v.tech||rep?.tech||'سيتم التحديد')}</td><td>${done?'منفذة':E(v.status||'مجدولة')}</td><td>${rep?`<button class="submit-btn" style="width:auto;padding:6px 10px" onclick="openReportDetails(${Number(rep.id)})">عرض</button>`:'لم يرفع'}</td></tr>`}).join(''):'<tr><td colspan="6">لا يوجد جدول زيارات محفوظ</td></tr>'}</tbody></table></div><button class="submit-btn" style="background:#64748b" onclick="renderPanel('home')">رجوع</button>`};try{clientVisitSchedulePanel=window.clientVisitSchedulePanel}catch(e){}
+window.clientVisitSchedulePanel=function(){const c=clientNowFinal(),m=visitsMetrics(c),vs=m.schedule;return `<div class="section-title">📆 جدول زياراتي</div><div class="stats-row cols-3"><div class="stat-card"><span class="stat-num">${m.total}</span><span class="stat-label">إجمالي الزيارات</span></div><div class="stat-card"><span class="stat-num green">${m.completed}</span><span class="stat-label">منفذة</span></div><div class="stat-card"><span class="stat-num gold">${m.remaining}</span><span class="stat-label">متبقية</span></div></div><button class="submit-btn green" style="margin-bottom:12px" onclick="downloadVisitSchedulePDF()">⬇️ تحميل جدول الزيارات PDF</button><div class="card" style="overflow-x:auto"><table class="client-visit-table"><thead><tr><th>#</th><th>التاريخ المجدول</th><th>تاريخ التنفيذ</th><th>الفني</th><th>الحالة</th><th>التقرير</th></tr></thead><tbody>${vs.length?vs.map((v,i)=>{const rep=m.reports.find(r=>{const vn=String(v.number||v.id||i+1);return String(r.visitNumber||r.number||r.visitId)===vn||(v.executionDate&&r.date===v.executionDate)||(v.date&&r.date===v.date);});const done=completeStatus(v.status)||v.executionDate||v.doneDate||v.completedAt||rep;return `<tr><td>${E(v.number||i+1)}</td><td>${E(v.date||v.scheduledDate||'-')}</td><td>${E(v.executionDate||v.doneDate||v.completedAt||rep?.executionDate||rep?.date||'-')}</td><td>${E(v.tech||rep?.tech||'سيتم التحديد')}</td><td>${done?'منفذة':E(v.status||'مجدولة')}</td><td>${rep?`<button class="submit-btn" style="width:auto;padding:6px 10px" onclick="openReportDetails(${Number(rep.id)})">عرض</button>`:'لم يرفع'}</td></tr>`}).join(''):'<tr><td colspan="6">لا يوجد جدول زيارات محفوظ</td></tr>'}</tbody></table></div><button class="submit-btn" style="background:#64748b" onclick="renderPanel('home')">رجوع</button>`};try{clientVisitSchedulePanel=window.clientVisitSchedulePanel}catch(e){}
 
 /* إيصال الدفع: عرض/استبدال/حذف قبل الاعتماد، عرض فقط بعده */
 window.viewClientReceipt=function(n){const c=clientNowFinal(),p=(window.ensureClientPayments?ensureClientPayments(c,false):(c.payments||[])).find(x=>Number(x.number)===Number(n));if(!p?.receipt)return showToast('لا يوجد إيصال');openAttachment(p.receipt,p.receiptName||'receipt')};
@@ -9157,8 +9202,43 @@ const DICT = {
   'لا يوجد عملاء بعد':'No clients yet','لا يوجد عملاء مطابقون':'No matching clients','لا يوجد عملاء':'No clients',
   'لا توجد زيارات مجدولة حالياً':'No visits scheduled currently','غير محدد':'Unassigned',
   'رقم العقد (تلقائي)':'Contract No. (auto)','رقم العقد:':'Contract No.:',
-  'جاري تحميل...':'Loading...'
+  'جاري تحميل...':'Loading...',
+  // الشاشة الرئيسية للفني وسجل العميل
+  'يمكنك رفع تقرير أو مراجعة سجل أي عميل قبل الزيارة':'You can upload a report or review any client history before the visit',
+  'ملاحظات فنية':'Technical Notes','عملاء متاحون':'Available Clients','قبل الزيارة':'Before the visit',
+  'سجل العميل':'Client History','تقارير وملاحظات':'Reports & Notes','زيارة جديدة':'New Visit',
+  'إجمالي العملاء':'Total Clients','مديرون وعملاء':'Managers & Clients',
+  'آخر تقرير':'Last Report','آخر تقرير:':'Last Report:','ملاحظة للفني القادم':'Note for Next Technician',
+  'ملاحظة للفني القادم:':'Note for Next Technician:','عرض السجل':'View History','📋 عرض السجل':'📋 View History',
+  'ملاحظة':'Note','السجل':'History','📋 السجل':'📋 History',
+  'لا توجد ملاحظة انتقالية للفني القادم':'No handover note for the next technician',
+  'لا توجد ملاحظة سابقة لهذا العميل':'No previous note for this client',
+  '✅ تم حفظ الملاحظة للفني القادم':'✅ Note saved for the next technician',
+  '📝 إضافة ملاحظة للفني القادم':'📝 Add note for next technician','تمت قراءة الملاحظة':'Note marked as read',
+  '📌 آخر ملاحظة للفني القادم':'📌 Last note for next technician','لا يوجد':'None'
 };
+
+// عبارات جزئية تظهر ضمن نصوص ديناميكية أطول (اسم/رقم متغير) - تُستبدل كنص فرعي
+const PARTIAL_DICT = [
+  ['أهلاً،','Welcome,'],
+  ['رفع تقرير الزيارة رقم','Upload report for visit #'],
+  ['زيارة رقم','Visit #'],
+  [' من جدول الزيارات',' from the visit schedule'],
+  ['من:','From:'],
+  ['كتبها:','Written by:'],
+  ['تخص الزيارة','Related to visit']
+];
+function partialTranslate(root){
+  if(!root) return;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+  const nodes = []; let n; while((n = walker.nextNode())) nodes.push(n);
+  nodes.forEach(node=>{
+    let v = node.nodeValue; if(!v || !v.trim()) return;
+    let changed = false;
+    PARTIAL_DICT.forEach(([ar,en])=>{ if(v.includes(ar)){ v = v.split(ar).join(en); changed = true; } });
+    if(changed) node.nodeValue = v;
+  });
+}
 
 function translateAttr(root, attr){
   if(!root) return;
@@ -9189,7 +9269,7 @@ function applyLanguage(){
   const btn = document.getElementById('langToggleBtn');
   if(btn) btn.textContent = lang === 'en' ? 'AR' : 'EN';
   if(lang !== 'en') return;
-  ['appContent','bottomNav'].forEach(id=>{ translateNode(document.getElementById(id)); translateAttr(document.getElementById(id), 'placeholder'); });
+  ['appContent','bottomNav'].forEach(id=>{ translateNode(document.getElementById(id)); partialTranslate(document.getElementById(id)); translateAttr(document.getElementById(id), 'placeholder'); });
   const roleEl = document.getElementById('navUserRole'); if(roleEl) translateNode(roleEl);
 }
 
