@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.17">
+<meta name="app-version" content="2.3.20">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -1494,8 +1494,8 @@ async function doLogin() {
   const selectedPortal = currentRole; // client | employee | admin
   const allowedByPortal = {
     client: ['client'],
-    employee: ['employee', 'supervisor', 'customer_service'],
-    admin: ['admin']
+    employee: ['employee', 'supervisor'],
+    admin: ['admin', 'customer_service']
   };
 
   const denyWrongPortal = async function(profileRole) {
@@ -1519,6 +1519,7 @@ async function doLogin() {
       window.currentUser = profile;
       currentClientId = profile.role === 'client' ? (profile.clientId || null) : null;
       currentRole = selectedPortal;
+      window.actualSystemRole = profile.role;
 
       const roleLabels = {admin:'مدير النظام',supervisor:'مشرف',employee:'فني ميداني',customer_service:'خدمة العملاء',client:'عميل متعاقد'};
       const roleIcons = {admin:'🖥️',supervisor:'🧑‍💼',employee:'👷',customer_service:'🎧',client:'🏢'};
@@ -1640,7 +1641,10 @@ const navs = {
 
 function renderNav() {
   const nav = document.getElementById('bottomNav');
-  const items = navs[currentRole];
+  let items = navs[currentRole];
+  if (currentRole === 'admin' && window.actualSystemRole === 'customer_service') {
+    items = items.filter(it => it.id !== 'users_admin');
+  }
   nav.className = `bottomnav ${currentRole}-nav`;
   nav.innerHTML = items.map(item => `
     <button class="nav-item ${item.id === 'home' ? 'active' : ''}" onclick="renderPanel('${item.id}', this)">
@@ -5102,7 +5106,14 @@ async function deleteClientVisit(clientId, visitIndex, returnType='schedule'){
   const client = db.clients.find(c => String(c.id) === String(clientId));
   if (!client || !client.visitSchedule || !client.visitSchedule[visitIndex]) return showToast('الزيارة غير موجودة');
   const visit = client.visitSchedule[visitIndex];
-  if (!confirmDelete('حذف زيارة', `العميل: ${client.name}\nالتاريخ: ${visit.date || '-'}\nسيتم حذف هذه الزيارة من جدول العميل.`)) return;
+  /* v2.3.19: تحذير إضافي واضح إذا كانت الزيارة مرتبطة بتقرير مرفوع */
+  const linkedReport = (db.reports || []).find(r => String(r.id) === String(visit.reportId) || (String(r.visitNumber||r.number) === String(visit.number) && String(r.clientId||'') === String(client.id)));
+  if (linkedReport) {
+    const proceed = confirm(`⚠️ تنبيه: هذي الزيارة مرتبطة بتقرير مرفوع فعلياً.\n\nحذف الزيارة لن يحذف التقرير — التقرير سيبقى موجوداً منفصلاً بقائمة "كل التقارير" لكن بدون ربط برقم زيارة محدد.\n\nإذا تبي تحذف التقرير نفسه، استخدم "حذف التقرير" من داخل التقرير مباشرة (وهذا سيرجع الزيارة "مجدولة" تلقائياً بدل حذفها).\n\nهل تريد المتابعة بحذف الزيارة رغم ذلك؟`);
+    if (!proceed) return;
+  } else {
+    if (!confirmDelete('حذف زيارة', `العميل: ${client.name}\nالتاريخ: ${visit.date || '-'}\nسيتم حذف هذه الزيارة من جدول العميل.`)) return;
+  }
   client.visitSchedule.splice(visitIndex, 1);
   /* v2.3.11: إعادة ترقيم الزيارات المتبقية بالتسلسل بدون فجوات */
   client.visitSchedule.forEach((v, i) => { v.number = i + 1; });
@@ -5110,6 +5121,9 @@ async function deleteClientVisit(clientId, visitIndex, returnType='schedule'){
   client.used = client.visitSchedule.filter(v => v.status === 'منفذة' || v.status === 'مكتمل').length;
   saveDB();
   if (typeof saveClientToFirebase === 'function') await saveClientToFirebase(client);
+  if (typeof window.writeAuditLog === 'function') {
+    try { await window.writeAuditLog('visit_delete', 'حذف زيارة من جدول العميل', {clientId: client.id, clientName: client.name, visitNumber: visit.number, visitDate: visit.date, hadLinkedReport: !!linkedReport}); } catch(e){}
+  }
   showToast('🗑️ تم حذف الزيارة وإعادة ترقيم الجدول');
   returnType === 'schedule' ? showClientSchedule(clientId) : showVisitList(returnType);
 }
@@ -5434,6 +5448,26 @@ saveVisitReport=window.saveVisitReport;
       if(window.saveClientToFirebase) {
         const ok = await window.saveClientToFirebase(saved);
         if(!ok && typeof showToast === 'function') showToast('⚠️ حُفظ محلياً ولم يُحفظ في Firebase');
+      }
+    }
+    /* v2.3.18: عند إضافة عميل جديد (مو تعديل)، ننشئ له تلقائياً حساب دخول آمن عبر Firebase Auth
+       بدل الاعتماد على النظام القديم غير الآمن (اسم مستخدم/كلمة مرور نص عادي) */
+    if(!oldClient){
+      const justCreated = (db.clients||[]).reduce((max,c)=> (Number(c.id)>Number(max?.id||0)?c:max), null);
+      if(justCreated && typeof window.createSystemUser === 'function'){
+        const phoneDigits = String(justCreated.phone||'').replace(/\D/g,'') || String(justCreated.id);
+        const genEmail = `client${phoneDigits}${justCreated.id}@khotwa-clients.app`;
+        const genPassword = 'K'+Math.random().toString(36).slice(2,8)+Math.floor(Math.random()*90+10);
+        try{
+          await window.createSystemUser({name: justCreated.name, email: genEmail, password: genPassword, role: 'client', clientId: justCreated.id});
+          justCreated._generatedEmail = genEmail; justCreated._generatedPassword = genPassword;
+          setTimeout(()=>{
+            alert(`✅ تم إنشاء حساب دخول آمن لهذا العميل تلقائياً:\n\nالبريد الإلكتروني: ${genEmail}\nكلمة المرور: ${genPassword}\n\nأرسل هذه البيانات للعميل ليدخل بها من "عميل متعاقد" باستخدام البريد الإلكتروني.\n(احفظها الآن، ما راح تظهر مرة ثانية بهذا الشكل)`);
+          }, 300);
+        }catch(e){
+          console.error('AUTO_CLIENT_ACCOUNT_ERROR', e);
+          showToast('⚠️ تم حفظ العميل، لكن تعذر إنشاء حساب دخول تلقائي: ' + (e.message||'خطأ غير معروف') + ' — تقدر تنشئه يدوياً من إدارة المستخدمين');
+        }
       }
     }
   };
@@ -7774,7 +7808,10 @@ saveVisitReport=window.saveVisitReport;
       if(id==='all_reports') return adminAllReports();
       if(id==='all_visits') return adminVisits();
       if(id==='emergency_admin') return adminEmergency();
-      if(id==='users_admin') return adminUsersManagement();
+      if(id==='users_admin'){
+        if(window.actualSystemRole==='customer_service'){ showToast('⛔ هذه الشاشة غير متاحة لحساب خدمة العملاء'); return adminHome(); }
+        return adminUsersManagement();
+      }
       if(id==='settings') return adminSettings();
       if(id==='client_emergency') return clientEmergency();
       if(id==='client_complaints') return clientComplaints();
