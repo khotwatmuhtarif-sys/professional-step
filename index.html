@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.20">
+<meta name="app-version" content="2.3.22">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -3461,6 +3461,52 @@ async function submitCreateSystemUser(){
 }
 
 // ===== ADMIN SETTINGS =====
+async function cleanupOrphanedRecords(){
+  const resultBox = document.getElementById('orphanCleanupResult');
+  if (resultBox) resultBox.innerHTML = '⏳ جاري الفحص...';
+  try{
+    if (typeof loadClientsFromFirebase === 'function') await loadClientsFromFirebase();
+    const existingIds = new Set((db.clients||[]).map(c => String(c.id)));
+    const existingNames = new Set((db.clients||[]).map(c => String(c.name||'')));
+
+    const orphanReports = (db.reports||[]).filter(r => {
+      const hasClientId = r.clientId !== undefined && r.clientId !== null && r.clientId !== '';
+      if (hasClientId) return !existingIds.has(String(r.clientId));
+      return r.client && !existingNames.has(String(r.client));
+    });
+
+    const [eSnap, cSnap] = await Promise.all([
+      db_fire.ref('emergencyRequests').get(),
+      db_fire.ref('complaintRequests').get()
+    ]);
+    const orphanEmergency = (eSnap.exists() ? Object.entries(eSnap.val()) : []).filter(([k,v]) => v.clientId !== undefined && v.clientId !== null && !existingIds.has(String(v.clientId)));
+    const orphanComplaints = (cSnap.exists() ? Object.entries(cSnap.val()) : []).filter(([k,v]) => v.clientId !== undefined && v.clientId !== null && !existingIds.has(String(v.clientId)));
+
+    const total = orphanReports.length + orphanEmergency.length + orphanComplaints.length;
+    if (!total){
+      if (resultBox) resultBox.innerHTML = '✅ لا توجد سجلات يتيمة، البيانات نظيفة.';
+      return;
+    }
+    const proceed = confirm(`تم العثور على:\n- ${orphanReports.length} تقرير يتيم\n- ${orphanEmergency.length} طلب طوارئ يتيم\n- ${orphanComplaints.length} شكوى/اقتراح يتيم\n\n(كل هذه مرتبطة بعملاء تم حذفهم سابقاً)\n\nهل تريد حذفها نهائياً الآن؟`);
+    if (!proceed){ if (resultBox) resultBox.innerHTML = 'تم الإلغاء.'; return; }
+
+    for (const r of orphanReports){ try{ await removeReportFromFirebase(r.id); }catch(e){} }
+    db.reports = (db.reports||[]).filter(r => !orphanReports.includes(r));
+    saveDB();
+    await Promise.all(orphanEmergency.map(([k]) => db_fire.ref('emergencyRequests/'+k).remove()));
+    await Promise.all(orphanComplaints.map(([k]) => db_fire.ref('complaintRequests/'+k).remove()));
+
+    if (typeof window.writeAuditLog === 'function') {
+      try { await window.writeAuditLog('orphan_cleanup', 'تنظيف سجلات يتيمة', {reports: orphanReports.length, emergency: orphanEmergency.length, complaints: orphanComplaints.length}); } catch(e){}
+    }
+    if (resultBox) resultBox.innerHTML = `✅ تم حذف ${total} سجل يتيم (${orphanReports.length} تقرير، ${orphanEmergency.length} طوارئ، ${orphanComplaints.length} شكوى/اقتراح).`;
+    showToast('✅ تم تنظيف السجلات اليتيمة');
+  }catch(e){
+    console.error('CLEANUP_ERROR', e);
+    if (resultBox) resultBox.innerHTML = '❌ حدث خطأ أثناء الفحص: ' + (e.message||'');
+  }
+}
+
 function adminSettings() {
   return `
     <div class="section-title">⚙️ الإعدادات</div>
@@ -3478,6 +3524,13 @@ function adminSettings() {
         <input type="text" class="form-input" value="0545421853">
       </div>
       <button class="submit-btn" onclick="showToast('✅ تم حفظ الإعدادات')">💾 حفظ التغييرات</button>
+    </div>
+
+    <div class="section-title">🧹 تنظيف السجلات اليتيمة</div>
+    <div class="card">
+      <p style="color:var(--text-light);margin-bottom:12px;">يحذف أي تقرير أو طلب طوارئ/شكوى مرتبط بعميل تم حذفه سابقاً (قبل تفعيل الحذف الشامل). استخدمها مرة واحدة الآن لتنظيف البيانات القديمة.</p>
+      <button class="submit-btn red" onclick="cleanupOrphanedRecords()">🧹 فحص وحذف السجلات اليتيمة</button>
+      <div id="orphanCleanupResult" style="margin-top:10px"></div>
     </div>
 
     <div class="section-title">🔐 إدارة الحسابات والصلاحيات</div>
@@ -4542,7 +4595,28 @@ async function removeReportFromFirebase(id){
 async function deleteClient(id) {
   const client = (db.clients || []).find(c => String(c.id) === String(id));
   if (!client) return showToast('العميل غير موجود');
-  if (!confirmDelete('حذف العميل: ' + (client.name || ('#' + id)), 'سيتم حذف بيانات العميل من القائمة وقد تفقد سجله المرتبط.')) return;
+
+  const linkedReports = (db.reports || []).filter(r => String(r.clientId) === String(id) || String(r.client) === String(client.name));
+  const confirmMsg = `سيتم حذف بيانات العميل نهائياً${linkedReports.length ? `، بالإضافة إلى ${linkedReports.length} تقرير مرتبط به وأي طلبات طوارئ/شكاوى خاصة به` : ''}.\nهذا الإجراء لا يمكن التراجع عنه.`;
+  if (!confirmDelete('حذف العميل: ' + (client.name || ('#' + id)), confirmMsg)) return;
+
+  /* v2.3.21: حذف شامل - التقارير + طلبات الطوارئ/الشكاوى المرتبطة بهذا العميل */
+  for (const r of linkedReports) {
+    try { await removeReportFromFirebase(r.id); } catch(e) {}
+  }
+  db.reports = (db.reports || []).filter(r => !(String(r.clientId) === String(id) || String(r.client) === String(client.name)));
+  saveDB();
+
+  try {
+    const [eSnap, cSnap] = await Promise.all([
+      db_fire.ref('emergencyRequests').get(),
+      db_fire.ref('complaintRequests').get()
+    ]);
+    const removals = [];
+    (eSnap.exists() ? Object.entries(eSnap.val()) : []).forEach(([key, v]) => { if (String(v.clientId) === String(id)) removals.push(db_fire.ref('emergencyRequests/' + key).remove()); });
+    (cSnap.exists() ? Object.entries(cSnap.val()) : []).forEach(([key, v]) => { if (String(v.clientId) === String(id)) removals.push(db_fire.ref('complaintRequests/' + key).remove()); });
+    await Promise.all(removals);
+  } catch(e) { console.warn('تعذر حذف بعض الطلبات المرتبطة بالعميل:', e); }
 
   db.clients = (db.clients || []).filter(c => String(c.id) !== String(id));
   saveDB();
@@ -4551,7 +4625,11 @@ async function deleteClient(id) {
     await window.deleteClientFromFirebase(id);
   }
 
-  showToast('🗑️ تم حذف العميل');
+  if (typeof window.writeAuditLog === 'function') {
+    try { await window.writeAuditLog('client_delete', 'حذف عميل نهائياً مع كل بياناته المرتبطة', {clientId: id, clientName: client.name, deletedReports: linkedReports.length}); } catch(e){}
+  }
+
+  showToast(`🗑️ تم حذف العميل${linkedReports.length ? ` و${linkedReports.length} تقرير مرتبط` : ''} نهائياً`);
   renderPanel('all_clients');
 }
 
