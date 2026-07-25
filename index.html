@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.24">
+<meta name="app-version" content="2.3.27">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -2591,7 +2591,7 @@ function adminHome() {
     <div class="section-title">💰 مؤشرات التحصيل</div>
     <div class="stats-row cols-4">
       <div class="stat-card" style="border-top:3px solid var(--green);"><span class="stat-icon">✅</span><span class="stat-num green">${collectedTotal.toLocaleString()}</span><span class="stat-label">محصل ريال</span></div>
-      <div class="stat-card" style="border-top:3px solid var(--gold);"><span class="stat-icon">⏳</span><span class="stat-num gold">${pendingReviewTotal.toLocaleString()}</span><span class="stat-label">بانتظار مراجعة</span></div>
+      <div class="stat-card" style="border-top:3px solid var(--gold);cursor:pointer" onclick="renderPanel('pending_reviews')"><span class="stat-icon">⏳</span><span class="stat-num gold">${pendingReviewTotal.toLocaleString()}</span><span class="stat-label">بانتظار مراجعة (اضغط للتفاصيل)</span></div>
       <div class="stat-card" style="border-top:3px solid var(--red);"><span class="stat-icon">💸</span><span class="stat-num red">${remainingTotal.toLocaleString()}</span><span class="stat-label">متبقي ريال</span></div>
       <div class="stat-card" style="border-top:3px solid var(--orange);"><span class="stat-icon">⚠️</span><span class="stat-num orange">${overduePaymentsCount}</span><span class="stat-label">دفعات متأخرة</span></div>
     </div>
@@ -2696,6 +2696,34 @@ function adminHome() {
       </table>
     </div>
     `}
+  `;
+}
+
+function adminPendingReviewList() {
+  const clients = db.clients || [];
+  const rows = [];
+  clients.forEach(c => {
+    normalizePayments(c).forEach(p => {
+      if (p.status === 'بانتظار المراجعة') rows.push({ client: c, payment: p });
+    });
+  });
+  rows.sort((a, b) => String(b.payment.receiptUploadedAt || '').localeCompare(String(a.payment.receiptUploadedAt || '')));
+  const cards = rows.map(({client, payment}) => `
+    <div class="card" style="cursor:pointer" onclick="adminOpenClientPayments(${client.id})">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-weight:800;color:var(--primary)">${escapeHtml(client.name || '-')}</div>
+          <div style="font-size:12px;color:var(--text-light);margin-top:4px">الدفعة رقم ${escapeHtml(String(payment.number||'-'))} — ${Number(payment.amount||0).toLocaleString()} ريال</div>
+          ${payment.receiptName ? `<div class="file-chip" style="margin-top:6px">📎 ${escapeHtml(payment.receiptName)}</div>` : ''}
+        </div>
+        <span class="submit-btn" style="width:auto;padding:8px 14px;font-size:12px">فتح ←</span>
+      </div>
+    </div>
+  `).join('');
+  return `
+    <div class="section-title">⏳ دفعات بانتظار مراجعة (${rows.length})</div>
+    ${rows.length ? cards : '<div class="card" style="text-align:center">لا توجد دفعات بانتظار المراجعة حالياً 🎉</div>'}
+    <button class="submit-btn" style="margin-top:16px;background:#64748b" onclick="renderPanel('home')">رجوع</button>
   `;
 }
 
@@ -6860,7 +6888,7 @@ https://khotwatmuhtarif-sys.github.io/professional-step/
       const txt = [c.name,c.englishName,c.id,c.contractNo,c.contractNumber,c.username,c.location,c.city].join(' ').toLowerCase();
       return !q || txt.includes(q);
     });
-    select.innerHTML = filtered.map(clientOption195).join('') || '<option value="">لا توجد نتائج</option>';
+    select.innerHTML = '<option value="">— اختر العميل —</option>' + (filtered.map(clientOption195).join('') || '<option value="" disabled>لا توجد نتائج</option>');
     if (old && Array.from(select.options).some(o => String(o.value) === String(old))) select.value = old;
     window.updateReportVisitDates();
     if (typeof window.renderSelectedClientNextNote_v193 === 'function') window.renderSelectedClientNextNote_v193();
@@ -6906,7 +6934,7 @@ https://khotwatmuhtarif-sys.github.io/professional-step/
         <div class="form-group"><label class="form-label">ابحث عن العميل</label><input class="form-input" id="reportClientSearch" placeholder="اكتب اسم العميل أو رقم العقد" oninput="filterReportClients()"></div>
         <div class="form-group"><label class="form-label">اختر العميل</label><select class="form-select" id="reportClientSelect" onchange="updateReportVisitDates(); if(window.renderSelectedClientNextNote_v193) renderSelectedClientNextNote_v193();"><option value="">جاري تحميل العملاء...</option></select></div>
         <div id="selectedClientNextNote" style="margin-bottom:12px"></div>
-        <div class="form-group"><label class="form-label">رقم الزيارة</label><input type="text" class="form-input" id="scheduledVisitNumberDisplay" readonly placeholder="يظهر تلقائياً من جدول الزيارات" value="" onclick="this.blur()"><input type="hidden" id="scheduledVisitNumber"><input type="hidden" id="scheduledVisitTotal"><script>setInterval(function(){var a=document.getElementById('scheduledVisitNumber'),b=document.getElementById('scheduledVisitTotal'),d=document.getElementById('scheduledVisitNumberDisplay');if(a&&b&&d){d.value=(a.value&&b.value)?('الزيارة رقم '+a.value+' من '+b.value):''}},700);<\/script></div>
+        <div class="form-group"><label class="form-label">رقم الزيارة</label><input type="number" min="1" class="form-input" id="scheduledVisitNumber" placeholder="يُقترح تلقائياً — عدّله لو التقرير يخص زيارة مختلفة"><input type="hidden" id="scheduledVisitTotal"></div>
         <div class="form-group"><label class="form-label">تاريخ الزيارة الافتراضي</label><input type="text" class="form-input" id="scheduledVisitDate" readonly placeholder="يظهر من جدول الزيارات"><input type="hidden" id="scheduledVisitIndex"><div id="scheduledVisitNumberHint" style="font-size:12px;color:var(--text-light);margin-top:4px">جاري تحميل جدول الزيارات...</div></div>
         <div class="form-group"><label class="form-label">تاريخ التنفيذ الفعلي</label><input type="date" class="form-input" id="actualExecutionDate" value="${today195()}"></div>
         <div class="form-group"><label class="form-label">نوع الخدمة</label><select class="form-select" id="serviceType"><option>زيارة دورية</option><option>طوارئ</option><option>متابعة</option><option>فحص مصائد الطعوم</option><option>مكافحة صراصير</option><option>مكافحة نمل أبيض</option><option>مكافحة قوارض</option><option>مكافحة طيور</option><option>تقرير متابعة ميدانية (ورقي)</option></select></div>
@@ -6928,7 +6956,6 @@ https://khotwatmuhtarif-sys.github.io/professional-step/
 
   const oldSave195 = window.saveVisitReport;
   window.saveVisitReport = async function(){
-    window.updateReportVisitDates();
     const number = document.getElementById('scheduledVisitNumber')?.value || '';
     const total = document.getElementById('scheduledVisitTotal')?.value || '';
     const beforeCount = reports195().length;
@@ -6967,11 +6994,20 @@ https://khotwatmuhtarif-sys.github.io/professional-step/
   function selectedVisitInfo(){
     const cid=document.getElementById('reportClientSelect')?.value;
     const c=clientById(cid);
-    const idxRaw=document.getElementById('scheduledVisitIndex')?.value;
-    const idx=idxRaw!=='' && idxRaw!=null ? Number(idxRaw) : -1;
     const vs=visitsOf(c);
+    const idxRaw=document.getElementById('scheduledVisitIndex')?.value;
+    const suggestedIdx=idxRaw!=='' && idxRaw!=null ? Number(idxRaw) : -1;
+    const typedNumber=document.getElementById('scheduledVisitNumber')?.value;
+    /* v2.3.27: نحدد الزيارة الفعلية بناءً على الرقم اللي كتبه الفني (حتى لو عدّله يدوياً)،
+       مو بناءً على الاقتراح التلقائي الأصلي فقط */
+    let idx=-1;
+    if(typedNumber){
+      idx=vs.findIndex(x=>Number(x.number||x.visitNumber)===Number(typedNumber));
+      if(idx<0 && Number(typedNumber)>=1 && Number(typedNumber)<=vs.length) idx=Number(typedNumber)-1;
+    }
+    if(idx<0) idx=suggestedIdx;
     const v=idx>=0?vs[idx]:null;
-    return {client:c, visits:vs, visit:v, index:idx, number:document.getElementById('scheduledVisitNumber')?.value || (v?(v.number||v.visitNumber||idx+1):''), total:document.getElementById('scheduledVisitTotal')?.value || vs.length};
+    return {client:c, visits:vs, visit:v, index:idx, number:typedNumber || (v?(v.number||v.visitNumber||idx+1):''), total:document.getElementById('scheduledVisitTotal')?.value || vs.length};
   }
   function compressImage_v196(file, maxWidth=900, quality=.55){
     return new Promise((resolve,reject)=>{
@@ -7121,16 +7157,37 @@ https://khotwatmuhtarif-sys.github.io/professional-step/
 
   window.openReportEdit_v196=function(id){
     const r=reports().find(x=>String(x.id)===String(id)); if(!r) return showToast('التقرير غير موجود'); if(!canEmployeeEdit(r)) return showToast('لا تملك صلاحية تعديل هذا التقرير');
-    document.getElementById('appContent').innerHTML=`<div class="section-title">✏️ تعديل التقرير</div><div class="card"><div class="form-group"><label class="form-label">نوع الزيارة</label><input class="form-input" id="editReportType" value="${e(r.type||'')}"></div><div class="form-group"><label class="form-label">المواد المستخدمة</label><input class="form-input" id="editReportMaterials" value="${e(r.materials||'')}"></div><div class="form-group"><label class="form-label">الملاحظات</label><textarea class="form-textarea" id="editReportNotes">${e(r.notes||'')}</textarea></div><button class="submit-btn green" onclick="saveReportEdit_v196(${Number(r.id)})">💾 حفظ التعديلات</button><button class="submit-btn" style="background:#64748b;margin-top:10px" onclick="openReportDetails(${Number(r.id)})">رجوع</button></div>`;
+    document.getElementById('appContent').innerHTML=`<div class="section-title">✏️ تعديل التقرير</div><div class="card"><div class="form-group"><label class="form-label">رقم الزيارة المرتبط</label><input type="number" min="1" class="form-input" id="editReportVisitNumber" value="${e(r.visitNumber||'')}"><div style="font-size:11px;color:var(--text-light);margin-top:4px">غيّره لو التقرير لازم يرتبط بزيارة مختلفة — الزيارة القديمة ترجع "مجدولة" تلقائياً والجديدة تصير "منفذة"</div></div><div class="form-group"><label class="form-label">نوع الزيارة</label><input class="form-input" id="editReportType" value="${e(r.type||'')}"></div><div class="form-group"><label class="form-label">المواد المستخدمة</label><input class="form-input" id="editReportMaterials" value="${e(r.materials||'')}"></div><div class="form-group"><label class="form-label">الملاحظات</label><textarea class="form-textarea" id="editReportNotes">${e(r.notes||'')}</textarea></div><button class="submit-btn green" onclick="saveReportEdit_v196(${Number(r.id)})">💾 حفظ التعديلات</button><button class="submit-btn" style="background:#64748b;margin-top:10px" onclick="openReportDetails(${Number(r.id)})">رجوع</button></div>`;
   };
   window.saveReportEdit_v196=async function(id){
     const r=reports().find(x=>String(x.id)===String(id)); if(!r) return;
     r.type=document.getElementById('editReportType')?.value||r.type;
     r.materials=document.getElementById('editReportMaterials')?.value||'';
     r.notes=document.getElementById('editReportNotes')?.value||'';
+    const newNumber=Number(document.getElementById('editReportVisitNumber')?.value||0);
+    const oldNumber=Number(r.visitNumber||0);
+    /* v2.3.27: إعادة ربط الزيارة تلقائياً لو تغيّر رقم الزيارة المرتبط بالتقرير */
+    if(newNumber && newNumber!==oldNumber){
+      const client=(db.clients||[]).find(c=>String(c.id)===String(r.clientId)) || (db.clients||[]).find(c=>String(c.name)===String(r.client));
+      if(client && Array.isArray(client.visitSchedule)){
+        const oldVisit=client.visitSchedule.find(v=>String(v.reportId)===String(r.id));
+        if(oldVisit){ oldVisit.status='مجدولة'; oldVisit.reportId=''; oldVisit.doneAt=''; oldVisit.doneDate=''; oldVisit.executionDate=''; }
+        const newVisit=client.visitSchedule.find(v=>Number(v.number)===newNumber);
+        if(newVisit){
+          newVisit.status='منفذة'; newVisit.reportId=r.id; newVisit.reportType=r.type;
+          newVisit.doneAt=new Date().toISOString(); newVisit.doneDate=r.date||r.actualExecutionDate||''; newVisit.executionDate=r.date||r.actualExecutionDate||'';
+          client.used=client.visitSchedule.filter(v=>v.status==='منفذة'||v.status==='مكتمل').length;
+          if(typeof saveDB==='function') saveDB();
+          if(typeof saveClientToFirebase==='function') await saveClientToFirebase(client);
+        }else{
+          showToast('⚠️ ما لقيت زيارة برقم '+newNumber+' بجدول هذا العميل — رقم التقرير اتحدث بس الربط بالجدول ما تغيّر');
+        }
+      }
+      r.visitNumber=newNumber; r.number=newNumber;
+    }
     r.lastEditedBy=currentUser?.name||currentUser?.username||'مستخدم'; r.lastEditedAt=new Date().toISOString();
     if(typeof saveDB==='function') saveDB();
-    try{ if(window.firebase&&firebase.database) await firebase.database().ref('reports/'+id).update({type:r.type,materials:r.materials,notes:r.notes,lastEditedBy:r.lastEditedBy,lastEditedAt:r.lastEditedAt}); }catch(e){}
+    try{ if(window.firebase&&firebase.database) await firebase.database().ref('reports/'+id).update({type:r.type,materials:r.materials,notes:r.notes,visitNumber:r.visitNumber,number:r.number,lastEditedBy:r.lastEditedBy,lastEditedAt:r.lastEditedAt}); }catch(e){}
     showToast('✅ تم حفظ التعديلات'); openReportDetails(id);
   };
   const oldOpen = window.openReportDetails || (typeof openReportDetails==='function'?openReportDetails:null);
@@ -7934,6 +7991,7 @@ https://khotwatmuhtarif-sys.github.io/professional-step/
       if(id==='all_clients') return adminClients();
       if(id==='all_reports') return adminAllReports();
       if(id==='all_visits') return adminVisits();
+      if(id==='pending_reviews') return adminPendingReviewList();
       if(id==='emergency_admin') return adminEmergency();
       if(id==='users_admin'){
         if(window.actualSystemRole==='customer_service'){ showToast('⛔ هذه الشاشة غير متاحة لحساب خدمة العملاء'); return adminHome(); }
