@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.22">
+<meta name="app-version" content="2.3.24">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -3476,8 +3476,8 @@ async function cleanupOrphanedRecords(){
     });
 
     const [eSnap, cSnap] = await Promise.all([
-      db_fire.ref('emergencyRequests').get(),
-      db_fire.ref('complaintRequests').get()
+      firebase.database().ref('emergencyRequests').get(),
+      firebase.database().ref('complaintRequests').get()
     ]);
     const orphanEmergency = (eSnap.exists() ? Object.entries(eSnap.val()) : []).filter(([k,v]) => v.clientId !== undefined && v.clientId !== null && !existingIds.has(String(v.clientId)));
     const orphanComplaints = (cSnap.exists() ? Object.entries(cSnap.val()) : []).filter(([k,v]) => v.clientId !== undefined && v.clientId !== null && !existingIds.has(String(v.clientId)));
@@ -3493,8 +3493,8 @@ async function cleanupOrphanedRecords(){
     for (const r of orphanReports){ try{ await removeReportFromFirebase(r.id); }catch(e){} }
     db.reports = (db.reports||[]).filter(r => !orphanReports.includes(r));
     saveDB();
-    await Promise.all(orphanEmergency.map(([k]) => db_fire.ref('emergencyRequests/'+k).remove()));
-    await Promise.all(orphanComplaints.map(([k]) => db_fire.ref('complaintRequests/'+k).remove()));
+    await Promise.all(orphanEmergency.map(([k]) => firebase.database().ref('emergencyRequests/'+k).remove()));
+    await Promise.all(orphanComplaints.map(([k]) => firebase.database().ref('complaintRequests/'+k).remove()));
 
     if (typeof window.writeAuditLog === 'function') {
       try { await window.writeAuditLog('orphan_cleanup', 'تنظيف سجلات يتيمة', {reports: orphanReports.length, emergency: orphanEmergency.length, complaints: orphanComplaints.length}); } catch(e){}
@@ -3855,16 +3855,17 @@ onchange="renderPaymentSchedulePreview()">
       <div id="paymentSchedulePreview" style="margin-top:12px;margin-bottom:12px;"></div>
 
       <div style="background:linear-gradient(135deg,#e8f5e9,#e3f2fd); border-radius:12px; padding:16px; margin-bottom:16px;">
-        <div style="font-size:13px; font-weight:700; color:var(--primary); margin-bottom:8px;">🔐بيانات دخول العميل الحالية</div>
+        <div style="font-size:13px; font-weight:700; color:var(--primary); margin-bottom:8px;">🔐 بيانات دخول العميل الحالية</div>
         <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
-          <span style="font-size:12px; color:var(--text-light);">اسم المستخدم:</span>
-          <strong id="previewUsername" style="font-size:13px; color:var(--primary);"></strong>
+          <span style="font-size:12px; color:var(--text-light);">البريد الإلكتروني:</span>
+          <strong id="previewUsername" style="font-size:13px; color:var(--primary);">—</strong>
         </div>
         <div style="display:flex; justify-content:space-between;">
           <span style="font-size:12px; color:var(--text-light);">كلمة المرور:</span>
-          <strong id="previewPassword" style="font-size:13px; color:var(--green);"></strong>
+          <strong id="previewPassword" style="font-size:13px; color:var(--green);">—</strong>
         </div>
-        <div style="font-size:11px; color:var(--text-light); margin-top:8px;">📱 يمكن الاطلاع على بيانات الدخول الأصلية للعميل هنا</div>
+        <button type="button" class="submit-btn" style="margin-top:10px;padding:8px;font-size:12px" onclick="copyClientCredentialsPreview()">📋 نسخ رسالة بيانات الدخول</button>
+        <div style="font-size:11px; color:var(--text-light); margin-top:8px;">📱 هذي بيانات الدخول الحالية لهذا العميل، محفوظة بمكان يقرأه المدير فقط</div>
       </div>
 
       <button class="submit-btn green" onclick="saveNewClient()">💾 حفظ العميل وإنشاء حسابه</button>
@@ -4609,12 +4610,12 @@ async function deleteClient(id) {
 
   try {
     const [eSnap, cSnap] = await Promise.all([
-      db_fire.ref('emergencyRequests').get(),
-      db_fire.ref('complaintRequests').get()
+      firebase.database().ref('emergencyRequests').get(),
+      firebase.database().ref('complaintRequests').get()
     ]);
     const removals = [];
-    (eSnap.exists() ? Object.entries(eSnap.val()) : []).forEach(([key, v]) => { if (String(v.clientId) === String(id)) removals.push(db_fire.ref('emergencyRequests/' + key).remove()); });
-    (cSnap.exists() ? Object.entries(cSnap.val()) : []).forEach(([key, v]) => { if (String(v.clientId) === String(id)) removals.push(db_fire.ref('complaintRequests/' + key).remove()); });
+    (eSnap.exists() ? Object.entries(eSnap.val()) : []).forEach(([key, v]) => { if (String(v.clientId) === String(id)) removals.push(firebase.database().ref('emergencyRequests/' + key).remove()); });
+    (cSnap.exists() ? Object.entries(cSnap.val()) : []).forEach(([key, v]) => { if (String(v.clientId) === String(id)) removals.push(firebase.database().ref('complaintRequests/' + key).remove()); });
     await Promise.all(removals);
   } catch(e) { console.warn('تعذر حذف بعض الطلبات المرتبطة بالعميل:', e); }
 
@@ -4951,12 +4952,10 @@ async function adminMarkPaymentPaid(clientId, paymentNumber) {
   // عشان ما نطيح فوق إيصال رفعه العميل بعد آخر تحميل للبيانات عند المدير
   // (الحفظ يستبدل كامل بيانات العميل، فأي نسخة قديمة عند المدير كانت تمسح الإيصال).
   try {
-    if (typeof db_fire !== 'undefined') {
-      const snap = await db_fire.ref('clients/' + clientId).get();
-      if (snap.exists()) {
-        const fresh = snap.val();
-        if (Array.isArray(fresh.payments)) client.payments = fresh.payments;
-      }
+    const snap = await firebase.database().ref('clients/' + clientId).get();
+    if (snap.exists()) {
+      const fresh = snap.val();
+      if (Array.isArray(fresh.payments)) client.payments = fresh.payments;
     }
   } catch(e) { console.warn('تعذر تحديث بيانات العميل قبل الاعتماد:', e); }
 
@@ -5475,11 +5474,29 @@ saveVisitReport=window.saveVisitReport;
       if(startInput) startInput.value = normalizeDateOnly(client.contractStartDate || client.start || startInput.value);
       const userPreview = document.getElementById('previewUsername');
       const passPreview = document.getElementById('previewPassword');
-      if(userPreview) userPreview.textContent = client.username || '';
-      if(passPreview) passPreview.textContent = client.password || '';
+      if(userPreview) userPreview.textContent = client.username || '—';
+      if(passPreview) passPreview.textContent = client.password || '—';
+      /* v2.3.24: نجيب بيانات الدخول الحديثة (البريد/كلمة المرور المولّدة) من المكان الخاص إن وجدت */
+      firebase.database().ref('clientCredentials/' + id).get().then(snap => {
+        if(snap.exists()){
+          const cred = snap.val();
+          window.__lastClientCredPreview = {name: client.name, email: cred.email, password: cred.password};
+          if(userPreview) userPreview.textContent = cred.email || userPreview.textContent;
+          if(passPreview) passPreview.textContent = cred.password || passPreview.textContent;
+        } else {
+          window.__lastClientCredPreview = null;
+        }
+      }).catch(()=>{ window.__lastClientCredPreview = null; });
     }, 180);
   };
   editClient = window.editClient;
+
+  window.copyClientCredentialsPreview = function(){
+    const cred = window.__lastClientCredPreview;
+    if(!cred || !cred.email){ showToast('لا توجد بيانات دخول حديثة محفوظة لهذا العميل'); return; }
+    const msg = window.buildClientWelcomeMessage ? window.buildClientWelcomeMessage(cred.name, cred.email, cred.password) : `البريد: ${cred.email}\nكلمة المرور: ${cred.password}`;
+    navigator.clipboard.writeText(msg).then(()=>showToast('📋 تم نسخ رسالة بيانات الدخول')).catch(()=>showToast('تعذر النسخ'));
+  };
 
   /* تصحيح حفظ تاريخ بداية العقد عند الحفظ */
   const oldSaveNewClient_v18 = window.saveNewClient || saveNewClient;
@@ -5528,8 +5545,9 @@ saveVisitReport=window.saveVisitReport;
         if(!ok && typeof showToast === 'function') showToast('⚠️ حُفظ محلياً ولم يُحفظ في Firebase');
       }
     }
-    /* v2.3.18: عند إضافة عميل جديد (مو تعديل)، ننشئ له تلقائياً حساب دخول آمن عبر Firebase Auth
-       بدل الاعتماد على النظام القديم غير الآمن (اسم مستخدم/كلمة مرور نص عادي) */
+    /* v2.3.24: عند إضافة عميل جديد (مو تعديل)، ننشئ له تلقائياً حساب دخول آمن عبر Firebase Auth
+       بدل الاعتماد على النظام القديم غير الآمن (اسم مستخدم/كلمة مرور نص عادي)،
+       ونخزّن نسخة من بيانات الدخول بمكان خاص يقرأه المدير فقط، عشان يقدر يرجع لها لاحقاً */
     if(!oldClient){
       const justCreated = (db.clients||[]).reduce((max,c)=> (Number(c.id)>Number(max?.id||0)?c:max), null);
       if(justCreated && typeof window.createSystemUser === 'function'){
@@ -5538,10 +5556,12 @@ saveVisitReport=window.saveVisitReport;
         const genPassword = 'K'+Math.random().toString(36).slice(2,8)+Math.floor(Math.random()*90+10);
         try{
           await window.createSystemUser({name: justCreated.name, email: genEmail, password: genPassword, role: 'client', clientId: justCreated.id});
-          justCreated._generatedEmail = genEmail; justCreated._generatedPassword = genPassword;
-          setTimeout(()=>{
-            alert(`✅ تم إنشاء حساب دخول آمن لهذا العميل تلقائياً:\n\nالبريد الإلكتروني: ${genEmail}\nكلمة المرور: ${genPassword}\n\nأرسل هذه البيانات للعميل ليدخل بها من "عميل متعاقد" باستخدام البريد الإلكتروني.\n(احفظها الآن، ما راح تظهر مرة ثانية بهذا الشكل)`);
-          }, 300);
+          try{
+            await firebase.database().ref('clientCredentials/' + justCreated.id).set({
+              email: genEmail, password: genPassword, name: justCreated.name, createdAt: new Date().toISOString()
+            });
+          }catch(credErr){ console.warn('تعذر حفظ نسخة بيانات الدخول:', credErr); }
+          setTimeout(()=>showClientCredentialsBox(justCreated.name, genEmail, genPassword), 300);
         }catch(e){
           console.error('AUTO_CLIENT_ACCOUNT_ERROR', e);
           showToast('⚠️ تم حفظ العميل، لكن تعذر إنشاء حساب دخول تلقائي: ' + (e.message||'خطأ غير معروف') + ' — تقدر تنشئه يدوياً من إدارة المستخدمين');
@@ -5550,6 +5570,37 @@ saveVisitReport=window.saveVisitReport;
     }
   };
   saveNewClient = window.saveNewClient;
+
+  window.buildClientWelcomeMessage = function(clientName, email, password){
+    return `عزيزنا العميل ${clientName}،
+
+نفيدكم بأنه تم تسجيلكم بنجاح في نظام المتعاقدين الخاص بـ "خطوة محترف للتشغيل والصيانة".
+
+🔗 رابط الدخول:
+https://khotwatmuhtarif-sys.github.io/professional-step/
+
+📧 البريد الإلكتروني: ${email}
+🔑 كلمة المرور: ${password}
+
+يرجى اختيار "عميل متعاقد" عند الدخول، والمحافظة على بيانات الدخول وعدم مشاركتها مع أي جهة أخرى.
+
+شاكرين لكم حسن تعاونكم.`;
+  };
+
+  window.showClientCredentialsBox = function(clientName, email, password){
+    const msg = window.buildClientWelcomeMessage(clientName, email, password);
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:999999;display:flex;align-items:center;justify-content:center;padding:16px';
+    overlay.innerHTML = `
+      <div style="background:#fff;border-radius:14px;max-width:480px;width:100%;padding:20px;max-height:90vh;overflow:auto" dir="rtl">
+        <div style="font-weight:900;font-size:16px;color:#1a3a5c;margin-bottom:10px">✅ تم إنشاء حساب العميل — رسالة جاهزة للإرسال</div>
+        <textarea id="clientWelcomeMsgBox" readonly style="width:100%;height:220px;font-size:13px;line-height:1.7;padding:10px;border:1px solid #dbe3ea;border-radius:8px;resize:vertical;background:#f8f9fa">${msg}</textarea>
+        <div style="color:#b45309;font-size:12px;margin:8px 0">⚠️ انسخ وأرسل الرسالة الآن — كلمة المرور ما راح تظهر بهذا الشكل مرة ثانية.</div>
+        <button class="submit-btn green" style="margin-bottom:8px" onclick="const t=document.getElementById('clientWelcomeMsgBox');t.select();navigator.clipboard.writeText(t.value).then(()=>showToast('📋 تم نسخ الرسالة'))">📋 نسخ الرسالة كاملة</button>
+        <button class="submit-btn" style="background:#64748b" onclick="this.closest('div[style*=fixed]').remove()">إغلاق</button>
+      </div>`;
+    document.body.appendChild(overlay);
+  };
 
   /* مصدر واحد لعداد وقائمة الزيارات */
   window.adminVisits = function(){
@@ -5871,12 +5922,10 @@ saveVisitReport=window.saveVisitReport;
     if(!confirm('هل تريد اعتماد دفع جميع المتبقي وتحويل الدفعات المشمولة إلى مدفوعة؟')) return;
     // v2.3.3: نفس حماية عدم الكتابة فوق بيانات أحدث من Firebase
     try{
-      if(typeof db_fire!=='undefined'){
-        const snap=await db_fire.ref('clients/'+clientId).get();
-        if(snap.exists()){
-          const fresh=snap.val();
-          if(Array.isArray(fresh.payments)) client.payments=fresh.payments;
-        }
+      const snap=await firebase.database().ref('clients/'+clientId).get();
+      if(snap.exists()){
+        const fresh=snap.val();
+        if(Array.isArray(fresh.payments)) client.payments=fresh.payments;
       }
     }catch(e){ console.warn('تعذر تحديث بيانات العميل قبل اعتماد دفع الكل:', e); }
     const req = client.payAllRequest; const nums = req.includedNumbers || [];
