@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.28">
+<meta name="app-version" content="2.3.30">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -5001,6 +5001,7 @@ async function adminMarkPaymentPaid(clientId, paymentNumber) {
   payment.paidDate = paidDate || new Date().toISOString().split('T')[0];
   payment.note = note || payment.note || '';
   await persistClientPayments(client);
+  try{ await firebase.database().ref('paymentReviewAlerts/'+clientId+'_'+paymentNumber).remove(); }catch(e){}
   showToast('✅ تم اعتماد الدفعة كمدفوعة');
   adminOpenClientPayments(clientId);
 }
@@ -5028,6 +5029,7 @@ async function adminRejectPaymentReceipt(clientId, paymentNumber) {
   payment.status = 'غير مدفوعة';
   payment.note = reason || 'تم رفض الإيصال';
   await persistClientPayments(client);
+  try{ await firebase.database().ref('paymentReviewAlerts/'+clientId+'_'+paymentNumber).remove(); }catch(e){}
   showToast('تم رفض الإيصال وإرجاع الدفعة إلى غير مدفوعة');
   adminOpenClientPayments(clientId);
 }
@@ -7042,7 +7044,6 @@ https://khotwatmuhtarif-sys.github.io/professional-step/
   }
   window.saveVisitReport = async function(){
     try{
-      if(typeof window.updateReportVisitDates==='function') window.updateReportVisitDates();
       const cid=document.getElementById('reportClientSelect')?.value;
       if(!cid){ showToast && showToast('⚠️ اختر العميل أولاً'); return; }
       const info=selectedVisitInfo();
@@ -8801,7 +8802,10 @@ https://khotwatmuhtarif-sys.github.io/professional-step/
 
   window.uploadClientReceipt=function(paymentNumber){
     const c=currentClientObj(), p=ensurePayments(c,true).find(x=>Number(x.number)===Number(paymentNumber));if(!p)return showToast('الدفعة غير موجودة');
-    const input=document.createElement('input');input.type='file';input.accept='image/*,application/pdf';input.onchange=()=>{const f=input.files[0];if(!f)return;const r=new FileReader();r.onload=async()=>{p.receipt=r.result;p.receiptName=f.name;p.status='بانتظار المراجعة';p.receiptUploadedAt=new Date().toISOString();await persistClientPayments(c);showToast('✅ تم رفع الإيصال وبانتظار المراجعة');renderPanel('payments')};r.readAsDataURL(f)};input.click();
+    const input=document.createElement('input');input.type='file';input.accept='image/*,application/pdf';input.onchange=()=>{const f=input.files[0];if(!f)return;const r=new FileReader();r.onload=async()=>{p.receipt=r.result;p.receiptName=f.name;p.status='بانتظار المراجعة';p.receiptUploadedAt=new Date().toISOString();await persistClientPayments(c);
+      /* v2.3.30: تنبيه مسطّح لسهولة مراقبته عبر Make.com، زي طلبات الطوارئ بالضبط */
+      try{ await firebase.database().ref('paymentReviewAlerts/'+c.id+'_'+p.number).set({clientId:c.id, clientName:c.name||'', paymentNumber:p.number, amount:p.amount||0, receiptName:f.name, uploadedAt:new Date().toISOString()}); }catch(e){}
+      showToast('✅ تم رفع الإيصال وبانتظار المراجعة');renderPanel('payments')};r.readAsDataURL(f)};input.click();
   };
   window.clientPayments=function(){
     const c=currentClientObj(), ps=ensurePayments(c,true), s=getPaymentStats(c);
@@ -9571,6 +9575,7 @@ const DICT = {
   'ابحث باسم العميل أو رقم العقد':'Search by client name or contract no.',
   'مثال: السنبلة / 1001':'Example: 1001','📝 ملاحظة':'📝 Note'
 };
+const REVERSE_DICT = Object.fromEntries(Object.entries(DICT).map(([ar,en])=>[en,ar]));
 
 // عبارات جزئية تظهر ضمن نصوص ديناميكية أطول (اسم/رقم متغير) - تُستبدل كنص فرعي
 const PARTIAL_DICT = [
@@ -9610,6 +9615,7 @@ function translateAttr(root, attr){
 
 function translateNode(root){
   if(!root) return;
+  const lang = localStorage.getItem('khotwah_lang') || 'ar';
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
   const nodes = [];
   let n; while((n = walker.nextNode())) nodes.push(n);
@@ -9617,8 +9623,11 @@ function translateNode(root){
     const raw = node.nodeValue;
     const trimmed = raw.trim();
     if(!trimmed) return;
-    if(DICT[trimmed]){
+    if(lang==='en' && DICT[trimmed]){
       node.nodeValue = raw.replace(trimmed, DICT[trimmed]);
+    } else if(lang==='ar'){
+      const arKey = REVERSE_DICT[trimmed];
+      if(arKey) node.nodeValue = raw.replace(trimmed, arKey);
     }
   });
 }
@@ -9627,8 +9636,7 @@ function applyLanguage(){
   const lang = localStorage.getItem('khotwah_lang') || 'ar';
   const btn = document.getElementById('langToggleBtn');
   if(btn) btn.textContent = lang === 'en' ? 'AR' : 'EN';
-  if(lang !== 'en') return;
-  ['appContent','bottomNav','appTopnav'].forEach(id=>{ translateNode(document.getElementById(id)); partialTranslate(document.getElementById(id)); translateAttr(document.getElementById(id), 'placeholder'); });
+  ['appContent','bottomNav','appTopnav'].forEach(id=>{ translateNode(document.getElementById(id)); if(lang==='en'){ partialTranslate(document.getElementById(id)); translateAttr(document.getElementById(id), 'placeholder'); } });
   const roleEl = document.getElementById('navUserRole'); if(roleEl) translateNode(roleEl);
 }
 
