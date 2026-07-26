@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.30">
+<meta name="app-version" content="2.3.31">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -6922,6 +6922,34 @@ https://khotwatmuhtarif-sys.github.io/professional-step/
     }
   };
 
+  window.syncVisitNumberManualEdit_v197 = function(){
+    const id = document.getElementById('reportClientSelect')?.value;
+    const c = client195(id);
+    if (!c) return;
+    const vs = visits195(c);
+    const numInput = document.getElementById('scheduledVisitNumber');
+    const typedNumber = numInput?.value;
+    if (!typedNumber) return;
+    let idx = vs.findIndex(x => Number(x.number || x.visitNumber) === Number(typedNumber));
+    if (idx < 0 && Number(typedNumber) >= 1 && Number(typedNumber) <= vs.length) idx = Number(typedNumber) - 1;
+    const visit = idx >= 0 ? vs[idx] : null;
+    const total = vs.length;
+    const defaultInput = document.getElementById('scheduledVisitDate');
+    const idxInput = document.getElementById('scheduledVisitIndex');
+    const totalInput = document.getElementById('scheduledVisitTotal');
+    const hint = document.getElementById('scheduledVisitNumberHint');
+    const title = document.getElementById('reportUploadVisitTitle');
+    if (defaultInput) defaultInput.value = visit ? (visitDate195(visit) || '') : '';
+    if (idxInput) idxInput.value = idx >= 0 ? String(idx) : '';
+    if (totalInput) totalInput.value = total || '';
+    const titleText = visit ? `📤 رفع تقرير الزيارة رقم ${typedNumber} من ${total}` : `📤 رفع تقرير الزيارة رقم ${typedNumber}`;
+    if (title) title.textContent = titleText;
+    if (hint){
+      if (!visit) hint.textContent = `⚠️ لا توجد زيارة برقم ${typedNumber} بجدول هذا العميل`;
+      else hint.textContent = `الزيارة رقم ${typedNumber} من ${total} — من جدول الزيارات`;
+    }
+  };
+
   window.employeeUpload = function(){
     const fileBlocks = [
       ['executionImages','صور التنفيذ','executionFilesText'],
@@ -6936,7 +6964,7 @@ https://khotwatmuhtarif-sys.github.io/professional-step/
         <div class="form-group"><label class="form-label">ابحث عن العميل</label><input class="form-input" id="reportClientSearch" placeholder="اكتب اسم العميل أو رقم العقد" oninput="filterReportClients()"></div>
         <div class="form-group"><label class="form-label">اختر العميل</label><select class="form-select" id="reportClientSelect" onchange="updateReportVisitDates(); if(window.renderSelectedClientNextNote_v193) renderSelectedClientNextNote_v193();"><option value="">جاري تحميل العملاء...</option></select></div>
         <div id="selectedClientNextNote" style="margin-bottom:12px"></div>
-        <div class="form-group"><label class="form-label">رقم الزيارة</label><input type="number" min="1" class="form-input" id="scheduledVisitNumber" placeholder="يُقترح تلقائياً — عدّله لو التقرير يخص زيارة مختلفة"><input type="hidden" id="scheduledVisitTotal"></div>
+        <div class="form-group"><label class="form-label">رقم الزيارة</label><input type="number" min="1" class="form-input" id="scheduledVisitNumber" placeholder="يُقترح تلقائياً — عدّله لو التقرير يخص زيارة مختلفة" oninput="syncVisitNumberManualEdit_v197()"><input type="hidden" id="scheduledVisitTotal"></div>
         <div class="form-group"><label class="form-label">تاريخ الزيارة الافتراضي</label><input type="text" class="form-input" id="scheduledVisitDate" readonly placeholder="يظهر من جدول الزيارات"><input type="hidden" id="scheduledVisitIndex"><div id="scheduledVisitNumberHint" style="font-size:12px;color:var(--text-light);margin-top:4px">جاري تحميل جدول الزيارات...</div></div>
         <div class="form-group"><label class="form-label">تاريخ التنفيذ الفعلي</label><input type="date" class="form-input" id="actualExecutionDate" value="${today195()}"></div>
         <div class="form-group"><label class="form-label">نوع الخدمة</label><select class="form-select" id="serviceType"><option>زيارة دورية</option><option>طوارئ</option><option>متابعة</option><option>فحص مصائد الطعوم</option><option>مكافحة صراصير</option><option>مكافحة نمل أبيض</option><option>مكافحة قوارض</option><option>مكافحة طيور</option><option>تقرير متابعة ميدانية (ورقي)</option></select></div>
