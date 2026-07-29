@@ -551,8 +551,8 @@ html, body {
 /* TOP NAV */
 .topnav {
   background: linear-gradient(135deg, var(--primary), var(--primary-light));
-  padding: 0 20px;
-  height: 64px;
+  padding: 10px 20px;
+  min-height: 64px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -5390,6 +5390,7 @@ window.openClientServiceLog=function(clientId){
   <button class="submit-btn" style="margin:12px 0" onclick="addNextTechNote(${c.id}, ${reps[0]?reps[0].id:'null'})">📝 إضافة ملاحظة للفني القادم</button>
   <div class="section-title">📄 تقارير الزيارات السابقة</div>${reps.length?reps.map((r,i)=>`<div class="tech-report-block ${i===0?'latest':''}"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>الزيارة ${esc(getVisitNumberForReport(c,r))}</b><span>${esc(r.date||'')}</span><span>الفني: ${esc(r.tech||r.employeeName||'-')}</span></div><div style="margin-top:8px;color:#475569">${esc(r.notes||'لا توجد ملاحظات في التقرير')}</div><div class="tech-log-actions" style="margin-top:10px"><button class="mini-btn green" onclick="openReportDetails(${r.id})">📄 عرض التقرير</button><button class="mini-btn gray" onclick="addNextTechNote(${c.id},${r.id})">📝 ملاحظة للزيارة القادمة</button></div></div>`).join(''):'<div class="card">لا توجد تقارير لهذا العميل</div>'}`;
   document.getElementById('modalOverlay').classList.add('active');
+  if(typeof applyLanguage==='function') applyLanguage();
 };
 
 window.addNextTechNote=async function(clientId, reportId=null){
@@ -9668,7 +9669,16 @@ const DICT = {
   'المتبقي':'Remaining','المحصّل':'Collected','قيمة العقد':'Contract Value','طريقة الدفع':'Payment Method',
   'الاستحقاق':'Due Date','القيمة':'Amount','الوصف':'Description','النوع':'Type','النشاط':'Activity',
   'الصلاحية':'Role','آخر دخول':'Last Login','المدينة':'City','المستخدم':'User',
-  'الإجراء':'Action','إجراء':'Action','إجراءات':'Actions','التاريخ':'Date'
+  'الإجراء':'Action','إجراء':'Action','إجراءات':'Actions','التاريخ':'Date',
+  // v2.3.36: حقول تفاصيل التقرير (بالنقطتين)، أزرار الشاشة، ونصوص نافذة سجل العميل للفني
+  'العميل:':'Client:','رقم الزيارة:':'Visit Number:','الفني:':'Technician:','نوع الزيارة:':'Visit Type:',
+  'التاريخ:':'Date:','المواد المستخدمة:':'Materials Used:','الملاحظات:':'Notes:',
+  'الآفات المرصودة:':'Pests Observed:','الحالة:':'Status:','عدد التقارير:':'Reports Count:',
+  '📄 صور التقرير الورقي':'📄 Paper Report Photos','🗺️ صورة خريطة الطعوم':'🗺️ Bait Map Photo',
+  '⬇️ تحميل التقرير PDF':'⬇️ Download Report PDF','🗑️ حذف التقرير':'🗑️ Delete Report','رجوع':'Back',
+  '📄 عرض التقرير':'📄 View Report','📝 ملاحظة للزيارة القادمة':'📝 Note for Next Visit',
+  'لا توجد ملاحظات في التقرير':'No notes in the report','لا توجد ملاحظة':'No note',
+  '📄 آخر تقرير':'📄 Last Report'
 };
 const REVERSE_DICT = Object.fromEntries(Object.entries(DICT).map(([ar,en])=>[en,ar]));
 
@@ -9680,11 +9690,14 @@ const PARTIAL_DICT = [
   [' من جدول الزيارات',' from the visit schedule'],
   ['من:','From:'],
   ['كتبها:','Written by:'],
-  ['تخص الزيارة','Related to visit']
+  ['تخص الزيارة','Related to visit'],
+  ['سجل العميل — ','Client History — ']
 ];
 // أنماط تعتمد على تعابير نمطية (regex) - لحالات فيها أرقام متغيرة بين النصوص
 const REGEX_DICT = [
-  [/(\d+)\s*من\s*(\d+)/g, '$1 of $2']
+  [/(\d+)\s*من\s*(\d+)/g, '$1 of $2'],
+  [/الزيارة\s+(\d+)/g, 'Visit $1'],
+  [/الزيارة\s*—/g, 'Visit —']
 ];
 function partialTranslate(root){
   if(!root) return;
@@ -9731,7 +9744,7 @@ function applyLanguage(){
   const lang = localStorage.getItem('khotwah_lang') || 'ar';
   const btn = document.getElementById('langToggleBtn');
   if(btn) btn.textContent = lang === 'en' ? 'AR' : 'EN';
-  ['appContent','bottomNav','appTopnav'].forEach(id=>{ translateNode(document.getElementById(id)); if(lang==='en'){ partialTranslate(document.getElementById(id)); translateAttr(document.getElementById(id), 'placeholder'); } });
+  ['appContent','bottomNav','appTopnav','modalOverlay'].forEach(id=>{ translateNode(document.getElementById(id)); if(lang==='en'){ partialTranslate(document.getElementById(id)); translateAttr(document.getElementById(id), 'placeholder'); } });
   const roleEl = document.getElementById('navUserRole'); if(roleEl) translateNode(roleEl);
 }
 
