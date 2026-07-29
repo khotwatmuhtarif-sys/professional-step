@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.33">
+<meta name="app-version" content="2.3.34">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -5574,26 +5574,30 @@ saveVisitReport=window.saveVisitReport;
     const oldClient = (db.clients || []).find(c => String(c.id) === String(editingId));
     const explicitStart = document.getElementById('contractStartDate')?.value || '';
     const explicitVisits = parseInt(document.getElementById('newClientVisits')?.value) || 0;
+    const explicitFreq = document.getElementById('visitFrequency')?.value || '';
     const beforeSchedule = oldClient?.visitSchedule ? JSON.stringify(oldClient.visitSchedule) : '';
-    // v2.3.6: نقارن فعلياً هل المدير غيّر تاريخ البداية أو عدد الزيارات، مو بس هل الحقل معبّى
+    // v2.3.6: نقارن فعلياً هل المدير غيّر تاريخ البداية أو عدد الزيارات أو تكرارها، مو بس هل الحقل معبّى
     const oldStart = String(oldClient?.contractStartDate || oldClient?.start || '');
     const oldVisitsCount = Number(oldClient?.visits || 0);
-    const scheduleParamsChanged = !!(oldClient && (String(explicitStart) !== oldStart || (explicitVisits && explicitVisits !== oldVisitsCount)));
+    const oldFreq = String(oldClient?.frequency || oldClient?.visitFrequency || '');
+    const scheduleParamsChanged = !!(oldClient && (String(explicitStart) !== oldStart || (explicitVisits && explicitVisits !== oldVisitsCount) || (explicitFreq && explicitFreq !== oldFreq)));
     if(oldClient && beforeSchedule && scheduleParamsChanged){
       let oldArr = []; try{ oldArr = JSON.parse(beforeSchedule); }catch(e){}
       const hasExecuted = oldArr.some(v=>v.executionDate||v.doneDate||v.completedAt||['منفذة','مكتملة'].includes(v.status||''));
       if(hasExecuted){
-        const proceed = confirm('⚠️ تنبيه: هذا العميل عنده زيارات منفذة مسبقاً بجدوله الحالي.\nتغيير تاريخ بداية العقد أو عدد الزيارات سيُنشئ جدول زيارات جديد بالكامل وقد يفقد سجل الزيارات المنفذة السابقة (بما فيها التقارير المرتبطة).\n\nهل تريد المتابعة وإنشاء جدول جديد فعلاً؟');
+        const proceed = confirm('⚠️ تنبيه: هذا العميل عنده زيارات منفذة مسبقاً بجدوله الحالي.\nتغيير تاريخ بداية العقد أو عدد الزيارات أو تكرارها سيُنشئ جدول زيارات جديد بالكامل وقد يفقد سجل الزيارات المنفذة السابقة (بما فيها التقارير المرتبطة).\n\nهل تريد المتابعة وإنشاء جدول جديد فعلاً؟');
         if(!proceed){
-          // نلغي التعديل على تاريخ البداية وعدد الزيارات فقط، ونكمل حفظ باقي الحقول بأمان
+          // نلغي التعديل على تاريخ البداية وعدد الزيارات والتكرار فقط، ونكمل حفظ باقي الحقول بأمان
           if(document.getElementById('contractStartDate')) document.getElementById('contractStartDate').value = oldStart;
           if(document.getElementById('newClientVisits')) document.getElementById('newClientVisits').value = oldVisitsCount || '';
+          if(document.getElementById('visitFrequency') && oldFreq) document.getElementById('visitFrequency').value = oldFreq;
         }
       }
     }
     const explicitStartFinal = document.getElementById('contractStartDate')?.value || '';
     const explicitVisitsFinal = parseInt(document.getElementById('newClientVisits')?.value) || 0;
-    const scheduleParamsChangedFinal = !!(oldClient && (String(explicitStartFinal) !== oldStart || (explicitVisitsFinal && explicitVisitsFinal !== oldVisitsCount)));
+    const explicitFreqFinal = document.getElementById('visitFrequency')?.value || '';
+    const scheduleParamsChangedFinal = !!(oldClient && (String(explicitStartFinal) !== oldStart || (explicitVisitsFinal && explicitVisitsFinal !== oldVisitsCount) || (explicitFreqFinal && explicitFreqFinal !== oldFreq)));
     await oldSaveNewClient_v18.apply(this, arguments);
     const saved = (db.clients || []).find(c => String(c.id) === String(editingId));
     if(saved){
@@ -9657,7 +9661,14 @@ const DICT = {
   '📸 صور محطات ومصائد القوارض':'📸 Bait Stations & Rodent Traps Photos',
   '🔍 ابحث باسم العميل أو رقم العقد':'🔍 Search by client name or contract no.',
   'ابحث باسم العميل أو رقم العقد':'Search by client name or contract no.',
-  'مثال: السنبلة / 1001':'Example: 1001','📝 ملاحظة':'📝 Note'
+  'مثال: السنبلة / 1001':'Example: 1001','📝 ملاحظة':'📝 Note',
+  // v2.3.35: رؤوس جداول كانت مفقودة من القاموس (سبب ظهور الشاشة نصف مترجمة نصف عربي)
+  'التقرير':'Report','التاريخ المجدول':'Scheduled Date','تاريخ التنفيذ':'Execution Date',
+  'الموعد الافتراضي':'Default Date','موعد التنفيذ':'Execution Date','نوع الزيارة':'Visit Type',
+  'المتبقي':'Remaining','المحصّل':'Collected','قيمة العقد':'Contract Value','طريقة الدفع':'Payment Method',
+  'الاستحقاق':'Due Date','القيمة':'Amount','الوصف':'Description','النوع':'Type','النشاط':'Activity',
+  'الصلاحية':'Role','آخر دخول':'Last Login','المدينة':'City','المستخدم':'User',
+  'الإجراء':'Action','إجراء':'Action','إجراءات':'Actions','التاريخ':'Date'
 };
 const REVERSE_DICT = Object.fromEntries(Object.entries(DICT).map(([ar,en])=>[en,ar]));
 
