@@ -18,6 +18,14 @@
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<!-- مكتبات ضغط ملفات PDF (v2.3.40): pdf.js لقراءة الصفحات، jsPDF لإعادة بنائها بجودة أقل -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+  if (window['pdfjsLib']) {
+    window['pdfjsLib'].GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  }
+</script>
 <script>
   // انتظر تحميل Firebase
   function initFirebase() {
@@ -1089,6 +1097,38 @@ html, body {
 .status-badge.active { background: #e8f5e9; color: var(--green); }
 .status-badge.pending { background: #fff8e1; color: var(--gold); }
 .status-badge.expired { background: #fce4ec; color: var(--red); }
+
+/* ===== تنبيهات اقتراب/انتهاء العقد ===== */
+.pulse-dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-left:8px;position:relative;top:-1px;}
+.pulse-dot::after{content:'';position:absolute;inset:0;border-radius:50%;animation:pulseRing 1.8s ease-out infinite;}
+.pulse-dot.yellow{background:#eab308;}
+.pulse-dot.yellow::after{background:#eab308;}
+.pulse-dot.orange{background:#f97316;animation:blinkFast 1s infinite;}
+.pulse-dot.orange::after{background:#f97316;animation-duration:1s;}
+.pulse-dot.red{background:#ef4444;animation:blinkFast .6s infinite;}
+.pulse-dot.red::after{background:#ef4444;animation-duration:.6s;}
+@keyframes pulseRing{0%{transform:scale(1);opacity:.6;}100%{transform:scale(2.4);opacity:0;}}
+@keyframes blinkFast{0%,100%{opacity:1;}50%{opacity:.35;}}
+
+.status-warn{border-radius:12px;padding:16px;text-align:center;border:1px solid;}
+.status-warn.tier30{background:#fefce8;border-color:#fde047;}
+.status-warn.tier15{background:#fff7ed;border-color:#fdba74;}
+.status-warn.tier7{background:#fef2f2;border-color:#fca5a5;}
+.status-warn .big{font-size:16px;font-weight:800;}
+.status-warn.tier30 .big{color:#854d0e;}
+.status-warn.tier15 .big{color:#9a3412;}
+.status-warn.tier7 .big{color:#991b1b;}
+.status-warn .small{font-size:12px;color:var(--text-light);margin-top:6px;}
+
+.status-expired{background:linear-gradient(135deg,#fff7ed,#fef3c7);border:1px solid #fbbf24;border-radius:12px;padding:18px;text-align:center;}
+.status-expired .badge-icon{font-size:24px;margin-bottom:6px;}
+.status-expired .big{font-size:17px;font-weight:800;color:#b45309;}
+.status-expired .small{font-size:12.5px;color:#92400e;margin-top:6px;line-height:1.6;}
+.status-expired .remain-badge{display:inline-block;background:#fef3c7;color:#92400e;border:1px solid #f59e0b;border-radius:20px;padding:6px 16px;font-size:12.5px;font-weight:800;margin-top:10px;}
+.status-expired .msg-box{margin-top:14px;background:#fffbeb;border:1px dashed #f59e0b;border-radius:10px;padding:12px 14px;font-size:13px;font-weight:700;color:#78350f;line-height:1.9;}
+
+.mini-status-dot{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;}
+
 
 /* MODAL */
 .modal-overlay {
@@ -2728,6 +2768,25 @@ function adminPendingReviewList() {
 }
 
 // ===== ADMIN CLIENTS =====
+function renderAdminStatusPill(c) {
+  if (typeof window.getContractStatusInfo !== 'function') {
+    return `<span class="status-badge ${c.status}">${c.status === 'active' ? 'نشط' : 'ينتهي قريباً'}</span>`;
+  }
+  const info = window.getContractStatusInfo(c);
+  if (info.tier === 'expired') {
+    return `<span class="mini-status-dot" style="color:#b45309;"><span class="pulse-dot" style="background:#f59e0b;animation:none;"></span>منتهي</span>`;
+  }
+  if (info.tier === 'warn7') {
+    return `<span class="mini-status-dot" style="color:#991b1b;"><span class="pulse-dot red"></span>ينتهي خلال ${info.daysLeft} ${info.daysLeft === 1 ? 'يوم' : 'أيام'}</span>`;
+  }
+  if (info.tier === 'warn15') {
+    return `<span class="mini-status-dot" style="color:#9a3412;"><span class="pulse-dot orange"></span>ينتهي خلال ${info.daysLeft} يوم</span>`;
+  }
+  if (info.tier === 'warn30') {
+    return `<span class="mini-status-dot" style="color:#854d0e;"><span class="pulse-dot yellow"></span>ينتهي خلال ${info.daysLeft} يوم</span>`;
+  }
+  return `<span class="status-badge active">نشط</span>`;
+}
 function adminClients() {
   function filterClientsTable(value) {
     const q = (value || '').toLowerCase();
@@ -2741,7 +2800,10 @@ function adminClients() {
   return `
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
       <div class="section-title" style="margin:0;">👥 جميع العملاء (${db.clients.length})</div>
-      <button class="submit-btn" style="width:auto; padding:8px 16px; font-size:13px;" onclick="openModal('newClient')">+ إضافة عميل</button>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="submit-btn" style="width:auto; padding:8px 16px; font-size:13px; background:#0f766e;" onclick="exportClientsReportCSV()">⬇️ تصدير جدول لجميع العملاء</button>
+        <button class="submit-btn" style="width:auto; padding:8px 16px; font-size:13px;" onclick="openModal('newClient')">+ إضافة عميل</button>
+      </div>
     </div>
     <input
 id="clientSearch"
@@ -2770,9 +2832,7 @@ oninput="filterClientsTable(this.value)"
   </small>
 </td>
               <td>
-  <span class="status-badge ${c.status}">
-    ${c.status === 'active' ? 'نشط' : 'ينتهي قريباً'}
-  </span>
+  ${renderAdminStatusPill(c)}
 </td>
 
 <td>
@@ -2807,6 +2867,41 @@ oninput="filterClientsTable(this.value)"
     </div>
   `;
 }
+
+// ===== تصدير جدول شامل لجميع العملاء مباشرة كملف إكسل (بدون أي صفحة وسيطة) =====
+function exportClientsReportCSV() {
+    const header = ['العميل', 'رقم التواصل', 'بداية العقد', 'نهاية العقد', 'المدفوع', 'المتبقي', 'عدد الزيارات', 'قيمة العقد'];
+    const rows = db.clients.map(c => {
+        const stats = getPaymentStats(c);
+        return [
+            c.name || '-',
+            c.phone || '-',
+            c.contractStartDate || c.start || '-',
+            c.end || '-',
+            stats.paid,
+            stats.remaining,
+            `${c.used || 0}/${c.visits || 0}`,
+            stats.contractValue
+        ];
+    });
+
+    let csv = '\uFEFF' + header.join(',') + '\n';
+    rows.forEach(r => {
+        csv += r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',') + '\n';
+    });
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'تقرير_العملاء_' + new Date().toISOString().split('T')[0] + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('✅ تم تصدير التقرير');
+}
+
 function showClientSchedule(id) {
     const client = db.clients.find(c => c.id == id);
 
@@ -5545,19 +5640,26 @@ saveVisitReport=window.saveVisitReport;
     input.type = 'file'; input.accept = 'application/pdf,image/*';
     input.onchange = () => {
       const f = input.files?.[0]; if(!f) return;
-      const reader = new FileReader();
-      reader.onload = async () => {
-        const client = (db.clients||[]).find(c => String(c.id) === String(id));
-        if(!client) return;
-        client.contractPdf = reader.result;
-        client.contractPdfName = f.name;
-        saveDB();
-        if(typeof saveClientToFirebase === 'function') await saveClientToFirebase(client);
-        const pdfStatus = document.getElementById('contractPdfStatus');
-        if(pdfStatus) pdfStatus.innerHTML = `📎 ${escapeHtml(f.name)} <button type="button" class="submit-btn" style="width:auto;padding:4px 10px;font-size:11px;margin-inline-start:8px" onclick="viewClientContractPdfAdmin(${id})">👁️ عرض</button>`;
-        showToast('✅ تم رفع نسخة العقد بنجاح');
-      };
-      reader.readAsDataURL(f);
+      const pdfStatus0 = document.getElementById('contractPdfStatus');
+      (async () => {
+        try {
+          if (pdfStatus0) pdfStatus0.innerHTML = '⏳ جاري تحسين حجم الملف قبل الرفع...';
+          const { data, name } = await compressFileForUpload(f, (msg) => { if (pdfStatus0) pdfStatus0.innerHTML = '⏳ ' + msg; });
+          const client = (db.clients||[]).find(c => String(c.id) === String(id));
+          if(!client) return;
+          client.contractPdf = data;
+          client.contractPdfName = name;
+          saveDB();
+          if(typeof saveClientToFirebase === 'function') await saveClientToFirebase(client);
+          const pdfStatus = document.getElementById('contractPdfStatus');
+          if(pdfStatus) pdfStatus.innerHTML = `📎 ${escapeHtml(name)} <button type="button" class="submit-btn" style="width:auto;padding:4px 10px;font-size:11px;margin-inline-start:8px" onclick="viewClientContractPdfAdmin(${id})">👁️ عرض</button>`;
+          showToast('✅ تم رفع نسخة العقد بنجاح');
+        } catch (e) {
+          showToast('❌ ' + (e.message || 'تعذر رفع الملف'));
+          const pdfStatus = document.getElementById('contractPdfStatus');
+          if (pdfStatus) pdfStatus.innerHTML = 'لا توجد نسخة مرفوعة بعد';
+        }
+      })();
     };
     input.click();
   };
@@ -6923,12 +7025,17 @@ https://khotwatmuhtarif-sys.github.io/professional-step/
   window.refreshReportClientSelect_v195 = async function(force){
     const select = document.getElementById('reportClientSelect');
     if (!select) return;
-    const old = select.value;
+    const alreadyLoaded = clients195().length > 0;
     const q = String(document.getElementById('reportClientSearch')?.value || '').toLowerCase().trim();
-    if (!clients195().length || force){
-      select.innerHTML = '<option value="">جاري تحميل العملاء...</option>';
+    // نجلب من فايربيس فقط إذا القائمة فاضية فعلاً أو طُلب تحديث صريح — بدون ما نمسح
+    // اختيار الفني الحالي من الشاشة أثناء انتظار الشبكة (هذا كان سبب رجوع الاختيار لأول عميل).
+    if (!alreadyLoaded || force){
+      if (!alreadyLoaded) select.innerHTML = '<option value="">جاري تحميل العملاء...</option>';
       await ensureClients195(!!force);
     }
+    // نقرأ القيمة المختارة الآن (بعد انتظار الشبكة) وليس قبلها، عشان لو الفني اختار
+    // العميل أثناء التحميل ما نفقد اختياره.
+    const old = select.value;
     const filtered = clients195().filter(c => {
       const txt = [c.name,c.englishName,c.id,c.contractNo,c.contractNumber,c.username,c.location,c.city].join(' ').toLowerCase();
       return !q || txt.includes(q);
@@ -7003,7 +7110,8 @@ https://khotwatmuhtarif-sys.github.io/professional-step/
       ['baitMapImages','صورة خريطة الطعوم','baitMapFilesText'],
       ['rodentStationImages','صور محطات ومصائد القوارض','rodentStationFilesText']
     ].map(([id,lbl,txt]) => `<div class="form-group"><label class="form-label">📸 ${esc195(lbl)}</label><input type="file" id="${id}" accept="image/*" multiple style="display:none" onchange="showFileNames('${id}','${txt}')"><div class="pest-upload-area" onclick="document.getElementById('${id}').click()"><div style="font-size:32px">📸</div><div>${esc195(lbl)}</div><div id="${txt}" style="font-size:12px;color:var(--text-light)">لم يتم اختيار صور</div></div></div>`).join('');
-    setTimeout(() => window.refreshReportClientSelect_v195(true), 120);
+    // ملاحظة: تحميل قائمة العملاء يتم استدعاؤه مرة واحدة فقط من initPanelJS (بالأسفل)
+    // بدل ما يتكرر هنا كمان — كان التكرار يسبب سباق تحديثين بنفس اللحظة يفقد اختيار الفني.
     return `<div class="section-title" id="reportUploadVisitTitle">📤 رفع تقرير زيارة</div>
       <div class="card">
         <div class="form-group"><label class="form-label">ابحث عن العميل</label><input class="form-input" id="reportClientSearch" placeholder="اكتب اسم العميل أو رقم العقد" oninput="filterReportClients()"></div>
@@ -7084,6 +7192,77 @@ https://khotwatmuhtarif-sys.github.io/professional-step/
     const v=idx>=0?vs[idx]:null;
     return {client:c, visits:vs, visit:v, index:idx, number:typedNumber || (v?(v.number||v.visitNumber||idx+1):''), total:document.getElementById('scheduledVisitTotal')?.value || vs.length};
   }
+  // ===== ضغط شامل للملفات قبل الرفع (v2.3.40) — يشتغل على PDF والصور مع بعض =====
+  // الهدف: تقليل حجم عقود/فواتير/إيصالات الـ PDF (غالباً سكانات جوال بدقة عالية جداً)
+  // قبل ما تترفع لفايربيس، بدون ما يأثر على وضوح القراءة بشكل ملحوظ.
+  window.compressPdfFile = async function compressPdfFile(file, {maxWidthPx = 1400, quality = 0.55, maxPages = 30} = {}) {
+    if (!window['pdfjsLib'] || !window['jspdf']) {
+      // لو المكتبات ما تحمّلت (مشكلة إنترنت مثلاً)، نكمل بدون ضغط بدل ما نوقف المستخدم
+      return null;
+    }
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await window['pdfjsLib'].getDocument({ data: arrayBuffer }).promise;
+    const numPages = Math.min(pdf.numPages, maxPages);
+    const { jsPDF } = window['jspdf'];
+    let outDoc = null;
+
+    for (let i = 1; i <= numPages; i++) {
+      const page = await pdf.getPage(i);
+      const baseViewport = page.getViewport({ scale: 1 });
+      const scale = Math.min(maxWidthPx / baseViewport.width, 2.5);
+      const viewport = page.getViewport({ scale: Math.max(scale, 0.5) });
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(viewport.width);
+      canvas.height = Math.round(viewport.height);
+      const ctx = canvas.getContext('2d');
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      const imgData = canvas.toDataURL('image/jpeg', quality);
+
+      const pageWmm = canvas.width * 0.264583; // بكسل إلى مليمتر (96dpi تقريبي)
+      const pageHmm = canvas.height * 0.264583;
+      const orientation = pageWmm > pageHmm ? 'l' : 'p';
+
+      if (!outDoc) {
+        outDoc = new jsPDF({ orientation, unit: 'mm', format: [pageWmm, pageHmm] });
+      } else {
+        outDoc.addPage([pageWmm, pageHmm], orientation);
+      }
+      outDoc.addImage(imgData, 'JPEG', 0, 0, pageWmm, pageHmm);
+    }
+    if (!outDoc) return null;
+    return outDoc.output('datauristring');
+  }
+
+  // نقطة الدخول الموحدة: تضغط PDF أو صورة حسب نوع الملف، وترجع dataURL جاهز للحفظ.
+  // لو الضغط فشل لأي سبب، ترجع الملف الأصلي بدل ما توقف عملية الرفع بالكامل.
+  window.compressFileForUpload = async function compressFileForUpload(file, statusCallback) {
+    const MAX_RAW_SIZE = 40 * 1024 * 1024; // شبكة أمان: أي ملف أكبر من 40 ميجا يُرفض قبل حتى محاولة الضغط
+    if (file.size > MAX_RAW_SIZE) {
+      throw new Error('حجم الملف كبير جداً (أكبر من 40 ميجا) حتى بعد محاولة الضغط. يرجى رفع نسخة أخف.');
+    }
+    try {
+      if (file.type === 'application/pdf') {
+        if (statusCallback) statusCallback('جاري تحسين حجم الملف...');
+        const compressed = await compressPdfFile(file);
+        if (compressed) return { data: compressed, name: file.name };
+      } else if (file.type.startsWith('image/') && typeof compressImage_v196 === 'function') {
+        if (statusCallback) statusCallback('جاري تحسين حجم الصورة...');
+        const compressed = await compressImage_v196(file, 1400, 0.6);
+        if (compressed) return { data: compressed.data, name: file.name };
+      }
+    } catch (e) {
+      console.error('فشل ضغط الملف، سيتم رفع النسخة الأصلية:', e);
+    }
+    // فallback: نرجع الملف الأصلي بدون ضغط (لو فشل الضغط أو النوع غير مدعوم)
+    const rawData = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error('تعذر قراءة الملف: ' + file.name));
+      reader.readAsDataURL(file);
+    });
+    return { data: rawData, name: file.name };
+  }
+
   function compressImage_v196(file, maxWidth=900, quality=.55){
     return new Promise((resolve,reject)=>{
       if(!file) return resolve(null);
@@ -8875,10 +9054,20 @@ https://khotwatmuhtarif-sys.github.io/professional-step/
 
   window.uploadClientReceipt=function(paymentNumber){
     const c=currentClientObj(), p=ensurePayments(c,true).find(x=>Number(x.number)===Number(paymentNumber));if(!p)return showToast('الدفعة غير موجودة');
-    const input=document.createElement('input');input.type='file';input.accept='image/*,application/pdf';input.onchange=()=>{const f=input.files[0];if(!f)return;const r=new FileReader();r.onload=async()=>{p.receipt=r.result;p.receiptName=f.name;p.status='بانتظار المراجعة';p.receiptUploadedAt=new Date().toISOString();await persistClientPayments(c);
-      /* v2.3.30: تنبيه مسطّح لسهولة مراقبته عبر Make.com، زي طلبات الطوارئ بالضبط */
-      try{ await firebase.database().ref('paymentReviewAlerts/'+c.id+'_'+p.number).set({clientId:c.id, clientName:c.name||'', paymentNumber:p.number, amount:p.amount||0, receiptName:f.name, uploadedAt:new Date().toISOString()}); }catch(e){}
-      showToast('✅ تم رفع الإيصال وبانتظار المراجعة');renderPanel('payments')};r.readAsDataURL(f)};input.click();
+    const input=document.createElement('input');input.type='file';input.accept='image/*,application/pdf';input.onchange=()=>{const f=input.files[0];if(!f)return;
+      (async () => {
+        try {
+          showToast('⏳ جاري تحسين حجم الملف...');
+          const { data, name } = await compressFileForUpload(f);
+          p.receipt=data;p.receiptName=name;p.status='بانتظار المراجعة';p.receiptUploadedAt=new Date().toISOString();await persistClientPayments(c);
+          /* v2.3.30: تنبيه مسطّح لسهولة مراقبته عبر Make.com، زي طلبات الطوارئ بالضبط */
+          try{ await firebase.database().ref('paymentReviewAlerts/'+c.id+'_'+p.number).set({clientId:c.id, clientName:c.name||'', paymentNumber:p.number, amount:p.amount||0, receiptName:name, uploadedAt:new Date().toISOString()}); }catch(e){}
+          showToast('✅ تم رفع الإيصال وبانتظار المراجعة');renderPanel('payments');
+        } catch (e) {
+          showToast('❌ ' + (e.message || 'تعذر رفع الإيصال'));
+        }
+      })();
+    };input.click();
   };
   window.clientPayments=function(){
     const c=currentClientObj(), ps=ensurePayments(c,true), s=getPaymentStats(c);
@@ -9270,6 +9459,42 @@ window.computeContractEndDate=function(c){
   d.setFullYear(d.getFullYear()+1);
   return d.toISOString().slice(0,10);
 };
+window.getContractStatusInfo=function(c){
+  const endD=c.contractEndDate||c.endDate||window.computeContractEndDate(c);
+  if(!endD) return {tier:'active',daysLeft:null,endDate:endD,remainingVisits:0};
+  const end=new Date(endD);
+  if(isNaN(end.getTime())) return {tier:'active',daysLeft:null,endDate:endD,remainingVisits:0};
+  const now=new Date();
+  end.setHours(0,0,0,0);
+  now.setHours(0,0,0,0);
+  const daysLeft=Math.round((end-now)/86400000);
+  let remainingVisits=0;
+  try{ remainingVisits=visitsMetrics(c).remaining; }catch(e){ remainingVisits=Math.max(N(c.visits)-N(c.used),0); }
+  let tier;
+  if(daysLeft<0) tier='expired';
+  else if(daysLeft<=7) tier='warn7';
+  else if(daysLeft<=15) tier='warn15';
+  else if(daysLeft<=30) tier='warn30';
+  else tier='active';
+  return {tier,daysLeft,endDate:endD,remainingVisits};
+};
+function buildContractStatusCard(c,startD,endD){
+  const info=window.getContractStatusInfo(c);
+  if(info.tier==='expired'){
+    const remainText=info.remainingVisits>0
+      ?`🔄 باقي في رصيدك ${info.remainingVisits} ${info.remainingVisits===1?'زيارة':'زيارات'} ستنتقل معك إلى العقد الجديد`
+      :`🔄 باقي في رصيدك 0 من الزيارات`;
+    return `<div class="card" style="margin-bottom:14px"><div style="font-weight:900;color:var(--primary);margin-bottom:8px">📅 حالة العقد</div><div class="status-expired"><div class="badge-icon">⚠️</div><div class="big">عقدك منتهي</div><div class="small">بداية العقد: ${E(startD)} &nbsp;|&nbsp; نهاية العقد: ${E(endD||'-')}</div><div class="remain-badge">${remainText}</div><div class="msg-box">يرجى البدء في معاملة تجديد العقد لكي تكون أموركم نظامية في عقد مكافحة الآفات اللازم من الجهات الرقابية.</div></div><button class="submit-btn" style="margin-top:10px" onclick="viewContractPdf()">📄 عرض نسخة العقد PDF</button></div>`;
+  }
+  if(info.tier==='warn30'||info.tier==='warn15'||info.tier==='warn7'){
+    const tierClass=info.tier==='warn7'?'tier7':info.tier==='warn15'?'tier15':'tier30';
+    const dotClass=info.tier==='warn7'?'red':info.tier==='warn15'?'orange':'yellow';
+    const d=info.daysLeft;
+    const daysWord=d===0?'اليوم':d===1?'يوم واحد':d===2?'يومين':(d<=10?`${d} أيام`:`${d} يوم`);
+    return `<div class="card" style="margin-bottom:14px"><div style="font-weight:900;color:var(--primary);margin-bottom:8px">📅 حالة العقد</div><div class="status-warn ${tierClass}"><div class="big"><span class="pulse-dot ${dotClass}"></span>ينتهي عقدك خلال ${daysWord}</div><div class="small">تاريخ الانتهاء: ${E(endD||'-')} — يرجى التواصل لتجديد العقد</div></div><button class="submit-btn" style="margin-top:10px" onclick="viewContractPdf()">📄 عرض نسخة العقد PDF</button></div>`;
+  }
+  return `<div class="card" style="margin-bottom:14px"><div style="font-weight:900;color:var(--primary);margin-bottom:8px">📅 حالة العقد</div><div>عقدك نشط حتى <b>${E(endD||'-')}</b></div><div style="font-size:12px;color:var(--text-light);margin-top:4px">بداية العقد: ${E(startD)} &nbsp;|&nbsp; نهاية العقد: ${E(endD||'-')}</div><button class="submit-btn" style="margin-top:10px" onclick="viewContractPdf()">📄 عرض نسخة العقد PDF</button></div>`;
+}
 window.viewContractPdf=function(){
   const c=clientNowFinal();
   if(!c.contractPdf) return showToast('لا توجد نسخة من العقد مرفوعة بعد، تواصل مع الإدارة');
@@ -9280,7 +9505,7 @@ window.clientHome=function(){
  const summary=typeof paymentSummaryCard==='function'?paymentSummaryCard(c):'';
  const startD=c.contractStartDate||c.start||'';
  const endD=c.contractEndDate||c.endDate||window.computeContractEndDate(c);
- const contractCard=startD?`<div class="card" style="margin-bottom:14px"><div style="font-weight:900;color:var(--primary);margin-bottom:8px">📅 حالة العقد</div><div>عقدك نشط حتى <b>${E(endD||'-')}</b></div><div style="font-size:12px;color:var(--text-light);margin-top:4px">بداية العقد: ${E(startD)} &nbsp;|&nbsp; نهاية العقد: ${E(endD||'-')}</div><button class="submit-btn" style="margin-top:10px" onclick="viewContractPdf()">📄 عرض نسخة العقد PDF</button></div>`:'';
+ const contractCard=startD?buildContractStatusCard(c,startD,endD):'';
  return `<div class="welcome-header"><h2>أهلاً بك 👋</h2><p>${E(c.name||'عميلنا العزيز')}</p><span class="contract-badge">عقد #${E(c.id||'-')}</span></div>${contractCard}${summary}
  <div class="stats-row cols-3"><div class="stat-card clickable-stat" onclick="renderPanel('client_visits')"><span class="stat-icon">📅</span><span class="stat-num green">${m.remaining}</span><span class="stat-label">زيارات متبقية — اضغط لعرض الجدول</span></div><div class="stat-card clickable-stat" onclick="renderPanel('client_visits')"><span class="stat-icon">✅</span><span class="stat-num">${m.completed}</span><span class="stat-label">زيارات منفذة</span></div><div class="stat-card" onclick="renderPanel('reports')"><span class="stat-icon">📋</span><span class="stat-num">${m.reports.length}</span><span class="stat-label">تقارير</span></div></div>
  <div class="section-title">⚡ إجراءات سريعة</div><div class="action-grid"><div class="action-btn emergency" onclick="openModal('emergency')"><span class="btn-icon">🚨</span><span class="btn-label">طوارئ</span><span class="btn-sub">طلب عاجل</span></div><div class="action-btn" onclick="openModal('complaint')"><span class="btn-icon">📣</span><span class="btn-label">شكوى أو اقتراح</span></div><div class="action-btn" onclick="renderPanel('client_requests')"><span class="btn-icon">📦</span><span class="btn-label">طلباتي</span><span class="btn-sub">متابعة الحالة</span></div><div class="action-btn" onclick="renderPanel('reports')"><span class="btn-icon">📋</span><span class="btn-label">تقاريري</span></div><div class="action-btn" onclick="renderPanel('map')"><span class="btn-icon">🗺️</span><span class="btn-label">المصائد</span></div><div class="action-btn" onclick="renderPanel('payments')"><span class="btn-icon">💳</span><span class="btn-label">الدفع</span></div><div class="action-btn" onclick="renderPanel('client_visits')"><span class="btn-icon">📆</span><span class="btn-label">جدول زياراتي</span></div></div>
@@ -9292,7 +9517,17 @@ window.clientVisitSchedulePanel=function(){const c=clientNowFinal(),m=visitsMetr
 
 /* إيصال الدفع: عرض/استبدال/حذف قبل الاعتماد، عرض فقط بعده */
 window.viewClientReceipt=function(n){const c=clientNowFinal(),p=(window.ensureClientPayments?ensureClientPayments(c,false):(c.payments||[])).find(x=>Number(x.number)===Number(n));if(!p?.receipt)return showToast('لا يوجد إيصال');openAttachment(p.receipt,p.receiptName||'receipt')};
-window.replaceClientReceipt=function(n){const c=clientNowFinal(),p=(window.ensureClientPayments?ensureClientPayments(c,false):(c.payments||[])).find(x=>Number(x.number)===Number(n));if(!p||paid(p.status))return showToast('لا يمكن تعديل إيصال دفعة معتمدة');const input=document.createElement('input');input.type='file';input.accept='image/*,application/pdf';input.onchange=()=>{const f=input.files?.[0];if(!f)return;const r=new FileReader();r.onload=async()=>{p.receipt=r.result;p.receiptName=f.name;p.status='بانتظار المراجعة';p.receiptUploadedAt=new Date().toISOString();await persistClient(c);showToast('✅ تم استبدال الإيصال');renderPanel('payments')};r.readAsDataURL(f)};input.click()};
+window.replaceClientReceipt=function(n){const c=clientNowFinal(),p=(window.ensureClientPayments?ensureClientPayments(c,false):(c.payments||[])).find(x=>Number(x.number)===Number(n));if(!p||paid(p.status))return showToast('لا يمكن تعديل إيصال دفعة معتمدة');const input=document.createElement('input');input.type='file';input.accept='image/*,application/pdf';input.onchange=()=>{const f=input.files?.[0];if(!f)return;
+  (async () => {
+    try {
+      showToast('⏳ جاري تحسين حجم الملف...');
+      const { data, name } = await compressFileForUpload(f);
+      p.receipt=data;p.receiptName=name;p.status='بانتظار المراجعة';p.receiptUploadedAt=new Date().toISOString();await persistClient(c);showToast('✅ تم استبدال الإيصال');renderPanel('payments');
+    } catch (e) {
+      showToast('❌ ' + (e.message || 'تعذر استبدال الإيصال'));
+    }
+  })();
+};input.click()};
 window.deleteClientReceiptFinal=async function(n){const c=clientNowFinal(),p=(window.ensureClientPayments?ensureClientPayments(c,false):(c.payments||[])).find(x=>Number(x.number)===Number(n));if(!p?.receipt)return;if(paid(p.status))return showToast('لا يمكن حذف إيصال دفعة معتمدة');if(!confirm('حذف الإيصال المرفوع؟'))return;p.receipt='';p.receiptName='';p.status='غير مدفوعة';p.receiptUploadedAt='';await persistClient(c);showToast('تم حذف الإيصال');renderPanel('payments')};
 window.clientPayments=function(){const c=clientNowFinal();const ps=window.ensureClientPayments?ensureClientPayments(c,false):(c.payments||[]);const summary=typeof paymentSummaryCard==='function'?paymentSummaryCard(c):'';const bank=typeof renderBankDetailsCard==='function'?renderBankDetailsCard():'';const stats=typeof getPaymentStats==='function'?getPaymentStats(c):{remaining:0};const rows=ps.length?ps.map(p=>{const isPaid=paid(p.status),has=!!p.receipt;return `<div class="payment-card ${isPaid?'paid':'unpaid'}"><span class="payment-icon">${isPaid?'✅':pending(p.status)?'⏳':'⚠️'}</span><div class="payment-info"><div class="payment-title">الدفعة رقم ${E(p.number)} — ${N(p.amount).toLocaleString()} ريال</div><div class="payment-date">الاستحقاق: ${E(p.dueDate||'-')}</div><div style="font-weight:800;margin-top:5px">${E(p.status||'غير مدفوعة')}</div>${p.receiptName?`<div class="file-chip">📎 ${E(p.receiptName)}</div>`:''}<div class="receipt-actions">${has?`<button class="submit-btn" onclick="viewClientReceipt(${Number(p.number)})">👁️ عرض الإيصال</button>`:''}${!isPaid&&!has?`<button class="submit-btn green" onclick="uploadClientReceipt(${Number(p.number)})">📎 رفع إيصال</button>`:''}${!isPaid&&has?`<button class="submit-btn" onclick="replaceClientReceipt(${Number(p.number)})">✏️ استبدال الإيصال</button><button class="submit-btn red" onclick="deleteClientReceiptFinal(${Number(p.number)})">🗑️ حذف الإيصال</button>`:''}</div>${pending(p.status)?'<div style="margin-top:8px;color:var(--gold);font-weight:800">بانتظار اعتماد الإدارة</div>':''}</div></div>`}).join(''):'<div class="card">لا يوجد جدول دفعات محفوظ لهذا العميل.</div>';return `${summary}<div class="section-title">🏦 بيانات التحويل البنكي</div>${bank}${stats.remaining>0&&typeof openPayRemainingModal==='function'?`<button class="submit-btn green" style="margin-bottom:14px" onclick="openPayRemainingModal()">💳 سداد كامل المتبقي (${N(stats.remaining).toLocaleString()} ريال)</button>`:''}<div class="section-title">📑 جدول الدفعات</div>${rows}`};try{clientPayments=window.clientPayments}catch(e){}
 
