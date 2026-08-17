@@ -2833,6 +2833,7 @@ oninput="filterClientsTable(this.value)"
 </td>
               <td>
   ${renderAdminStatusPill(c)}
+  ${typeof paymentReminderPillHtml==='function'?paymentReminderPillHtml(c):''}
 </td>
 
 <td>
@@ -6841,7 +6842,10 @@ https://khotwatmuhtarif-sys.github.io/professional-step/
   const oldInitPanel_v194 = window.initPanelJS || (typeof initPanelJS === 'function' ? initPanelJS : null);
   window.initPanelJS = function(panelId){
     if(oldInitPanel_v194) oldInitPanel_v194.apply(this, arguments);
-    if(panelId === 'report_upload') setTimeout(() => window.refreshReportClientSelect_v194(true), 120);
+    // تم تعطيل استدعاء refreshReportClientSelect_v194 القديم هنا (v2.3.40 fix):
+    // كان يشتغل بالتوازي مع النسخة المُصلحة v195 (بفارق 30ms فقط)، ويسبب سباق عشوائي
+    // يمسح اختيار الفني بشكل متقطع — أحياناً يفوز الكود القديم بالسباق وأحياناً الجديد.
+    // النسخة v195 (الأسفل بالملف) هي الوحيدة المسؤولة عن تحديث القائمة الآن.
   };
   if(typeof initPanelJS !== 'undefined') initPanelJS = window.initPanelJS;
 
@@ -9478,6 +9482,67 @@ window.getContractStatusInfo=function(c){
   else tier='active';
   return {tier,daysLeft,endDate:endD,remainingVisits};
 };
+// ===== تذكير استحقاق الدفعات (v2.3.42) =====
+// يدور على أقرب دفعة غير مدفوعة عندها تاريخ استحقاق، ويحسب حالتها:
+// tier15 (خلال 15 يوم فأقل) → tier3 (خلال 3 أيام فأقل) → overdue (تجاوزت الاستحقاق، تبقى ظاهرة وتتصاعد لين تُدفع)
+window.getPaymentReminderInfo=function(c){
+  let payments=[];
+  try{ payments=window.ensureClientPayments?window.ensureClientPayments(c,false):(c.payments||[]); }catch(e){ payments=c.payments||[]; }
+  const isPaidStatus=(s)=> String(s||'')==='مدفوعة';
+  const candidates=(payments||[]).filter(p=>!isPaidStatus(p.status) && p.dueDate);
+  if(!candidates.length) return null;
+  const now=new Date(); now.setHours(0,0,0,0);
+  let best=null, bestDays=null;
+  candidates.forEach(p=>{
+    const due=new Date(p.dueDate);
+    if(isNaN(due.getTime())) return;
+    due.setHours(0,0,0,0);
+    const daysLeft=Math.round((due-now)/86400000);
+    // نفضّل الأكثر إلحاحاً: المتأخرة أولاً (أكبر عدد أيام تأخير)، ثم الأقرب استحقاقاً
+    if(best===null || daysLeft<bestDays){ best=p; bestDays=daysLeft; }
+  });
+  if(!best) return null;
+  let tier;
+  if(bestDays<0) tier='overdue';
+  else if(bestDays<=3) tier='tier3';
+  else if(bestDays<=15) tier='tier15';
+  else return null; // أبعد من 15 يوم، ما نعرض تذكير بعد
+  return {tier, daysLeft:bestDays, payment:best};
+};
+function buildPaymentReminderBanner(c){
+  const info=window.getPaymentReminderInfo(c);
+  if(!info) return '';
+  const p=info.payment;
+  const amount=N(p.amount||0).toLocaleString();
+  let icon='🟡', title, cls;
+  if(info.tier==='overdue'){
+    icon='🔴'; cls='overdue';
+    const d=Math.abs(info.daysLeft);
+    title=`دفعة متأخرة منذ ${d===1?'يوم واحد':d===2?'يومين':d+' أيام'}`;
+  } else if(info.tier==='tier3'){
+    icon='🟠'; cls='tier3';
+    const d=info.daysLeft;
+    title=d===0?'دفعتك مستحقة اليوم':`دفعتك القادمة خلال ${d===1?'يوم واحد':d===2?'يومين':d+' أيام'}`;
+  } else {
+    icon='🟡'; cls='tier15';
+    title=`دفعتك القادمة خلال ${info.daysLeft} يوم`;
+  }
+  return `<div class="card" style="margin-bottom:14px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;border:1px solid ${cls==='overdue'?'#fca5a5':cls==='tier3'?'#fdba74':'#fde047'};background:${cls==='overdue'?'linear-gradient(135deg,#fef2f2,#fee2e2)':cls==='tier3'?'linear-gradient(135deg,#fff7ed,#ffedd5)':'linear-gradient(135deg,#fefce8,#fef9c3)'}">
+    <div>
+      <div style="font-size:13.5px;font-weight:800;color:${cls==='overdue'?'#991b1b':cls==='tier3'?'#9a3412':'#854d0e'}">${icon} ${E(title)}</div>
+      <div style="font-size:12px;color:${cls==='overdue'?'#7f1d1d':cls==='tier3'?'#78350f':'#713f12'};margin-top:4px">الدفعة رقم ${E(p.number)} — ${amount} ريال</div>
+    </div>
+    <button class="submit-btn" style="width:auto;padding:8px 14px;font-size:12px;background:${cls==='overdue'?'#ef4444':cls==='tier3'?'#f97316':'#eab308'}" onclick="renderPanel('payments')">عرض الدفعة</button>
+  </div>`;
+}
+function paymentReminderPillHtml(c){
+  const info=window.getPaymentReminderInfo(c);
+  if(!info) return '';
+  const dotClass=info.tier==='overdue'?'red':info.tier==='tier3'?'orange':'yellow';
+  const text=info.tier==='overdue'?`متأخرة ${Math.abs(info.daysLeft)} ${Math.abs(info.daysLeft)===1?'يوم':'أيام'}`:`خلال ${info.daysLeft} ${info.daysLeft===1?'يوم':(info.daysLeft===2?'يومين':'أيام')}`;
+  const color=info.tier==='overdue'?'#991b1b':info.tier==='tier3'?'#9a3412':'#854d0e';
+  return `<div class="mini-status-dot" style="color:${color};margin-top:4px"><span class="pulse-dot ${dotClass}"></span>${text}</div>`;
+}
 function buildContractStatusCard(c,startD,endD){
   const info=window.getContractStatusInfo(c);
   if(info.tier==='expired'){
@@ -9506,8 +9571,9 @@ window.clientHome=function(){
  const startD=c.contractStartDate||c.start||'';
  const endD=c.contractEndDate||c.endDate||window.computeContractEndDate(c);
  const contractCard=startD?buildContractStatusCard(c,startD,endD):'';
- return `<div class="welcome-header"><h2>أهلاً بك 👋</h2><p>${E(c.name||'عميلنا العزيز')}</p><span class="contract-badge">عقد #${E(c.id||'-')}</span></div>${contractCard}${summary}
- <div class="stats-row cols-3"><div class="stat-card clickable-stat" onclick="renderPanel('client_visits')"><span class="stat-icon">📅</span><span class="stat-num green">${m.remaining}</span><span class="stat-label">زيارات متبقية — اضغط لعرض الجدول</span></div><div class="stat-card clickable-stat" onclick="renderPanel('client_visits')"><span class="stat-icon">✅</span><span class="stat-num">${m.completed}</span><span class="stat-label">زيارات منفذة</span></div><div class="stat-card" onclick="renderPanel('reports')"><span class="stat-icon">📋</span><span class="stat-num">${m.reports.length}</span><span class="stat-label">تقارير</span></div></div>
+ const paymentBanner=buildPaymentReminderBanner(c);
+ return `<div class="welcome-header"><h2>أهلاً بك 👋</h2><p>${E(c.name||'عميلنا العزيز')}</p><span class="contract-badge">عقد #${E(c.id||'-')}</span></div>${paymentBanner}${contractCard}${summary}
+ <div class="stats-row cols-4"><div class="stat-card" onclick="renderPanel('client_visits')"><span class="stat-icon">📆</span><span class="stat-num">${m.total}</span><span class="stat-label">إجمالي الزيارات</span></div><div class="stat-card clickable-stat" onclick="renderPanel('client_visits')"><span class="stat-icon">📅</span><span class="stat-num green">${m.remaining}</span><span class="stat-label">زيارات متبقية — اضغط لعرض الجدول</span></div><div class="stat-card clickable-stat" onclick="renderPanel('client_visits')"><span class="stat-icon">✅</span><span class="stat-num">${m.completed}</span><span class="stat-label">زيارات منفذة</span></div><div class="stat-card" onclick="renderPanel('reports')"><span class="stat-icon">📋</span><span class="stat-num">${m.reports.length}</span><span class="stat-label">تقارير</span></div></div>
  <div class="section-title">⚡ إجراءات سريعة</div><div class="action-grid"><div class="action-btn emergency" onclick="openModal('emergency')"><span class="btn-icon">🚨</span><span class="btn-label">طوارئ</span><span class="btn-sub">طلب عاجل</span></div><div class="action-btn" onclick="openModal('complaint')"><span class="btn-icon">📣</span><span class="btn-label">شكوى أو اقتراح</span></div><div class="action-btn" onclick="renderPanel('client_requests')"><span class="btn-icon">📦</span><span class="btn-label">طلباتي</span><span class="btn-sub">متابعة الحالة</span></div><div class="action-btn" onclick="renderPanel('reports')"><span class="btn-icon">📋</span><span class="btn-label">تقاريري</span></div><div class="action-btn" onclick="renderPanel('map')"><span class="btn-icon">🗺️</span><span class="btn-label">المصائد</span></div><div class="action-btn" onclick="renderPanel('payments')"><span class="btn-icon">💳</span><span class="btn-label">الدفع</span></div><div class="action-btn" onclick="renderPanel('client_visits')"><span class="btn-icon">📆</span><span class="btn-label">جدول زياراتي</span></div></div>
  ${next?`<div class="section-title">📅 الزيارة القادمة</div><div class="card"><div style="font-size:18px;font-weight:900">الزيارة رقم ${E(next.number||'-')}</div><div style="font-size:17px;margin-top:8px">${E(next.date||next.dateTime||'-')}</div><div style="margin-top:8px;color:var(--text-light)">الفني: ${E(next.tech||'سيتم التحديد')}</div></div>`:''}`;
 };try{clientHome=window.clientHome}catch(e){}
@@ -9529,7 +9595,7 @@ window.replaceClientReceipt=function(n){const c=clientNowFinal(),p=(window.ensur
   })();
 };input.click()};
 window.deleteClientReceiptFinal=async function(n){const c=clientNowFinal(),p=(window.ensureClientPayments?ensureClientPayments(c,false):(c.payments||[])).find(x=>Number(x.number)===Number(n));if(!p?.receipt)return;if(paid(p.status))return showToast('لا يمكن حذف إيصال دفعة معتمدة');if(!confirm('حذف الإيصال المرفوع؟'))return;p.receipt='';p.receiptName='';p.status='غير مدفوعة';p.receiptUploadedAt='';await persistClient(c);showToast('تم حذف الإيصال');renderPanel('payments')};
-window.clientPayments=function(){const c=clientNowFinal();const ps=window.ensureClientPayments?ensureClientPayments(c,false):(c.payments||[]);const summary=typeof paymentSummaryCard==='function'?paymentSummaryCard(c):'';const bank=typeof renderBankDetailsCard==='function'?renderBankDetailsCard():'';const stats=typeof getPaymentStats==='function'?getPaymentStats(c):{remaining:0};const rows=ps.length?ps.map(p=>{const isPaid=paid(p.status),has=!!p.receipt;return `<div class="payment-card ${isPaid?'paid':'unpaid'}"><span class="payment-icon">${isPaid?'✅':pending(p.status)?'⏳':'⚠️'}</span><div class="payment-info"><div class="payment-title">الدفعة رقم ${E(p.number)} — ${N(p.amount).toLocaleString()} ريال</div><div class="payment-date">الاستحقاق: ${E(p.dueDate||'-')}</div><div style="font-weight:800;margin-top:5px">${E(p.status||'غير مدفوعة')}</div>${p.receiptName?`<div class="file-chip">📎 ${E(p.receiptName)}</div>`:''}<div class="receipt-actions">${has?`<button class="submit-btn" onclick="viewClientReceipt(${Number(p.number)})">👁️ عرض الإيصال</button>`:''}${!isPaid&&!has?`<button class="submit-btn green" onclick="uploadClientReceipt(${Number(p.number)})">📎 رفع إيصال</button>`:''}${!isPaid&&has?`<button class="submit-btn" onclick="replaceClientReceipt(${Number(p.number)})">✏️ استبدال الإيصال</button><button class="submit-btn red" onclick="deleteClientReceiptFinal(${Number(p.number)})">🗑️ حذف الإيصال</button>`:''}</div>${pending(p.status)?'<div style="margin-top:8px;color:var(--gold);font-weight:800">بانتظار اعتماد الإدارة</div>':''}</div></div>`}).join(''):'<div class="card">لا يوجد جدول دفعات محفوظ لهذا العميل.</div>';return `${summary}<div class="section-title">🏦 بيانات التحويل البنكي</div>${bank}${stats.remaining>0&&typeof openPayRemainingModal==='function'?`<button class="submit-btn green" style="margin-bottom:14px" onclick="openPayRemainingModal()">💳 سداد كامل المتبقي (${N(stats.remaining).toLocaleString()} ريال)</button>`:''}<div class="section-title">📑 جدول الدفعات</div>${rows}`};try{clientPayments=window.clientPayments}catch(e){}
+window.clientPayments=function(){const c=clientNowFinal();const ps=window.ensureClientPayments?ensureClientPayments(c,false):(c.payments||[]);const summary=typeof paymentSummaryCard==='function'?paymentSummaryCard(c):'';const bank=typeof renderBankDetailsCard==='function'?renderBankDetailsCard():'';const stats=typeof getPaymentStats==='function'?getPaymentStats(c):{remaining:0};const isPaidStatus=s=>String(s||'')==='مدفوعة';const dueTierOf=p=>{if(isPaidStatus(p.status)||!p.dueDate)return null;const due=new Date(p.dueDate);if(isNaN(due.getTime()))return null;const now=new Date();now.setHours(0,0,0,0);due.setHours(0,0,0,0);const d=Math.round((due-now)/86400000);if(d<0)return {tier:'overdue',d};if(d<=3)return {tier:'tier3',d};if(d<=15)return {tier:'tier15',d};return null;};const rows=ps.length?ps.map(p=>{const isPaid=paid(p.status),has=!!p.receipt;const dt=dueTierOf(p);const alertHtml=dt?`<div style="margin-top:8px;padding:8px 10px;border-radius:8px;font-size:12px;font-weight:800;border:1px solid ${dt.tier==='overdue'?'#fca5a5':dt.tier==='tier3'?'#fdba74':'#fde047'};background:${dt.tier==='overdue'?'#fef2f2':dt.tier==='tier3'?'#fff7ed':'#fefce8'};color:${dt.tier==='overdue'?'#991b1b':dt.tier==='tier3'?'#9a3412':'#854d0e'}">${dt.tier==='overdue'?`⚠️ متأخرة منذ ${Math.abs(dt.d)===1?'يوم':Math.abs(dt.d)+' أيام'}`:`⏰ الاستحقاق خلال ${dt.d===0?'اليوم':dt.d+' يوم'}`}</div>`:'';return `<div class="payment-card ${isPaid?'paid':'unpaid'}"><span class="payment-icon">${isPaid?'✅':pending(p.status)?'⏳':'⚠️'}</span><div class="payment-info"><div class="payment-title">الدفعة رقم ${E(p.number)} — ${N(p.amount).toLocaleString()} ريال</div><div class="payment-date">الاستحقاق: ${E(p.dueDate||'-')}</div><div style="font-weight:800;margin-top:5px">${E(p.status||'غير مدفوعة')}</div>${alertHtml}${p.receiptName?`<div class="file-chip">📎 ${E(p.receiptName)}</div>`:''}<div class="receipt-actions">${has?`<button class="submit-btn" onclick="viewClientReceipt(${Number(p.number)})">👁️ عرض الإيصال</button>`:''}${!isPaid&&!has?`<button class="submit-btn green" onclick="uploadClientReceipt(${Number(p.number)})">📎 رفع إيصال</button>`:''}${!isPaid&&has?`<button class="submit-btn" onclick="replaceClientReceipt(${Number(p.number)})">✏️ استبدال الإيصال</button><button class="submit-btn red" onclick="deleteClientReceiptFinal(${Number(p.number)})">🗑️ حذف الإيصال</button>`:''}</div>${pending(p.status)?'<div style="margin-top:8px;color:var(--gold);font-weight:800">بانتظار اعتماد الإدارة</div>':''}</div></div>`}).join(''):'<div class="card">لا يوجد جدول دفعات محفوظ لهذا العميل.</div>';return `${summary}${bank}${stats.remaining>0&&typeof openPayRemainingModal==='function'?`<button class="submit-btn green" style="margin-bottom:14px" onclick="openPayRemainingModal()">💳 سداد كامل المتبقي (${N(stats.remaining).toLocaleString()} ريال)</button>`:''}<div class="section-title">📑 جدول الدفعات</div>${rows}`};try{clientPayments=window.clientPayments}catch(e){}
 
 /* شاشة طلباتي */
 window.clientRequestsPanel=function(){return `<div class="section-title">📦 طلباتي</div><div id="clientRequestsBox"><div class="card">جاري تحميل طلباتك...</div></div><button class="submit-btn" style="background:#64748b" onclick="renderPanel('home')">رجوع</button>`};
@@ -9913,20 +9979,62 @@ const DICT = {
   '⬇️ تحميل التقرير PDF':'⬇️ Download Report PDF','🗑️ حذف التقرير':'🗑️ Delete Report','رجوع':'Back',
   '📄 عرض التقرير':'📄 View Report','📝 ملاحظة للزيارة القادمة':'📝 Note for Next Visit',
   'لا توجد ملاحظات في التقرير':'No notes in the report','لا توجد ملاحظة':'No note',
-  '📄 آخر تقرير':'📄 Last Report'
+  '📄 آخر تقرير':'📄 Last Report',
+  // v2.3.43: إصلاحات ترجمة شاملة — خريطة الطعوم، بيانات البنك، نافذة الطوارئ، وعناصر متفرقة كانت تبقى عربي بوضع الإنجليزي
+  '📍 صورة خريطة الطعوم':'📍 Bait Map Photo',
+  'تظهر هنا آخر الصور المرفوعة من الفني لخريطة توزيع محطات الطعوم والمصائد.':'The latest images uploaded by the technician for the bait station distribution map will appear here.',
+  'لم يتم رفع صورة خريطة الطعوم لهذا العميل حتى الآن.':'No bait map photo has been uploaded for this client yet.',
+  'تظهر هنا صور محطات الطعوم ومصائد القوارض بعد رفعها من الفني.':'Bait station and rodent trap photos will appear here once uploaded by the technician.',
+  'لم يتم رفع صور محطات أو مصائد القوارض لهذا العميل حتى الآن.':'No bait station or rodent trap photos have been uploaded for this client yet.',
+  '⬅️ رجوع إلى القائمة':'⬅️ Back to Menu',
+  '📎 رفع إيصال':'📎 Upload Receipt',
+  'اسم المستفيد:':'Beneficiary Name:','البنك:':'Bank:','رقم الحساب:':'Account Number:','الآيبان:':'IBAN:',
+  'نسخ الآيبان':'Copy IBAN','✅ تم نسخ الآيبان':'✅ IBAN copied',
+  'يرجى إرسال الإيصال بعد التحويل حتى يتم اعتماد الدفعة.':'Please send the receipt after the transfer until the payment is approved.',
+  'مؤسسة خطوة محترف للتشغيل والصيانة':'Khotwa Mohtarif Est. for Operation & Maintenance','مصرف الراجحي':'Al Rajhi Bank',
+  'إجمالي الزيارات':'Total Visits','عرض':'View','⬇️ تحميل جدول الزيارات PDF':'⬇️ Download Visit Schedule PDF',
+  'مكتمل':'Completed','طوارئ':'Emergency','طلب عاجل':'Urgent Request','شكوى أو اقتراح':'Complaint or Suggestion',
+  // نافذة طلب الطوارئ (كانت بالكامل غير مترجمة)
+  '🚨 طلب زيارة طوارئ مجانية':'🚨 Free Emergency Visit Request','وصف المشكلة':'Problem Description',
+  'صف المشكلة التي تواجهها...':'Describe the problem you are facing...','الموقع داخل المنشأة':'Location Inside the Facility',
+  'مثال: المطبخ الرئيسي':'Example: Main Kitchen','صراصير':'Cockroaches','قوارض':'Rodents','بعوض':'Mosquitoes',
+  'نمل أبيض':'Termites','عناكب':'Spiders','أخرى':'Other','🚨 إرسال طلب الطوارئ':'🚨 Send Emergency Request',
+  '⚠️ اكتب وصف المشكلة':'⚠️ Please describe the problem','🚨 تم إرسال طلب الطوارئ':'🚨 Emergency request sent',
+  // v2.3.44: الشاشة الرئيسية، حالة العقد، الطلبات، نافذة الشكوى/الاقتراح
+  'أهلاً بك 👋':'Welcome 👋','📅 حالة العقد':'📅 Contract Status','📄 عرض نسخة العقد PDF':'📄 View Contract PDF Copy',
+  'لا توجد طلبات حتى الآن.':'No requests yet.','النوع':'Type','شكوى':'Complaint','اقتراح':'Suggestion','استفسار':'Inquiry',
+  'الموضوع':'Subject','التفاصيل':'Details','اكتب التفاصيل':'Write the details','📤 إرسال':'📤 Send',
+  'المحصّل':'Collected','ريال':'SAR','زيارات منفذة':'Completed Visits','زيارات منجزة':'Completed Visits',
+  'جدول الزيارات':'Visit Schedule','متابعة الحالة':'Track Status','عقدك نشط حتى':'Your contract is active until',
+  'تقارير':'Reports','طلباتي':'My Requests'
 };
 const REVERSE_DICT = Object.fromEntries(Object.entries(DICT).map(([ar,en])=>[en,ar]));
 
 // عبارات جزئية تظهر ضمن نصوص ديناميكية أطول (اسم/رقم متغير) - تُستبدل كنص فرعي
+// مهم: الترتيب من الأطول للأقصر عشان العبارة الطويلة تتطابق أول ما تتقطع لعبارة أقصر بالغلط
 const PARTIAL_DICT = [
-  ['أهلاً،','Welcome,'],
   ['رفع تقرير الزيارة رقم','Upload report for visit #'],
+  ['تقرير الزيارة رقم','Report – Visit #'],
+  ['الزيارة رقم','Visit #'],
   ['زيارة رقم','Visit #'],
   [' من جدول الزيارات',' from the visit schedule'],
+  ['أهلاً،','Welcome,'],
   ['من:','From:'],
   ['كتبها:','Written by:'],
   ['تخص الزيارة','Related to visit'],
-  ['سجل العميل — ','Client History — ']
+  ['سجل العميل — ','Client History — '],
+  ['💳 سداد كامل المتبقي','💳 Pay Full Remaining Balance'],
+  ['سداد كامل المتبقي','Pay Full Remaining Balance'],
+  ['الدفعة رقم','Payment No.'],
+  ['الاستحقاق:','Due:'],
+  ['بداية العقد:','Start Date:'],
+  ['نهاية العقد:','End Date:'],
+  ['عقد #','Contract #'],
+  ['الفني:','Technician:'],
+  ['نسبة التحصيل:','Collection Rate:'],
+  ['نسبة التحصيل ','Collection Rate '],
+  ['سيتم تحديد الفني','Technician to be assigned'],
+  [' ريال',' SAR']
 ];
 // أنماط تعتمد على تعابير نمطية (regex) - لحالات فيها أرقام متغيرة بين النصوص
 const REGEX_DICT = [
