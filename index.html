@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.34">
+<meta name="app-version" content="2.3.46">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -2871,18 +2871,54 @@ oninput="filterClientsTable(this.value)"
 
 // ===== تصدير جدول شامل لجميع العملاء مباشرة كملف إكسل (بدون أي صفحة وسيطة) =====
 function exportClientsReportCSV() {
-    const header = ['العميل', 'رقم التواصل', 'بداية العقد', 'نهاية العقد', 'المدفوع', 'المتبقي', 'عدد الزيارات', 'قيمة العقد'];
+    const header = ['رقم العقد', 'اسم العميل', 'قيمة العقد', 'تاريخ النهاية', 'حالة العقد', 'طريقة الدفع', 'عدد الزيارات', 'الزيارات المنفذة', 'المدفوع', 'المتبقي', 'تاريخ الدفعة القادمة'];
+
+    const contractStatusLabel = (c) => {
+        try {
+            const info = window.getContractStatusInfo ? window.getContractStatusInfo(c) : null;
+            if (!info) return '-';
+            if (info.tier === 'expired') return 'منتهي';
+            if (info.tier === 'warn7' || info.tier === 'warn15' || info.tier === 'warn30') {
+                const d = info.daysLeft;
+                return `باقي ${d} ${d === 1 ? 'يوم' : (d === 2 ? 'يومين' : 'يوم')}`;
+            }
+            return 'نشط';
+        } catch (e) { return '-'; }
+    };
+
     const rows = db.clients.map(c => {
         const stats = getPaymentStats(c);
+        const payments = (window.ensureClientPayments ? window.ensureClientPayments(c, false) : (c.payments || []));
+
+        // الدفعات المتبقية (غير مدفوعة) — نجمعها حسب المبلغ ونعرضها بصيغة "المبلغ×العدد"
+        const unpaid = payments.filter(p => String(p.status || '').trim() !== 'مدفوعة');
+        const groups = {};
+        unpaid.forEach(p => {
+            const amt = Math.round(Number(p.amount || 0) * 100) / 100;
+            groups[amt] = (groups[amt] || 0) + 1;
+        });
+        const remainingText = Object.keys(groups).length
+            ? Object.entries(groups).map(([amt, cnt]) => `${Number(amt).toLocaleString()}×${cnt}`).join(' + ')
+            : '0';
+
+        // تاريخ أقرب دفعة قادمة (أول دفعة غير مدفوعة حسب تاريخ الاستحقاق)
+        const upcoming = unpaid
+            .filter(p => p.dueDate)
+            .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))[0];
+        const nextDueDate = upcoming ? upcoming.dueDate : '-';
+
         return [
+            c.id || '-',
             c.name || '-',
-            c.phone || '-',
-            c.contractStartDate || c.start || '-',
-            c.end || '-',
+            stats.contractValue,
+            (window.getContractStatusInfo ? window.getContractStatusInfo(c).endDate : (c.end || c.contractEndDate || '-')) || '-',
+            contractStatusLabel(c),
+            c.pay || c.paymentPlan || '-',
+            c.visits || 0,
+            c.used || 0,
             stats.paid,
-            stats.remaining,
-            `${c.used || 0}/${c.visits || 0}`,
-            stats.contractValue
+            remainingText,
+            nextDueDate
         ];
     });
 
@@ -3055,6 +3091,12 @@ async function adminEditPaymentNote(clientId, paymentNumber) {
 function openAttachment(dataUrl, filename='attachment') {
     if (!dataUrl) return showToast('لا يوجد مرفق محفوظ');
     try {
+        // v2.3.46: لو الرابط من Cloudinary (رابط https عادي)، نفتحه مباشرة بتبويب جديد
+        // بدل بناء iframe يدوي — المتصفح يعرض PDF/الصور بنفسه بدون أي معالجة إضافية.
+        if (/^https?:\/\//i.test(String(dataUrl))) {
+            window.open(dataUrl, '_blank');
+            return;
+        }
         const w = window.open('', '_blank');
         if (!w) return showToast('اسمح بفتح النوافذ المنبثقة لعرض المرفق');
         if (String(dataUrl).startsWith('data:application/pdf')) {
@@ -3080,16 +3122,18 @@ async function adminUploadPaymentInvoice(clientId, paymentNumber) {
     fileInput.onchange = async () => {
         const file = fileInput.files[0];
         if (!file) return;
-        const reader = new FileReader();
-        reader.onload = async () => {
-            payment.invoice = reader.result;
-            payment.invoiceName = file.name;
+        try {
+            showToast('⏳ جاري تحسين ورفع الملف...');
+            const { data, name } = await compressFileForUpload(file);
+            payment.invoice = data;
+            payment.invoiceName = name;
             payment.note = payment.note || 'تم رفع فاتورة من الإدارة';
             await persistClientPayments(client);
             showToast('✅ تم رفع الفاتورة للعميل');
             adminOpenClientPayments(clientId);
-        };
-        reader.readAsDataURL(file);
+        } catch (e) {
+            showToast('❌ ' + (e.message || 'تعذر رفع الفاتورة'));
+        }
     };
     fileInput.click();
 }
@@ -7239,32 +7283,70 @@ https://khotwatmuhtarif-sys.github.io/professional-step/
 
   // نقطة الدخول الموحدة: تضغط PDF أو صورة حسب نوع الملف، وترجع dataURL جاهز للحفظ.
   // لو الضغط فشل لأي سبب، ترجع الملف الأصلي بدل ما توقف عملية الرفع بالكامل.
+  // ===== رفع الملفات إلى Cloudinary (v2.3.46) =====
+  // بدل ما يترفع العقد/الفاتورة/الإيصال base64 ثقيل داخل بيانات العميل بفايربيس،
+  // يترفع الملف (بعد الضغط) لـ Cloudinary ونحفظ بس الرابط — يخفف حمل فايربيس بشكل جذري.
+  const CLOUDINARY_CLOUD_NAME = 'jg54wewl';
+  const CLOUDINARY_UPLOAD_PRESET = 'ml_default';
+
+  window.uploadToCloudinary = async function(dataUrlOrBlob, filename, statusCallback) {
+    if (statusCallback) statusCallback('جاري رفع الملف للسحابة...');
+    const fd = new FormData();
+    // نتقبل إما dataURL (نص) أو Blob/File جاهز
+    let blobToSend = dataUrlOrBlob;
+    if (typeof dataUrlOrBlob === 'string') {
+      const res = await fetch(dataUrlOrBlob);
+      blobToSend = await res.blob();
+    }
+    fd.append('file', blobToSend, filename || 'file');
+    fd.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+    const uploadUrl = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/auto/upload`;
+    const resp = await fetch(uploadUrl, { method: 'POST', body: fd });
+    if (!resp.ok) {
+      const errText = await resp.text().catch(()=> '');
+      throw new Error('فشل رفع الملف للسحابة: ' + errText);
+    }
+    const json = await resp.json();
+    if (!json.secure_url) throw new Error('لم يصل رابط الملف من السحابة');
+    return json.secure_url;
+  };
+
   window.compressFileForUpload = async function compressFileForUpload(file, statusCallback) {
     const MAX_RAW_SIZE = 40 * 1024 * 1024; // شبكة أمان: أي ملف أكبر من 40 ميجا يُرفض قبل حتى محاولة الضغط
     if (file.size > MAX_RAW_SIZE) {
       throw new Error('حجم الملف كبير جداً (أكبر من 40 ميجا) حتى بعد محاولة الضغط. يرجى رفع نسخة أخف.');
     }
+    let compressedDataUrl = null;
     try {
       if (file.type === 'application/pdf') {
         if (statusCallback) statusCallback('جاري تحسين حجم الملف...');
-        const compressed = await compressPdfFile(file);
-        if (compressed) return { data: compressed, name: file.name };
+        compressedDataUrl = await compressPdfFile(file);
       } else if (file.type.startsWith('image/') && typeof compressImage_v196 === 'function') {
         if (statusCallback) statusCallback('جاري تحسين حجم الصورة...');
         const compressed = await compressImage_v196(file, 1400, 0.6);
-        if (compressed) return { data: compressed.data, name: file.name };
+        if (compressed) compressedDataUrl = compressed.data;
       }
     } catch (e) {
       console.error('فشل ضغط الملف، سيتم رفع النسخة الأصلية:', e);
     }
-    // فallback: نرجع الملف الأصلي بدون ضغط (لو فشل الضغط أو النوع غير مدعوم)
-    const rawData = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = () => reject(new Error('تعذر قراءة الملف: ' + file.name));
-      reader.readAsDataURL(file);
-    });
-    return { data: rawData, name: file.name };
+    if (!compressedDataUrl) {
+      // fallback: نقرأ الملف الأصلي بدون ضغط (لو فشل الضغط أو النوع غير مدعوم)
+      compressedDataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('تعذر قراءة الملف: ' + file.name));
+        reader.readAsDataURL(file);
+      });
+    }
+    // نحاول رفعه لـ Cloudinary — لو نجح نرجع الرابط بس (خفيف جداً بفايربيس)
+    // لو فشل الرفع لأي سبب (مثلاً الإنترنت انقطع)، نرجع للـ base64 القديم بدل ما نوقف المستخدم
+    try {
+      const url = await window.uploadToCloudinary(compressedDataUrl, file.name, statusCallback);
+      return { data: url, name: file.name, isUrl: true };
+    } catch (e) {
+      console.error('فشل الرفع لـ Cloudinary، سيتم الحفظ محلياً كـ base64:', e);
+      return { data: compressedDataUrl, name: file.name, isUrl: false };
+    }
   }
 
   function compressImage_v196(file, maxWidth=900, quality=.55){
