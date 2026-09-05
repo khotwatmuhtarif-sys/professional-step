@@ -1,0 +1,9 @@
+{
+  "name": "professional-step-daily-notifications",
+  "private": true,
+  "version": "1.0.0",
+  "type": "commonjs",
+  "dependencies": {
+    "firebase-admin": "^13.0.0"
+  }
+}
