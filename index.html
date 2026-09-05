@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.47">
+<meta name="app-version" content="2.3.49">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -4403,13 +4403,13 @@ async function submitEmergencyRequest() {
       await firebase.database().ref('emergencyRequests').push(request);
     }
 
-    // v2.3.47: إشعار فوري للإدارة بواتساب فيه كامل تفاصيل الطلب
+    // v2.3.48: إشعار فوري للإدارة بواتساب — ثنائي اللغة + رقم العقد
     if (typeof window.notifyAdminWhatsApp === 'function') {
       window.notifyAdminWhatsApp(
-        `🚨 *طلب طوارئ جديد*\n\n` +
-        `👤 العميل: ${request.clientName || 'غير معروف'}\n` +
-        `📍 الموقع: ${request.location || 'غير محدد'}\n` +
-        `📝 المشكلة: ${request.description}`
+        `🚨 *طلب طوارئ جديد | New Emergency Request*\n\n` +
+        `👤 العميل | Client: ${request.clientName || 'غير معروف'} (عقد #${request.clientId || '-'} | Contract #${request.clientId || '-'})\n` +
+        `📍 الموقع | Location: ${request.location || 'غير محدد | N/A'}\n` +
+        `📝 المشكلة | Issue: ${request.description}`
       );
     }
 
@@ -7296,12 +7296,12 @@ https://khotwatmuhtarif-sys.github.io/professional-step/
   // ===== رفع الملفات إلى Cloudinary (v2.3.46) =====
   // بدل ما يترفع العقد/الفاتورة/الإيصال base64 ثقيل داخل بيانات العميل بفايربيس،
   // يترفع الملف (بعد الضغط) لـ Cloudinary ونحفظ بس الرابط — يخفف حمل فايربيس بشكل جذري.
-  // ===== إشعارات واتساب فورية للإدارة (v2.3.47) عبر Green API =====
-  // يرسل رسالة نصية لرقم الإدارة مباشرة لحظة صدور الحدث (شكوى، طلب، طوارئ، تحديث دفعة)
-  // بدون أي وسيط (لا Make.com ولا فايربيس) — استدعاء مباشر من كود التطبيق.
+  // ===== إشعارات واتساب فورية لمجموعة الإدارة (v2.3.49) عبر Green API =====
+  // يرسل رسالة نصية لمجموعة "إشعارات خطوة محترف" مباشرة لحظة صدور الحدث
+  // (شكوى، طلب، طوارئ، تحديث دفعة) — بدون أي وسيط (لا Make.com ولا فايربيس).
   const GREEN_API_ID_INSTANCE = '710522728152';
   const GREEN_API_TOKEN = 'ca539780f9df41e3b81109b1c8a5e3a6d777e6f39acc4a26a3';
-  const GREEN_API_ADMIN_PHONE = '966553244026'; // رقم الإدارة اللي يستقبل الإشعارات
+  const GREEN_API_NOTIFY_GROUP_ID = '120363414532207022@g.us'; // مجموعة "إشعارات خطوة محترف"
 
   window.notifyAdminWhatsApp = async function(message) {
     try {
@@ -7310,7 +7310,7 @@ https://khotwatmuhtarif-sys.github.io/professional-step/
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          chatId: GREEN_API_ADMIN_PHONE + '@c.us',
+          chatId: GREEN_API_NOTIFY_GROUP_ID,
           message: message
         })
       });
@@ -9163,13 +9163,13 @@ https://khotwatmuhtarif-sys.github.io/professional-step/
     const req={clientId:c.id||'',clientName:c.name||'',contractId:c.id||'',type:document.getElementById('complaintType')?.value||'شكوى',subject:document.getElementById('complaintSubject')?.value||'',details,status:'جديد',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};
     try{
       await firebase.database().ref('complaintRequests').push(req);
-      // v2.3.47: إشعار فوري للإدارة بواتساب
+      // v2.3.48: إشعار فوري للإدارة بواتساب — ثنائي اللغة + رقم العقد
       if (typeof window.notifyAdminWhatsApp === 'function') {
         window.notifyAdminWhatsApp(
-          `📣 *${req.type} جديدة*\n\n` +
-          `👤 العميل: ${req.clientName || 'غير معروف'}\n` +
-          `📌 الموضوع: ${req.subject || 'بدون عنوان'}\n` +
-          `📝 التفاصيل: ${req.details}`
+          `📣 *${req.type} جديدة | New ${req.type === 'شكوى' ? 'Complaint' : 'Suggestion'}*\n\n` +
+          `👤 العميل | Client: ${req.clientName || 'غير معروف'} (عقد #${req.clientId || '-'} | Contract #${req.clientId || '-'})\n` +
+          `📌 الموضوع | Subject: ${req.subject || 'بدون عنوان | N/A'}\n` +
+          `📝 التفاصيل | Details: ${req.details}`
         );
       }
       showToast('✅ تم إرسال الطلب');closeModal()
@@ -9194,14 +9194,14 @@ https://khotwatmuhtarif-sys.github.io/professional-step/
           p.receipt=data;p.receiptName=name;p.status='بانتظار المراجعة';p.receiptUploadedAt=new Date().toISOString();await persistClientPayments(c);
           /* v2.3.30: تنبيه مسطّح لسهولة مراقبته عبر Make.com، زي طلبات الطوارئ بالضبط */
           try{ await firebase.database().ref('paymentReviewAlerts/'+c.id+'_'+p.number).set({clientId:c.id, clientName:c.name||'', paymentNumber:p.number, amount:p.amount||0, receiptName:name, uploadedAt:new Date().toISOString()}); }catch(e){}
-          // v2.3.47: إشعار فوري للإدارة بواتساب — دفعة جديدة تحتاج مراجعة
+          // v2.3.48: إشعار فوري للإدارة بواتساب — ثنائي اللغة + رقم العقد
           if (typeof window.notifyAdminWhatsApp === 'function') {
             window.notifyAdminWhatsApp(
-              `💳 *تحديث دفعات*\n\n` +
-              `👤 العميل: ${c.name || 'غير معروف'}\n` +
-              `📄 الدفعة رقم: ${p.number}\n` +
-              `💰 المبلغ: ${p.amount || 0} ريال\n` +
-              `📎 تم رفع إيصال وبانتظار المراجعة`
+              `💳 *تحديث دفعات | Payment Update*\n\n` +
+              `👤 العميل | Client: ${c.name || 'غير معروف'} (عقد #${c.id || '-'} | Contract #${c.id || '-'})\n` +
+              `📄 الدفعة رقم | Payment #: ${p.number}\n` +
+              `💰 المبلغ | Amount: ${p.amount || 0} ريال SAR\n` +
+              `📎 تم رفع إيصال وبانتظار المراجعة | Receipt uploaded, pending review`
             );
           }
           showToast('✅ تم رفع الإيصال وبانتظار المراجعة');renderPanel('payments');
