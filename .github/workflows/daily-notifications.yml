@@ -1,0 +1,32 @@
+name: Daily WhatsApp Notifications
+
+on:
+  schedule:
+    # 05:00 UTC = 08:00 Saudi Arabia (UTC+3)
+    - cron: '0 5 * * *'
+  workflow_dispatch:
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install --omit=dev
+
+      - name: Run daily notifications
+        env:
+          FIREBASE_DATABASE_URL: https://stepro-contractors-default-rtdb.europe-west1.firebasedatabase.app
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          GREEN_API_ID_INSTANCE: ${{ secrets.GREEN_API_ID_INSTANCE }}
+          GREEN_API_TOKEN: ${{ secrets.GREEN_API_TOKEN }}
+          GREEN_API_GROUP_ID: ${{ secrets.GREEN_API_GROUP_ID }}
+        run: node scripts/daily-notifications.js
