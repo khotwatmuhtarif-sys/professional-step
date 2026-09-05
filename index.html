@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.49">
+<meta name="app-version" content="2.3.50">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -7455,6 +7455,23 @@ https://khotwatmuhtarif-sys.github.io/professional-step/
       if(typeof saveDB==='function') saveDB();
       if(window.firebase && firebase.database) await firebase.database().ref('reports/'+reportId).set(report);
       if(window.saveClientToFirebase) await window.saveClientToFirebase(c);
+
+      // v2.3.50: إشعار واتساب عند نجاح رفع تقرير الزيارة
+      if (typeof window.notifyAdminWhatsApp === 'function') {
+        try {
+          await window.notifyAdminWhatsApp(
+            `📋 *تم رفع تقرير زيارة | Visit Report Uploaded*\n\n` +
+            `👤 العميل | Client: ${c.name || 'غير معروف'} (عقد #${c.id || '-'} | Contract #${c.id || '-'})\n` +
+            `🔢 الزيارة | Visit: ${info.number || '-'}${info.total ? ' من ' + info.total : ''}\n` +
+            `🛠️ نوع الزيارة | Service: ${report.type || 'زيارة دورية'}\n` +
+            `👷 الفني | Technician: ${report.tech || 'غير محدد'}\n` +
+            `📅 تاريخ التنفيذ | Execution Date: ${actual || '-'}`
+          );
+        } catch (e) {
+          console.error('تعذر إرسال إشعار رفع التقرير إلى واتساب:', e);
+        }
+      }
+
       setStatus('تم رفع التقرير بنجاح', '#15803d', true, true);
       showToast && showToast('✅ تم رفع التقرير بنجاح');
       ['executionFilesText','pestFilesText','paperFilesText','baitMapFilesText','rodentStationFilesText'].forEach(id=>{const x=document.getElementById(id); if(x)x.textContent='لم يتم اختيار صور';});
