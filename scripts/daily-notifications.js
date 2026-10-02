@@ -194,6 +194,68 @@ function paymentMessage(c, cid, p, index, overdueDays) {
   ].join('\n');
 }
 
+
+// Process immediate notifications queued by v2.3.94 in Firebase.
+// The public HTML writes only the message/event metadata; Green API credentials stay here on the server.
+async function processWhatsAppNotificationQueue() {
+  const queue = db.ref('whatsappNotificationQueue');
+  const snap = await queue.once('value');
+  const raw = snap.val() || {};
+  const entries = Array.isArray(raw)
+    ? raw.map((item, i) => [String(i), item]).filter(([, item]) => item)
+    : Object.entries(raw).filter(([, item]) => item);
+
+  let sent = 0;
+
+  for (const [key, item] of entries) {
+    if (!item || String(item.status || 'pending').toLowerCase() !== 'pending') continue;
+
+    const message = String(item.message || '').trim();
+    if (!message) {
+      await queue.child(key).update({
+        status: 'failed',
+        error: 'Missing message',
+        failedAt: admin.database.ServerValue.TIMESTAMP,
+      });
+      continue;
+    }
+
+    // Atomically claim the item so two workflow runs cannot send it twice.
+    const itemRef = queue.child(key);
+    const claim = await itemRef.transaction(current => {
+      if (!current || String(current.status || 'pending').toLowerCase() !== 'pending') return;
+      return {
+        ...current,
+        status: 'sending',
+        processingStartedAt: Date.now(),
+      };
+    });
+
+    if (!claim.committed) continue;
+
+    try {
+      await sendWhatsApp(message);
+      await itemRef.update({
+        status: 'sent',
+        sentAt: admin.database.ServerValue.TIMESTAMP,
+        sentDate: todayRiyadhISO(),
+        error: null,
+      });
+      sent++;
+      console.log('Queued WhatsApp sent:', key, item.eventKey || item.type || 'general');
+    } catch (err) {
+      await itemRef.update({
+        status: 'failed',
+        failedAt: admin.database.ServerValue.TIMESTAMP,
+        error: String(err && err.message ? err.message : err).slice(0, 500),
+      });
+      console.error('Queued WhatsApp failed:', key, err);
+    }
+  }
+
+  return sent;
+}
+
 async function main() {
   const today = todayRiyadhISO();
   console.log('Saudi date:', today);
@@ -204,7 +266,8 @@ async function main() {
     ? raw.map((c, i) => [String(i), c]).filter(([, c]) => c)
     : Object.entries(raw).filter(([, c]) => c);
 
-  let sent = 0;
+  // First send immediate notifications created by the web app (emergency, complaint, payment receipt, etc.).
+  let sent = await processWhatsAppNotificationQueue();
 
   for (const [key, c] of entries) {
     const cid = clientId(c, key);
