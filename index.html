@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.93">
+<meta name="app-version" content="2.3.94">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -7438,15 +7438,25 @@ https://khotwatmuhtarif-sys.github.io/professional-step/
         } catch(e) {}
       }
 
-      const resp = await fetch('/.netlify/functions/whatsapp-notify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: cleanMessage,
-          eventKey: eventKey || undefined,
-          type: String(options.type || '').trim() || undefined
-        })
+      // v2.3.94: GitHub Pages has no Netlify Functions. Queue the notification
+      // securely in Firebase; a server-side worker/trigger sends it to Green API.
+      // No Green API credentials are exposed in this public HTML file.
+      const authUser = window.firebaseAuth && window.firebaseAuth.currentUser;
+      const queueRef = window.firebaseDB.ref('whatsappNotificationQueue').push();
+      await queueRef.set({
+        id: queueRef.key,
+        message: cleanMessage,
+        eventKey: eventKey || queueRef.key,
+        type: String(options.type || '').trim() || 'general',
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+        createdByUid: authUser ? authUser.uid : null,
+        createdByRole: window.currentUser && window.currentUser.role ? window.currentUser.role : null
       });
+
+      // Queue write is the browser-side success criterion. Delivery itself is
+      // performed server-side so GitHub Pages never receives Green API secrets.
+      const resp = { ok: true, status: 202 };
 
       if (!resp.ok) {
         const detail = await resp.text().catch(()=>'');
@@ -12259,11 +12269,11 @@ console.log('✅ v2.3.82 shadowed duplicate functions removed');
 window.StepPro = window.StepPro || {};
 window.StepPro.notificationStatus = async function(){
   try{
-    const r=await fetch('/.netlify/functions/whatsapp-notify',{method:'GET'});
-    const data=await r.json().catch(()=>({}));
-    return {ok:r.ok,status:r.status,...data};
+    if(!window.firebaseDB) return {ok:false,error:'Firebase not ready'};
+    await window.firebaseDB.ref('whatsappNotificationQueue').limitToLast(1).get();
+    return {ok:true,status:200,transport:'firebase-queue',version:'2.3.94'};
   }catch(e){
-    return {ok:false,error:String(e?.message||e)};
+    return {ok:false,error:String(e?.message||e),transport:'firebase-queue'};
   }
 };
 console.log('✅ v2.3.82 immediate WhatsApp notification hardening loaded');
