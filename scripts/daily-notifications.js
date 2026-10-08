@@ -201,57 +201,116 @@ async function processWhatsAppNotificationQueue() {
   const queue = db.ref('whatsappNotificationQueue');
   const snap = await queue.once('value');
   const raw = snap.val() || {};
+
   const entries = Array.isArray(raw)
     ? raw.map((item, i) => [String(i), item]).filter(([, item]) => item)
     : Object.entries(raw).filter(([, item]) => item);
 
+  console.log('[WA-QUEUE] Total items:', entries.length);
+
+  console.log('[WA-CONFIG]', {
+    instanceConfigured: Boolean(GREEN_API_ID_INSTANCE),
+    tokenConfigured: Boolean(GREEN_API_TOKEN),
+    groupConfigured: Boolean(GREEN_API_GROUP_ID)
+  });
+
   let sent = 0;
+  let attempted = 0;
 
   for (const [key, item] of entries) {
-    if (!item || String(item.status || 'pending').toLowerCase() !== 'pending') continue;
+    if (!item) continue;
+
+    const status = String(item.status || 'pending').toLowerCase();
+
+    console.log('[WA-QUEUE] Item:', {
+      key,
+      status,
+      type: item.type || 'general',
+      eventKey: item.eventKey || ''
+    });
+
+    // Do not automatically retry failed or sending items:
+    // their delivery outcome may be uncertain.
+    if (status !== 'pending') {
+      console.log('[WA-QUEUE] Skipped:', key, status);
+      continue;
+    }
 
     const message = String(item.message || '').trim();
+
     if (!message) {
       await queue.child(key).update({
         status: 'failed',
         error: 'Missing message',
-        failedAt: admin.database.ServerValue.TIMESTAMP,
+        failedAt: admin.database.ServerValue.TIMESTAMP
       });
+
+      console.error('[WA-QUEUE] Missing message:', key);
       continue;
     }
 
-    // Atomically claim the item so two workflow runs cannot send it twice.
     const itemRef = queue.child(key);
+
     const claim = await itemRef.transaction(current => {
-      if (!current || String(current.status || 'pending').toLowerCase() !== 'pending') return;
+      if (!current) return;
+
+      if (
+        String(current.status || 'pending').toLowerCase()
+        !== 'pending'
+      ) {
+        return;
+      }
+
       return {
         ...current,
         status: 'sending',
-        processingStartedAt: Date.now(),
+        processingStartedAt: Date.now()
       };
     });
 
-    if (!claim.committed) continue;
+    if (!claim.committed) {
+      console.log('[WA-QUEUE] Already claimed:', key);
+      continue;
+    }
+
+    attempted++;
+
+    console.log('[WA-QUEUE] Sending:', key);
 
     try {
       await sendWhatsApp(message);
+
       await itemRef.update({
         status: 'sent',
         sentAt: admin.database.ServerValue.TIMESTAMP,
         sentDate: todayRiyadhISO(),
-        error: null,
+        error: null
       });
+
       sent++;
-      console.log('Queued WhatsApp sent:', key, item.eventKey || item.type || 'general');
+
+      console.log('[WA-QUEUE] SUCCESS:', key);
+
     } catch (err) {
+      const errorText = String(
+        err && err.message ? err.message : err
+      ).slice(0, 500);
+
       await itemRef.update({
         status: 'failed',
         failedAt: admin.database.ServerValue.TIMESTAMP,
-        error: String(err && err.message ? err.message : err).slice(0, 500),
+        error: errorText
       });
-      console.error('Queued WhatsApp failed:', key, err);
+
+      console.error('[WA-QUEUE] FAILED:', key, errorText);
     }
   }
+
+  console.log('[WA-QUEUE] FINAL RESULT:', {
+    total: entries.length,
+    attempted,
+    sent
+  });
 
   return sent;
 }
