@@ -393,6 +393,13 @@ async function main() {
   // First send immediate notifications created by the web app (emergency, complaint, payment receipt, etc.).
   let sent = await processWhatsAppNotificationQueue();
 
+  // v2.3.96: frequent queue-only runs (every ~5 min) send only the immediate notifications.
+  // The daily reminders (visits/contracts/payments) stay on the 08:00 Saudi run.
+  if (process.env.QUEUE_ONLY === 'true') {
+    console.log(`Queue-only run complete. Sent ${sent} notification(s).`);
+    return;
+  }
+
   for (const [key, c] of entries) {
     const cid = clientId(c, key);
 

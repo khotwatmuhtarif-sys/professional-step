@@ -1,0 +1,31 @@
+name: WhatsApp Instant Queue
+
+on:
+  schedule:
+    # Every 5 minutes: sends emergency/complaint/receipt/report notifications queued by the web app.
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: whatsapp-queue
+  cancel-in-progress: false
+
+jobs:
+  queue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install --omit=dev
+      - name: Send queued notifications only
+        env:
+          QUEUE_ONLY: 'true'
+          FIREBASE_DATABASE_URL: https://stepro-contractors-default-rtdb.europe-west1.firebasedatabase.app
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          GREEN_API_ID_INSTANCE: ${{ secrets.GREEN_API_ID_INSTANCE }}
+          GREEN_API_TOKEN: ${{ secrets.GREEN_API_TOKEN }}
+          GREEN_API_GROUP_ID: ${{ secrets.GREEN_API_GROUP_ID }}
+        run: node scripts/daily-notifications.js
