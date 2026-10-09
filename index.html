@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.94">
+<meta name="app-version" content="2.3.95">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -3025,7 +3025,7 @@ oninput="filterClientsTable(this.value)"
     <div style="overflow-x:auto;">
       <table class="data-table">
         <thead>
-          <tr><th>رقم العقد</th><th>العميل</th><th>النوع</th><th>طريقة الدفع</th><th>الزيارات</th><th>الحالة</th><th>إجراء</th></tr>
+          <tr><th>رقم العقد</th><th>العميل</th><th>المدينة</th><th>النوع</th><th>طريقة الدفع</th><th>الزيارات</th><th>الحالة</th><th>إجراء</th></tr>
         </thead>
         <tbody id="clientsTableBody">
           ${db.clients
@@ -3033,6 +3033,7 @@ oninput="filterClientsTable(this.value)"
             <tr>
               <td><strong style="color:var(--primary);">#${c.id}</strong></td>
               <td><strong>${c.name}</strong></td>
+              <td>${c.city || '-'}</td>
               <td>${c.type}</td>
               <td><span class="tag">${c.pay}</span></td>
               <td>
@@ -3380,6 +3381,7 @@ document.getElementById('newClientId').setAttribute('data-editing', 'true');
         document.getElementById('newClientName').value = client.name || '';
         setSelectedFacilityTypes(client.type || '');
         document.getElementById('newClientPhone').value = client.phone || '';
+        if (document.getElementById('newClientCity')) document.getElementById('newClientCity').value = client.city || '';
         document.getElementById('newClientPay').value = client.pay || '';
         if ((client.manualPayments || []).length > 0) {
     document.getElementById('newClientPay').value = 'يدوي';
@@ -4179,6 +4181,16 @@ onchange="renderPaymentSchedulePreview()">
         <input type="text" class="form-input" id="newClientPhone" placeholder="05xxxxxxxx">
       </div>
       <div class="form-group">
+        <label class="form-label">المدينة / الفرع *</label>
+        <select class="form-select" id="newClientCity">
+          <option value="">اختر المدينة</option>
+          <option value="مكة المكرمة">مكة المكرمة</option>
+          <option value="الرياض">الرياض</option>
+          <option value="جدة">جدة</option>
+          <option value="الدمام">الدمام</option>
+        </select>
+      </div>
+      <div class="form-group">
         <label class="form-label">طريقة الدفع *</label>
         <select class="form-select" id="newClientPay" onchange="toggleManualPayments(); renderPaymentSchedulePreview()">
           <option>شهري</option><option>ربع سنوي</option>
@@ -4507,6 +4519,7 @@ const password = oldClient?.password || document.getElementById('previewPassword
     name,
     type: getSelectedFacilityTypes(),
     phone,
+    city: document.getElementById('newClientCity')?.value || '',
     pay: document.getElementById('newClientPay').value,
     visits: parseInt(document.getElementById('newClientVisits').value) || 12,
     contractStartDate: document.getElementById('contractStartDate')?.value || '',
@@ -4623,7 +4636,8 @@ async function submitEmergencyRequest() {
         `🚨 *طلب طوارئ جديد | New Emergency Request*\n\n` +
         `👤 العميل | Client: ${request.clientName || 'غير معروف'} (عقد #${request.clientId || '-'} | Contract #${request.clientId || '-'})\n` +
         `📍 الموقع | Location: ${request.location || 'غير محدد | N/A'}\n` +
-        `📝 المشكلة | Issue: ${request.description}`
+        `📝 المشكلة | Issue: ${request.description}`,
+        { city: currentUser?.city || '' }
       );
     }
 
@@ -7414,6 +7428,19 @@ https://khotwatmuhtarif-sys.github.io/professional-step/
   // ===== رفع الملفات إلى Cloudinary (v2.3.46) =====
   // بدل ما يترفع العقد/الفاتورة/الإيصال base64 ثقيل داخل بيانات العميل بفايربيس،
   // يترفع الملف (بعد الضغط) لـ Cloudinary ونحفظ بس الرابط — يخفف حمل فايربيس بشكل جذري.
+  // v2.3.95: فرع/مدينة العميل يُكتب كأول سطر في كل إشعار واتساب، عشان كل فني يقرأ
+  // بسرعة هل الإشعار يخصه حسب فرعه (الكل بنفس جروب الواتساب).
+  window.branchLabel = function (city) {
+    const map = {
+      'الرياض': 'فرع الرياض | Riyadh Branch',
+      'جدة': 'فرع جدة | Jeddah Branch',
+      'مكة المكرمة': 'فرع مكة المكرمة | Makkah Branch',
+      'الدمام': 'فرع الدمام | Dammam Branch'
+    };
+    const label = map[String(city || '').trim()];
+    return label ? `🏷️ *${label}*\n` : '';
+  };
+
   // ===== إشعارات واتساب فورية لمجموعة الإدارة (v2.3.82) =====
   // SECURITY: Green API credentials were removed from the browser/app.
   // The browser now calls a same-origin Netlify Function. The function reads
@@ -7421,7 +7448,7 @@ https://khotwatmuhtarif-sys.github.io/professional-step/
   // server-side environment variables only.
   window.notifyAdminWhatsApp = async function(message, options = {}) {
     try {
-      const cleanMessage = String(message || '').trim();
+      const cleanMessage = String((window.branchLabel(options.city) || '') + String(message || '')).trim();
       if (!cleanMessage) return false;
 
       // eventKey lets business actions be idempotent on the same device/session.
@@ -7620,7 +7647,7 @@ https://khotwatmuhtarif-sys.github.io/professional-step/
             `🛠️ نوع الزيارة | Service: ${report.type || 'زيارة دورية'}\n` +
             `👷 الفني | Technician: ${report.tech || 'غير محدد'}\n` +
             `📅 تاريخ التنفيذ | Execution Date: ${actual || '-'}`,
-            { eventKey: `report_${reportId}`, type: 'visit_report' }
+            { eventKey: `report_${reportId}`, type: 'visit_report', city: c.city || '' }
           );
         } catch (e) {
           console.error('تعذر إرسال إشعار رفع التقرير إلى واتساب:', e);
@@ -9368,7 +9395,8 @@ https://khotwatmuhtarif-sys.github.io/professional-step/
           `📣 *${req.type} جديدة | New ${req.type === 'شكوى' ? 'Complaint' : 'Suggestion'}*\n\n` +
           `👤 العميل | Client: ${req.clientName || 'غير معروف'} (عقد #${req.clientId || '-'} | Contract #${req.clientId || '-'})\n` +
           `📌 الموضوع | Subject: ${req.subject || 'بدون عنوان | N/A'}\n` +
-          `📝 التفاصيل | Details: ${req.details}`
+          `📝 التفاصيل | Details: ${req.details}`,
+          { city: c.city || '' }
         );
       }
       showToast('✅ تم إرسال الطلب');closeModal()
@@ -9401,7 +9429,7 @@ https://khotwatmuhtarif-sys.github.io/professional-step/
               `📄 الدفعة رقم | Payment #: ${p.number}\n` +
               `💰 المبلغ | Amount: ${p.amount || 0} ريال SAR\n` +
               `📎 تم رفع إيصال وبانتظار المراجعة | Receipt uploaded, pending review`,
-              { eventKey: `receipt_${c.id}_${p.number}_${p.receiptUploadedAt || ''}`, type: 'payment_receipt' }
+              { eventKey: `receipt_${c.id}_${p.number}_${p.receiptUploadedAt || ''}`, type: 'payment_receipt', city: c.city || '' }
             );
           }
           showToast('✅ تم رفع الإيصال وبانتظار المراجعة');renderPanel('payments');
@@ -10817,7 +10845,7 @@ window.submitClientEmergency_v2355=async function(){
   const btn=document.getElementById('v2355EmergencyBtn');if(btn){btn.disabled=true;btn.textContent='⏳ جاري الإرسال...'}
   try{
     await firebase.database().ref('emergencyRequests').push(request);
-    if(typeof window.notifyAdminWhatsApp==='function')window.notifyAdminWhatsApp(`🚨 *طلب طوارئ جديد | New Emergency Request*\n\n👤 العميل | Client: ${request.clientName||'غير معروف'} (عقد #${request.clientId||'-'} | Contract #${request.clientId||'-'})\n📍 الموقع | Location: ${request.location||'غير محدد | N/A'}\n📝 المشكلة | Issue: ${request.description}`);
+    if(typeof window.notifyAdminWhatsApp==='function')window.notifyAdminWhatsApp(`🚨 *طلب طوارئ جديد | New Emergency Request*\n\n👤 العميل | Client: ${request.clientName||'غير معروف'} (عقد #${request.clientId||'-'} | Contract #${request.clientId||'-'})\n📍 الموقع | Location: ${request.location||'غير محدد | N/A'}\n📝 المشكلة | Issue: ${request.description}`, {city:c.city||''});
     showToast('✅ تم إرسال طلب الطوارئ');
     try{history.replaceState({panel:'client_requests'},'','#client_requests')}catch(e){}
     window.renderPanel('client_requests',null,true);
@@ -10830,7 +10858,7 @@ window.submitClientComplaint_v2355=async function(){
   const btn=document.getElementById('v2355ComplaintBtn');if(btn){btn.disabled=true;btn.textContent='⏳ جاري الإرسال...'}
   try{
     await firebase.database().ref('complaintRequests').push(req);
-    if(typeof window.notifyAdminWhatsApp==='function')window.notifyAdminWhatsApp(`📣 *${req.type} جديدة | New ${req.type==='شكوى'?'Complaint':'Suggestion'}*\n\n👤 العميل | Client: ${req.clientName||'غير معروف'} (عقد #${req.clientId||'-'} | Contract #${req.clientId||'-'})\n📌 الموضوع | Subject: ${req.subject||'بدون عنوان | N/A'}\n📝 التفاصيل | Details: ${req.details}`);
+    if(typeof window.notifyAdminWhatsApp==='function')window.notifyAdminWhatsApp(`📣 *${req.type} جديدة | New ${req.type==='شكوى'?'Complaint':'Suggestion'}*\n\n👤 العميل | Client: ${req.clientName||'غير معروف'} (عقد #${req.clientId||'-'} | Contract #${req.clientId||'-'})\n📌 الموضوع | Subject: ${req.subject||'بدون عنوان | N/A'}\n📝 التفاصيل | Details: ${req.details}`, {city:c.city||''});
     showToast('✅ تم إرسال الطلب');
     try{history.replaceState({panel:'client_requests'},'','#client_requests')}catch(e){}
     window.renderPanel('client_requests',null,true);
@@ -10940,7 +10968,7 @@ async function saveEmergency56(description,location,button){
     const requestNo=await allocateRequestNo56('emergency',ref.key);
     const request={clientId:c.id??'',clientName:c.name||(window.currentUser&&window.currentUser.name)||'',description,location:location||'',status:'جديد',requestNo,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};
     await ref.set(request);
-    if(typeof window.notifyAdminWhatsApp==='function')window.notifyAdminWhatsApp(`🚨 *طلب طوارئ جديد | New Emergency Request*\n🔢 رقم الطلب | Request No: *${requestNo}*\n\n👤 العميل | Client: ${request.clientName||'غير معروف'} (عقد #${request.clientId||'-'} | Contract #${request.clientId||'-'})\n📍 الموقع | Location: ${request.location||'غير محدد | N/A'}\n📝 المشكلة | Issue: ${request.description}`, {eventKey:`emergency_${requestNo}`,type:'emergency'});
+    if(typeof window.notifyAdminWhatsApp==='function')window.notifyAdminWhatsApp(`🚨 *طلب طوارئ جديد | New Emergency Request*\n🔢 رقم الطلب | Request No: *${requestNo}*\n\n👤 العميل | Client: ${request.clientName||'غير معروف'} (عقد #${request.clientId||'-'} | Contract #${request.clientId||'-'})\n📍 الموقع | Location: ${request.location||'غير محدد | N/A'}\n📝 المشكلة | Issue: ${request.description}`, {eventKey:`emergency_${requestNo}`,type:'emergency',city:c.city||''});
     showToast(`✅ تم إرسال طلب الطوارئ — ${requestNo}`);
     return {request,ref};
   }finally{if(button){button.disabled=false;button.textContent='🚨 إرسال طلب الطوارئ'}}
@@ -10954,7 +10982,7 @@ async function saveComplaint56(type,subject,details,button){
     const requestNo=await allocateRequestNo56('complaint',ref.key);
     const req={clientId:c.id??'',clientName:c.name||(window.currentUser&&window.currentUser.name)||'',contractId:c.id??'',type:type||'شكوى',subject:subject||'',details,status:'جديد',requestNo,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};
     await ref.set(req);
-    if(typeof window.notifyAdminWhatsApp==='function')window.notifyAdminWhatsApp(`📣 *${req.type} جديدة | New Request*\n🔢 رقم الطلب | Request No: *${requestNo}*\n\n👤 العميل | Client: ${req.clientName||'غير معروف'} (عقد #${req.clientId||'-'} | Contract #${req.clientId||'-'})\n📌 الموضوع | Subject: ${req.subject||'بدون عنوان | N/A'}\n📝 التفاصيل | Details: ${req.details}`, {eventKey:`complaint_${requestNo}`,type:'complaint'});
+    if(typeof window.notifyAdminWhatsApp==='function')window.notifyAdminWhatsApp(`📣 *${req.type} جديدة | New Request*\n🔢 رقم الطلب | Request No: *${requestNo}*\n\n👤 العميل | Client: ${req.clientName||'غير معروف'} (عقد #${req.clientId||'-'} | Contract #${req.clientId||'-'})\n📌 الموضوع | Subject: ${req.subject||'بدون عنوان | N/A'}\n📝 التفاصيل | Details: ${req.details}`, {eventKey:`complaint_${requestNo}`,type:'complaint',city:c.city||''});
     showToast(`✅ تم إرسال الطلب — ${requestNo}`);
     return {request:req,ref};
   }finally{if(button){button.disabled=false;button.textContent='📤 إرسال'}}
@@ -11030,17 +11058,17 @@ window.exportClientsReportCSV=async function(){
   const btn=document.querySelector('[onclick="exportClientsReportCSV()"]');const oldText=btn?.textContent;if(btn){btn.disabled=true;btn.textContent='⏳ تجهيز Excel...'}
   try{
     const XLSX=await ensureXlsx56();
-    const header=['رقم العقد','اسم المتعاقد','قيمة العقد','طريقة الدفع','المدفوع','المتبقي','نهاية العقد','عدد الزيارات'];
+    const header=['رقم العقد','اسم المتعاقد','قيمة العقد','طريقة الدفع','المدفوع','المتبقي','نهاية العقد','عدد الزيارات','المدينة'];
     const rows=(window.db?.clients||[]).map(c=>{
       let stats={contractValue:Number(c.value||c.contractValue||0),paid:0,remaining:0};try{if(typeof getPaymentStats==='function')stats=getPaymentStats(c)}catch(e){}
       let end='-';try{end=(window.getContractStatusInfo?window.getContractStatusInfo(c)?.endDate:null)||(c.end||c.contractEndDate||c.endDate||'-')}catch(e){end=c.end||c.contractEndDate||c.endDate||'-'}
       const visits=Number(c.visits||0)||(Array.isArray(c.visitSchedule)?c.visitSchedule.length:0)||0;
-      return [c.contractNo||c.contractNumber||c.id||'-',c.name||'-',Number(stats.contractValue||0),paymentCountText56(c),Number(stats.paid||0),Number(stats.remaining||Math.max(Number(stats.contractValue||0)-Number(stats.paid||0),0)),end,visits];
+      return [c.contractNo||c.contractNumber||c.id||'-',c.name||'-',Number(stats.contractValue||0),paymentCountText56(c),Number(stats.paid||0),Number(stats.remaining||Math.max(Number(stats.contractValue||0)-Number(stats.paid||0),0)),end,visits,c.city||'-'];
     });
     const ws=XLSX.utils.aoa_to_sheet([header,...rows]);
-    ws['!cols']=[{wch:15},{wch:32},{wch:18},{wch:18},{wch:18},{wch:18},{wch:18},{wch:14}];
+    ws['!cols']=[{wch:15},{wch:32},{wch:18},{wch:18},{wch:18},{wch:18},{wch:18},{wch:14},{wch:16}];
     ws['!rows']=[{hpt:28},...rows.map(()=>({hpt:22}))];
-    ws['!autofilter']={ref:`A1:H${Math.max(rows.length+1,1)}`};
+    ws['!autofilter']={ref:`A1:I${Math.max(rows.length+1,1)}`};
     const border={top:{style:'thin',color:{rgb:'CBD5E1'}},bottom:{style:'thin',color:{rgb:'CBD5E1'}},left:{style:'thin',color:{rgb:'CBD5E1'}},right:{style:'thin',color:{rgb:'CBD5E1'}}};
     for(let c=0;c<header.length;c++){const cell=ws[XLSX.utils.encode_cell({r:0,c})];if(cell)cell.s={font:{bold:true,color:{rgb:'FFFFFF'},sz:12},fill:{fgColor:{rgb:'1E3A5F'}},alignment:{horizontal:'center',vertical:'center',readingOrder:2},border};}
     for(let r=1;r<=rows.length;r++)for(let c=0;c<header.length;c++){const cell=ws[XLSX.utils.encode_cell({r,c})];if(!cell)continue;cell.s={font:{color:{rgb:'0F172A'},sz:11},fill:{fgColor:{rgb:r%2?'F8FAFC':'EAF2F8'}},alignment:{horizontal:c===1?'right':'center',vertical:'center',readingOrder:2,wrapText:true},border};if([2,4,5].includes(c)){cell.t='n';cell.z='#,##0.00 "ر.س"';}}

@@ -78,6 +78,24 @@ function clientName(c) {
   return String(c?.name || 'عميل');
 }
 
+// v2.3.95: فرع/مدينة العميل كأول سطر في كل رسالة واتساب (نفس منطق branchLabel في index.html)،
+// عشان الفنيين في جروب الواتساب المشترك (الرياض/جدة/الدمام) يعرفون بسرعة هل الإشعار يخصهم.
+function branchLabel(city) {
+  const map = {
+    'الرياض': 'فرع الرياض | Riyadh Branch',
+    'جدة': 'فرع جدة | Jeddah Branch',
+    'مكة المكرمة': 'فرع مكة المكرمة | Makkah Branch',
+    'الدمام': 'فرع الدمام | Dammam Branch',
+  };
+  const label = map[String(city || '').trim()];
+  return label ? `🏷️ ${label}` : null;
+}
+
+function withBranchLabel(c, lines) {
+  const label = branchLabel(c?.city);
+  return label ? [label, ...lines] : lines;
+}
+
 function contractEnd(c) {
   return String(c?.contractEndDate || c?.endDate || addOneYearISO(c?.contractStartDate || c?.start) || c?.end || '').slice(0, 10);
 }
@@ -142,56 +160,56 @@ function visitMessage(c, cid, visit, index, total, days) {
   const number = visit?.number || index + 1;
   const date = String(visit?.date || visit?.scheduledVisitDate || '').slice(0, 10);
   if (days === 6) {
-    return [
+    return withBranchLabel(c, [
       '🔔 تذكير زيارة / Visit Reminder',
       `👤 العميل / Customer: ${clientName(c)}`,
       `📄 العقد / Contract: #${cid}`,
       `📅 الزيارة / Visit: ${number} / ${total}`,
       `🗓️ الموعد / Date: ${date}`,
       '⏳ المتبقي / Remaining: 6 Days',
-    ].join('\n');
+    ]).join('\n');
   }
-  return [
+  return withBranchLabel(c, [
     '🔔 زيارة غدًا / Visit Tomorrow',
     `👤 العميل / Customer: ${clientName(c)}`,
     `📄 العقد / Contract: #${cid}`,
     `📅 الزيارة / Visit: ${number} / ${total}`,
     `🗓️ الموعد / Date: ${date}`,
     '⏰ غدًا / Tomorrow',
-  ].join('\n');
+  ]).join('\n');
 }
 
 function contractMessage(c, cid, end, days) {
   if (days === 15) {
-    return [
+    return withBranchLabel(c, [
       '📄 اقتراب انتهاء العقد / Contract Expiry',
       `👤 العميل / Customer: ${clientName(c)}`,
       `📄 العقد / Contract: #${cid}`,
       `🗓️ الانتهاء / Expiry: ${end}`,
       '⏳ المتبقي / Remaining: 15 Days',
-    ].join('\n');
+    ]).join('\n');
   }
-  return [
+  return withBranchLabel(c, [
     '⚠️ العقد منتهي / Contract Expired',
     `👤 العميل / Customer: ${clientName(c)}`,
     `📄 العقد / Contract: #${cid}`,
     `🗓️ الانتهاء / Expired: ${end}`,
     '⏱️ منذ / Since: 1 Day',
-  ].join('\n');
+  ]).join('\n');
 }
 
 function paymentMessage(c, cid, p, index, overdueDays) {
   const no = p?.number || index + 1;
   const due = String(p?.dueDate || p?.date || p?.paymentDate || p?.scheduledDate || '').slice(0, 10);
   const amount = fmtAmount(p?.amount ?? p?.value ?? p?.paymentAmount);
-  return [
+  return withBranchLabel(c, [
     '💳 دفعة متأخرة / Overdue Payment',
     `👤 العميل / Customer: ${clientName(c)}`,
     `📄 العقد / Contract: #${cid}`,
     `💰 الدفعة / Payment: #${no}${amount ? ` — ${amount}` : ''}`,
     `🗓️ الاستحقاق / Due: ${due}`,
     `⏱️ التأخير / Overdue: ${overdueDays} Days`,
-  ].join('\n');
+  ]).join('\n');
 }
 
 // v2.3.95: Atomic claim via REST conditional update (ETag / If-Match), NOT via the Admin SDK's
