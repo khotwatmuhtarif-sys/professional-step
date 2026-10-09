@@ -194,6 +194,62 @@ function paymentMessage(c, cid, p, index, overdueDays) {
   ].join('\n');
 }
 
+// v2.3.95: Atomic claim via REST conditional update (ETag / If-Match), NOT via the Admin SDK's
+// ref.transaction(). Evidence gathered on 2026-10-09: a queue item created 2026-10-02 stayed at
+// status "pending" in the live database across many separate, non-overlapping workflow runs
+// (scheduled + manual), yet every single run logged "[WA-QUEUE] Already claimed" for it. That
+// rules out a real concurrent writer. The remaining explanation is that ref.transaction()'s
+// internal sync-tree does not reliably settle inside a short-lived process like a GitHub Actions
+// job (~20s runtime), causing it to report committed:false even when the precondition (status
+// === 'pending') genuinely holds. This replacement keeps the EXACT SAME atomic guarantee
+// (the write only succeeds if nobody changed the item since we read it) using Firebase's REST
+// API ETag mechanism, which does not depend on that sync tree. No duplicate-protection is
+// removed or weakened.
+let cachedAccessToken = null;
+async function getAccessToken() {
+  if (cachedAccessToken) return cachedAccessToken;
+  const token = await admin.app().options.credential.getAccessToken();
+  cachedAccessToken = token.access_token;
+  return cachedAccessToken;
+}
+
+async function claimQueueItem(key) {
+  const accessToken = await getAccessToken();
+  const base = `${DATABASE_URL}/whatsappNotificationQueue/${encodeURIComponent(key)}.json`;
+
+  const getRes = await fetch(`${base}?access_token=${accessToken}`, {
+    headers: { 'X-Firebase-ETag': 'true' }
+  });
+  if (!getRes.ok) {
+    throw new Error(`Claim GET failed ${getRes.status}`);
+  }
+  const etag = getRes.headers.get('ETag');
+  const liveData = await getRes.json();
+
+  if (!liveData || String(liveData.status || 'pending').toLowerCase() !== 'pending') {
+    return { committed: false, snapshot: liveData };
+  }
+
+  const updated = { ...liveData, status: 'sending', processingStartedAt: Date.now() };
+
+  const putRes = await fetch(`${base}?access_token=${accessToken}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'If-Match': etag },
+    body: JSON.stringify(updated)
+  });
+
+  if (putRes.status === 412) {
+    // Precondition failed: another process genuinely changed this item between our GET and PUT.
+    // Correctly rejected — this is the real race case, not the false-abort bug we're fixing.
+    return { committed: false, snapshot: null };
+  }
+  if (!putRes.ok) {
+    const text = await putRes.text().catch(() => '');
+    throw new Error(`Claim PUT failed ${putRes.status}: ${text.slice(0, 200)}`);
+  }
+
+  return { committed: true, snapshot: updated };
+}
 
 // Process immediate notifications queued by v2.3.94 in Firebase.
 // The public HTML writes only the message/event metadata; Green API credentials stay here on the server.
@@ -251,25 +307,16 @@ async function processWhatsAppNotificationQueue() {
 
     const itemRef = queue.child(key);
 
-    const claim = await itemRef.transaction(current => {
-      if (!current) return;
-
-      if (
-        String(current.status || 'pending').toLowerCase()
-        !== 'pending'
-      ) {
-        return;
-      }
-
-      return {
-        ...current,
-        status: 'sending',
-        processingStartedAt: Date.now()
-      };
-    });
+    let claim;
+    try {
+      claim = await claimQueueItem(key);
+    } catch (err) {
+      console.error('[WA-QUEUE] Claim error:', key, String(err && err.message ? err.message : err));
+      continue;
+    }
 
     if (!claim.committed) {
-      console.log('[WA-QUEUE] Already claimed:', key);
+      console.log('[WA-QUEUE] Already claimed:', key, 'current:', JSON.stringify(claim.snapshot || null));
       continue;
     }
 
