@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.96">
+<meta name="app-version" content="2.3.97">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -3065,6 +3065,12 @@ oninput="filterClientsTable(this.value)"
     style="width:auto; padding:4px 10px; font-size:11px; margin-left:4px;"
     onclick="editClient(${c.id})">
     تعديل
+  </button>
+
+  <button class="submit-btn"
+    style="width:auto; padding:4px 10px; font-size:11px; margin-left:4px; background:#b45309;"
+    onclick="openRenewContract(${c.id})">
+    🔄 تجديد
   </button>
 
   <button class="submit-btn red"
@@ -7657,7 +7663,7 @@ https://khotwatmuhtarif-sys.github.io/professional-step/
       if(info.visit){
         info.visit.status='منفذة'; info.visit.reportId=reportId; info.visit.reportType=report.type; info.visit.doneAt=new Date().toISOString(); info.visit.doneDate=actual; info.visit.executionDate=actual;
       }
-      c.used = Math.max(Number(c.used||0), reports().filter(r=>String(r.clientId)===String(c.id)).length);
+      c.used = Math.max(Number(c.used||0), (window.contractReports?window.contractReports(c,reports()):reports().filter(r=>String(r.clientId)===String(c.id))).length);
       if(typeof saveDB==='function') saveDB();
       if(window.firebase && firebase.database) await firebase.database().ref('reports/'+reportId).set(report);
       if(window.saveClientToFirebase) await window.saveClientToFirebase(c);
@@ -9836,7 +9842,7 @@ const completeStatus=s=>['منفذة','مكتملة','مكتمل','تم التن
 async function persistClient(c){try{saveDB()}catch(e){};if(window.saveClientToFirebase)await window.saveClientToFirebase(c);}
 function visitsMetrics(c){
  const schedule=Array.isArray(c.visitSchedule)?c.visitSchedule:[];
- const reports=(db.reports||[]).filter(r=>String(r.clientId)===String(c.id));
+ const reports=(window.contractReports?window.contractReports(c):(db.reports||[]).filter(r=>String(r.clientId)===String(c.id)));
  const completedKeys=new Set();
  schedule.forEach((v,i)=>{if(completeStatus(v.status)||v.executionDate||v.doneDate||v.completedAt)completedKeys.add(String(v.number||v.id||i+1));});
  reports.forEach((r,i)=>completedKeys.add(String(r.visitNumber||r.number||r.visitId||('r'+i))));
@@ -9942,14 +9948,14 @@ function buildContractStatusCard(c,startD,endD){
     const remainText=info.remainingVisits>0
       ?`🔄 باقي في رصيدك ${info.remainingVisits} ${info.remainingVisits===1?'زيارة':'زيارات'} ستنتقل معك إلى العقد الجديد`
       :`🔄 باقي في رصيدك 0 من الزيارات`;
-    return `<div class="card" style="margin-bottom:14px"><div style="font-weight:900;color:var(--primary);margin-bottom:8px">📅 حالة العقد</div><div class="status-expired"><div class="badge-icon">⚠️</div><div class="big">عقدك منتهي</div><div class="small">بداية العقد: ${E(startD)} &nbsp;|&nbsp; نهاية العقد: ${E(endD||'-')}</div><div class="remain-badge">${remainText}</div><div class="msg-box">يرجى البدء في معاملة تجديد العقد لكي تكون أموركم نظامية في عقد مكافحة الآفات اللازم من الجهات الرقابية.</div></div><button class="submit-btn" style="margin-top:10px" onclick="viewContractPdf()">📄 عرض نسخة العقد PDF</button></div>`;
+    return `<div class="card" style="margin-bottom:14px"><div style="font-weight:900;color:var(--primary);margin-bottom:8px">📅 حالة العقد</div><div class="status-expired"><div class="badge-icon">⚠️</div><div class="big">عقدك منتهي</div><div class="small">بداية العقد: ${E(startD)} &nbsp;|&nbsp; نهاية العقد: ${E(endD||'-')}</div><div class="remain-badge">${remainText}</div><div class="msg-box">يرجى البدء في معاملة تجديد العقد لكي تكون أموركم نظامية في عقد مكافحة الآفات اللازم من الجهات الرقابية.</div></div><button class="submit-btn" style="margin-top:10px;background:#f59e0b" onclick="requestContractRenewal()">🔄 طلب تجديد العقد</button><button class="submit-btn" style="margin-top:10px" onclick="viewContractPdf()">📄 عرض نسخة العقد PDF</button></div>`;
   }
   if(info.tier==='warn30'||info.tier==='warn15'||info.tier==='warn7'){
     const tierClass=info.tier==='warn7'?'tier7':info.tier==='warn15'?'tier15':'tier30';
     const dotClass=info.tier==='warn7'?'red':info.tier==='warn15'?'orange':'yellow';
     const d=info.daysLeft;
     const daysWord=d===0?'اليوم':d===1?'يوم واحد':d===2?'يومين':(d<=10?`${d} أيام`:`${d} يوم`);
-    return `<div class="card" style="margin-bottom:14px"><div style="font-weight:900;color:var(--primary);margin-bottom:8px">📅 حالة العقد</div><div class="status-warn ${tierClass}"><div class="big"><span class="pulse-dot ${dotClass}"></span>ينتهي عقدك خلال ${daysWord}</div><div class="small">تاريخ الانتهاء: ${E(endD||'-')} — يرجى التواصل لتجديد العقد</div></div><button class="submit-btn" style="margin-top:10px" onclick="viewContractPdf()">📄 عرض نسخة العقد PDF</button></div>`;
+    return `<div class="card" style="margin-bottom:14px"><div style="font-weight:900;color:var(--primary);margin-bottom:8px">📅 حالة العقد</div><div class="status-warn ${tierClass}"><div class="big"><span class="pulse-dot ${dotClass}"></span>ينتهي عقدك خلال ${daysWord}</div><div class="small">تاريخ الانتهاء: ${E(endD||'-')} — يرجى التواصل لتجديد العقد</div></div><button class="submit-btn" style="margin-top:10px;background:#f59e0b" onclick="requestContractRenewal()">🔄 طلب تجديد العقد</button><button class="submit-btn" style="margin-top:10px" onclick="viewContractPdf()">📄 عرض نسخة العقد PDF</button></div>`;
   }
   return `<div class="card" style="margin-bottom:14px"><div style="font-weight:900;color:var(--primary);margin-bottom:8px">📅 حالة العقد</div><div>عقدك نشط حتى <b>${E(endD||'-')}</b></div><div style="font-size:12px;color:var(--text-light);margin-top:4px">بداية العقد: ${E(startD)} &nbsp;|&nbsp; نهاية العقد: ${E(endD||'-')}</div><button class="submit-btn" style="margin-top:10px" onclick="viewContractPdf()">📄 عرض نسخة العقد PDF</button></div>`;
 }
@@ -14532,5 +14538,240 @@ console.log('✅ v2.3.90 payment root fix loaded');
 })();
 </script>
 
+<script>
+/* ===== v2.3.97: تجديد العقد =====
+   التجديد = أرشفة العقد الحالي كسجل تاريخي داخل client.contractHistory ثم بدء عقد جديد على نفس العميل.
+   - المدير: يجدد في أي وقت من زر "تجديد" في جدول العملاء.
+   - العميل: يظهر له زر "طلب تجديد العقد" قبل 30 يوماً من الانتهاء (أو بعده) ويصل الطلب للإدارة. */
+(function(){
+  const E = s => String(s == null ? '' : s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  const todayISO = () => new Date().toISOString().slice(0, 10);
+  const addYearISO = iso => { const d = new Date(iso); if (isNaN(d.getTime())) return ''; d.setFullYear(d.getFullYear() + 1); return d.toISOString().slice(0, 10); };
+  const find = id => (window.db && db.clients || []).find(c => String(c.id) === String(id));
+
+  // تقارير العقد الحالي فقط (لا تُحتسب تقارير العقود المؤرشفة ضمن زيارات العقد الجديد)
+  window.contractReports = function(c, reports){
+    const mine = (reports || (window.db && db.reports) || []).filter(r => String(r.clientId) === String(c.id));
+    if (!(c.contractHistory && c.contractHistory.length) || !c.contractStartDate) return mine;
+    return mine.filter(r => {
+      const d = String(r.date || r.actualExecutionDate || r.createdAt || '').slice(0, 10);
+      return !/^\d{4}-\d{2}-\d{2}$/.test(d) || d >= c.contractStartDate;
+    });
+  };
+
+  function buildPayments(amount, plan, start){
+    amount = Number(amount || 0);
+    if (!amount || !plan || plan === 'يدوي') return [];
+    let count = 1, step = 12;
+    if (plan.includes('شهري')) { count = 12; step = 1; }
+    else if (plan.includes('ربع')) { count = 4; step = 3; }
+    else if (plan.includes('ثلث')) { count = 3; step = 4; }
+    else if (plan.includes('نصف')) { count = 2; step = 6; }
+    const each = +(amount / count).toFixed(2), out = [];
+    for (let i = 0; i < count; i++) {
+      const d = new Date(start); d.setMonth(d.getMonth() + i * step);
+      out.push({ number: i + 1, amount: each, dueDate: d.toISOString().slice(0, 10), status: 'غير مدفوعة', paidDate: '', receipt: '', receiptName: '', invoice: '', invoiceName: '', note: '' });
+    }
+    return out;
+  }
+
+  function historyHtml(c){
+    const h = c.contractHistory || [];
+    if (!h.length) return '';
+    return `<div style="margin-top:14px"><div style="font-weight:800;margin-bottom:6px">📜 العقود السابقة (${h.length})</div>` + h.map(s => `
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:8px 10px;margin-bottom:6px;font-size:12px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+        <div>عقد ${E(s.seq)}: ${E(s.contractStartDate || '-')} ← ${E(s.contractEndDate || '-')} | ${Number(s.contractAmount || 0).toLocaleString()} ريال | ${E(s.pay || '-')} | ${E(s.city || '-')}</div>
+        ${s.contractPdf ? `<button type="button" class="submit-btn" style="width:auto;padding:4px 10px;font-size:11px" onclick="viewRenewHistoryPdf(${Number(c.id)},${Number(s.seq)})">👁️ عرض العقد</button>` : ''}
+      </div>`).join('') + '</div>';
+  }
+
+  window.viewRenewHistoryPdf = function(id, seq){
+    const c = find(id), s = c && (c.contractHistory || []).find(x => Number(x.seq) === Number(seq));
+    if (!s || !s.contractPdf) return showToast('لا توجد نسخة مرفوعة لهذا العقد');
+    openAttachment(s.contractPdf, s.contractPdfName || 'عقد.pdf');
+  };
+
+  window.openRenewContract = function(id){
+    const c = find(id);
+    if (!c) return showToast('تعذر العثور على العميل');
+    const info = window.getContractStatusInfo ? window.getContractStatusInfo(c) : { endDate: c.contractEndDate || '', daysLeft: null, remainingVisits: 0 };
+    let remaining = Number(info.remainingVisits || 0);
+    const today = todayISO();
+    const start = (info.endDate && info.endDate > today) ? info.endDate : today;
+    const plan = c.pay || c.paymentPlan || 'شهري';
+    const freq = c.visitFrequency || 'monthly';
+    const amount = Number(c.contractAmount || c.value || 0);
+    const opt = (v, cur) => `<option value="${v}" ${v === cur ? 'selected' : ''}>${v}</option>`;
+    const fopt = (v, t) => `<option value="${v}" ${v === freq ? 'selected' : ''}>${t}</option>`;
+    const statusTxt = info.daysLeft == null ? '-' : (info.daysLeft < 0 ? `منتهي منذ ${Math.abs(info.daysLeft)} يوم` : `باقي ${info.daysLeft} يوم`);
+
+    document.getElementById('modalTitle').textContent = '🔄 تجديد العقد';
+    document.getElementById('modalContent').innerHTML = `
+      <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:10px 12px;margin-bottom:12px;font-size:13px">
+        <b>${E(c.name)}</b> — عقد #${E(c.id)}<br>
+        العقد الحالي: ${E(c.contractStartDate || c.start || '-')} ← ${E(info.endDate || '-')} (${E(statusTxt)})<br>
+        القيمة: ${amount.toLocaleString()} ريال | الدفع: ${E(plan)} | المدينة: ${E(c.city || '-')} | زيارات متبقية: ${remaining}
+      </div>
+      <div class="form-group"><label class="form-label">تاريخ بداية العقد الجديد *</label>
+        <input type="date" class="form-input" id="rn_start" value="${start}" onchange="rnSyncEnd()"></div>
+      <div class="form-group"><label class="form-label">تاريخ نهاية العقد الجديد *</label>
+        <input type="date" class="form-input" id="rn_end" value="${addYearISO(start)}" data-auto="1" oninput="this.dataset.auto='0'"></div>
+      <div class="form-group"><label class="form-label">قيمة العقد (ريال) *</label>
+        <input type="number" class="form-input" id="rn_amount" value="${amount}" min="0"></div>
+      <div class="form-group"><label class="form-label">طريقة الدفع *</label>
+        <select class="form-select" id="rn_pay">${['شهري','ربع سنوي','ثلث سنوي','نصف سنوي','سنوي','يدوي'].map(v => opt(v, plan)).join('')}</select></div>
+      <div class="form-group"><label class="form-label">المدينة / الفرع *</label>
+        <select class="form-select" id="rn_city">${['مكة المكرمة','الرياض','جدة','الدمام'].map(v => opt(v, c.city || '')).join('')}${c.city ? '' : '<option value="" selected>اختر المدينة</option>'}</select></div>
+      <div class="form-group"><label class="form-label">عدد الزيارات في العقد الجديد *</label>
+        <input type="number" class="form-input" id="rn_visits" value="${Number(c.visits || 12)}" min="0"></div>
+      <div class="form-group"><label class="form-label">جدولة الزيارات</label>
+        <select class="form-select" id="rn_freq">${fopt('monthly','شهري')}${fopt('15days','كل 15 يوم')}${fopt('10days','كل 10 أيام')}${fopt('weekly','أسبوعي')}${fopt('manual','يدوي')}</select></div>
+      ${remaining > 0 ? `<div class="form-group"><label style="display:flex;gap:8px;align-items:center;font-size:13px"><input type="checkbox" id="rn_carry" checked> ترحيل الزيارات المتبقية (${remaining}) إلى العقد الجديد</label></div>` : ''}
+      <div class="form-group"><label class="form-label">نسخة العقد الجديد (PDF أو صورة) — اختياري</label>
+        <input type="file" class="form-input" id="rn_file" accept="application/pdf,image/*"></div>
+      <div id="rn_status" style="font-size:12px;color:var(--text-light);margin-bottom:8px"></div>
+      <button class="submit-btn green" id="rn_btn" onclick="confirmRenewContract(${Number(c.id)})">✅ تأكيد التجديد</button>
+      <div style="font-size:11.5px;color:var(--text-light);margin-top:8px">سيُحفظ العقد الحالي كسجل تاريخي (بياناته ودفعاته وزياراته ونسخة العقد) ويبدأ عقد جديد للعميل.</div>
+      ${historyHtml(c)}`;
+    document.getElementById('modalOverlay').classList.add('active');
+  };
+
+  window.rnSyncEnd = function(){
+    const s = document.getElementById('rn_start'), e = document.getElementById('rn_end');
+    if (s && e && e.dataset.auto !== '0') e.value = addYearISO(s.value);
+  };
+
+  let renewing = false;
+  window.confirmRenewContract = async function(id){
+    if (renewing) return;
+    const c = find(id);
+    if (!c) return showToast('تعذر العثور على العميل');
+    const v = k => document.getElementById(k);
+    const start = v('rn_start').value, end = v('rn_end').value, amount = Number(v('rn_amount').value);
+    const plan = v('rn_pay').value, city = v('rn_city').value, freq = v('rn_freq').value;
+    const baseVisits = Math.max(0, parseInt(v('rn_visits').value) || 0);
+    if (!start || !end) return showToast('⚠️ حدد تاريخ البداية والنهاية');
+    if (end <= start) return showToast('⚠️ تاريخ النهاية لازم يكون بعد البداية');
+    if (!(amount >= 0)) return showToast('⚠️ قيمة العقد غير صحيحة');
+    if (!city) return showToast('⚠️ اختر المدينة / الفرع');
+    if (!confirm(`تجديد عقد ${c.name}؟\nسيُؤرشف العقد الحالي ويبدأ عقد جديد من ${start} إلى ${end}.`)) return;
+
+    renewing = true;
+    const btn = v('rn_btn'), st = v('rn_status');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ جاري التجديد...'; }
+    try {
+      let pdf = '', pdfName = '';
+      const f = v('rn_file') && v('rn_file').files && v('rn_file').files[0];
+      if (f) {
+        const up = await compressFileForUpload(f, m => { if (st) st.textContent = '⏳ ' + m; });
+        pdf = up.data; pdfName = up.name;
+      }
+
+      const info = window.getContractStatusInfo ? window.getContractStatusInfo(c) : { endDate: c.contractEndDate || '', remainingVisits: 0 };
+      let remaining = Number(info.remainingVisits || 0);
+      const carry = !!(v('rn_carry') && v('rn_carry').checked);
+      const totalVisits = baseVisits + (carry ? remaining : 0);
+
+      let stats = {};
+      try { if (typeof getPaymentStats === 'function') { const s = getPaymentStats(c); stats = { paid: s.paid, remaining: s.remaining }; } } catch (e) {}
+
+      const snapshot = JSON.parse(JSON.stringify({
+        seq: (c.contractHistory || []).length + 1,
+        archivedAt: new Date().toISOString(),
+        archivedBy: (window.currentUser && (currentUser.name || currentUser.username)) || '',
+        contractStartDate: c.contractStartDate || c.start || '',
+        contractEndDate: info.endDate || '',
+        contractAmount: Number(c.contractAmount || c.value || 0),
+        pay: c.pay || c.paymentPlan || '',
+        city: c.city || '',
+        visits: c.visits || 0, used: c.used || 0, remainingVisits: remaining,
+        visitFrequency: c.visitFrequency || '',
+        visitSchedule: c.visitSchedule || [],
+        payments: c.payments || [],
+        manualPayments: c.manualPayments || [],
+        paymentStats: stats,
+        contractPdf: c.contractPdf || '', contractPdfName: c.contractPdfName || ''
+      }));
+
+      const backup = JSON.parse(JSON.stringify(c));
+      c.contractHistory = [...(c.contractHistory || []), snapshot];
+      c.renewalCount = (c.renewalCount || 0) + 1;
+      c.lastRenewedAt = new Date().toISOString();
+      c.contractStartDate = start; c.start = start;
+      c.contractEndDate = end; c.endDate = end; c.end = end;
+      c.value = amount; c.contractAmount = amount;
+      c.pay = plan; c.paymentPlan = plan;
+      c.city = city;
+      c.visits = totalVisits; c.used = 0; c.visitFrequency = freq;
+      c.visitSchedule = generateVisitSchedule(start, totalVisits, freq);
+      c.payments = buildPayments(amount, plan, start);
+      c.manualPayments = [];
+      c.contractPdf = pdf; c.contractPdfName = pdfName;
+      c.status = 'active';
+
+      try { saveDB(); } catch (e) {}
+      const ok = window.saveClientToFirebase ? await window.saveClientToFirebase(c) : true;
+      if (ok === false) {
+        Object.keys(c).forEach(k => delete c[k]); Object.assign(c, backup);
+        try { saveDB(); } catch (e) {}
+        showToast('❌ لم يُحفظ التجديد على السحابة، لم يتغير شيء. حاول مرة أخرى');
+        return;
+      }
+
+      if (typeof window.notifyAdminWhatsApp === 'function') {
+        window.notifyAdminWhatsApp(
+          `🔄 *تجديد عقد | Contract Renewed*\n\n` +
+          `👤 العميل | Client: ${c.name || '-'} (عقد #${c.id} | Contract #${c.id})\n` +
+          `📅 الفترة | Period: ${start} → ${end}\n` +
+          `💰 القيمة | Amount: ${amount.toLocaleString()} SAR`,
+          { eventKey: `renewal_${c.id}_${start}`, type: 'renewal', city: c.city || '' }
+        );
+      }
+      closeModal();
+      showToast(`✅ تم تجديد عقد ${c.name}`);
+      if (typeof renderPanel === 'function') renderPanel('all_clients');
+    } catch (e) {
+      console.error(e);
+      showToast('❌ ' + (e.message || 'تعذر التجديد'));
+    } finally {
+      renewing = false;
+      const b = document.getElementById('rn_btn');
+      if (b) { b.disabled = false; b.textContent = '✅ تأكيد التجديد'; }
+    }
+  };
+
+  // ===== طلب تجديد من حساب العميل (قبل 30 يوماً من الانتهاء أو بعده) =====
+  window.requestContractRenewal = async function(){
+    const id = typeof currentClientId !== 'undefined' ? currentClientId : window.currentClientId;
+    const c = find(id) || {};
+    const info = window.getContractStatusInfo ? window.getContractStatusInfo(c) : { daysLeft: null };
+    if (info.daysLeft == null || info.daysLeft > 30) return showToast('طلب التجديد يتاح قبل 30 يوماً من نهاية العقد');
+    const key = 'stepProRenewReq:' + c.id + ':' + info.endDate;
+    try { if (localStorage.getItem(key)) return showToast('✅ طلب التجديد أُرسل سابقاً وستتواصل معك الإدارة'); } catch (e) {}
+    if (!confirm('إرسال طلب تجديد العقد إلى الإدارة؟')) return;
+    try {
+      const now = new Date().toISOString();
+      await firebase.database().ref('complaintRequests').push({
+        clientId: c.id ?? '', clientName: c.name || '', type: 'طلب تجديد', subject: 'طلب تجديد العقد',
+        details: `يرغب العميل في تجديد العقد. تاريخ انتهاء العقد الحالي: ${info.endDate || '-'}`,
+        status: 'جديد', createdAt: now, updatedAt: now
+      });
+      if (typeof window.notifyAdminWhatsApp === 'function') {
+        window.notifyAdminWhatsApp(
+          `🔄 *طلب تجديد عقد | Contract Renewal Request*\n\n` +
+          `👤 العميل | Client: ${c.name || '-'} (عقد #${c.id || '-'} | Contract #${c.id || '-'})\n` +
+          `📅 ينتهي العقد | Expires: ${info.endDate || '-'}`,
+          { eventKey: `renewal_req_${c.id}_${info.endDate}`, type: 'renewal_request', city: c.city || '' }
+        );
+      }
+      try { localStorage.setItem(key, String(Date.now())); } catch (e) {}
+      showToast('✅ تم إرسال طلب التجديد للإدارة');
+    } catch (e) {
+      console.error(e);
+      showToast('❌ تعذر إرسال الطلب، حاول مرة أخرى');
+    }
+  };
+})();
+</script>
 </body>
 </html>
