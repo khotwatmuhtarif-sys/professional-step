@@ -2,8 +2,8 @@ name: WhatsApp Instant Queue
 
 on:
   schedule:
-    # Every 5 minutes: sends emergency/complaint/receipt/report notifications queued by the web app.
-    - cron: '*/5 * * * *'
+    # Hourly (minute 17, off-peak): sends emergency/complaint/receipt/report notifications queued by the web app.
+    - cron: '17 * * * *'
   workflow_dispatch:
 
 concurrency:
