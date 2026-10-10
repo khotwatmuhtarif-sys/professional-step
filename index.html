@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.95">
+<meta name="app-version" content="2.3.96">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -7469,6 +7469,31 @@ https://khotwatmuhtarif-sys.github.io/professional-step/
       // securely in Firebase; a server-side worker/trigger sends it to Green API.
       // No Green API credentials are exposed in this public HTML file.
       const authUser = window.firebaseAuth && window.firebaseAuth.currentUser;
+
+      // v2.3.96: instant path. Send straight to the Netlify relay (secrets live only there).
+      // If it fails for any reason, fall back to the Firebase queue below (processed by GitHub Actions).
+      let sentDirect = false;
+      try {
+        if (authUser && typeof authUser.getIdToken === 'function') {
+          const idToken = await authUser.getIdToken();
+          const ctl = new AbortController();
+          const timer = setTimeout(() => ctl.abort(), 8000);
+          const r = await fetch('https://stepro-wa-notify-khotwa.netlify.app/.netlify/functions/whatsapp-notify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken },
+            body: JSON.stringify({ message: cleanMessage }),
+            signal: ctl.signal
+          });
+          clearTimeout(timer);
+          sentDirect = r.ok;
+        }
+      } catch (e) { sentDirect = false; }
+
+      if (sentDirect) {
+        if (dedupeKey) { try { localStorage.setItem(dedupeKey, String(Date.now())); } catch(e) {} }
+        return true;
+      }
+
       const queueRef = window.firebaseDB.ref('whatsappNotificationQueue').push();
       await queueRef.set({
         id: queueRef.key,
