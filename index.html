@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.97">
+<meta name="app-version" content="2.3.98">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -197,6 +197,7 @@
           city: userData.city || '',
           phone: userData.phone || '',
           clientId: userData.clientId || null,
+          clientKey: userData.clientId != null ? String(userData.clientId) : null,
           createdAt: now,
           createdBy: current.uid,
           updatedAt: now,
@@ -12837,7 +12838,7 @@ window.trySilentLegacyMigration_v2370=async function(data){
         migratedAt:now,
         updatedAt:now
       };
-      if(data.clientId) profile.clientId=data.clientId;
+      if(data.clientId){ profile.clientId=data.clientId; profile.clientKey=String(data.clientId); }
       if(data.city) profile.city=data.city;
       if(data.phone) profile.phone=data.phone;
 
