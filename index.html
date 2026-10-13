@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.101">
+<meta name="app-version" content="2.3.102">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -11049,7 +11049,7 @@ try{submitEmergencyRequest=window.submitEmergencyRequest}catch(e){}try{submitCom
 window.loadClientRequests=async function(){
   const box=document.getElementById('clientRequestsBox'),c=currentClient56();if(!box)return;
   try{
-    const [a,b]=await Promise.all([firebase.database().ref('emergencyRequests').once('value'),firebase.database().ref('complaintRequests').once('value')]);const items=[];
+    const [a,b]=await Promise.all([window.__myRequestsSnap('emergencyRequests'),window.__myRequestsSnap('complaintRequests')]);const items=[];
     Object.entries(a.val()||{}).forEach(([key,v])=>{if(String(v.clientId)===String(c.id))items.push({...v,key,path:'emergencyRequests',kind:'طوارئ'})});
     Object.entries(b.val()||{}).forEach(([key,v])=>{if(String(v.clientId)===String(c.id))items.push({...v,key,path:'complaintRequests',kind:v.type||'شكوى/اقتراح'})});
     items.sort((x,y)=>String(y.createdAt||'').localeCompare(String(x.createdAt||'')));
@@ -15031,6 +15031,80 @@ console.log('✅ v2.3.90 payment root fix loaded');
   document.addEventListener('DOMContentLoaded',()=>{observe();run();});
   setInterval(()=>{observe();run();},1500);
   setTimeout(()=>{observe();run();},800);
+})();
+</script>
+
+<script>
+/* ===== v2.3.102: إشعار داخل التطبيق للعميل عند تحديث حالة طلبه + قراءة طلبات العميل بالاستعلام المسموح ===== */
+(function(){
+  const PATHS=[['emergencyRequests','طوارئ'],['complaintRequests','شكوى/اقتراح']];
+  const isEn=()=>(localStorage.getItem('khotwah_lang')||'ar')==='en';
+  const roleNow=()=>{try{return (window.StepPro&&window.StepPro.effectiveRole_v2373&&window.StepPro.effectiveRole_v2373())||window.currentRole}catch(e){return window.currentRole}};
+  const myId=()=>{try{const id=(typeof currentClientId!=='undefined'?currentClientId:window.currentClientId);return id==null?null:id}catch(e){return window.currentClientId}};
+
+  /* قواعد Firebase تسمح للعميل بالقراءة فقط عبر استعلام clientId؛ نجرب النوعين (رقم/نص) ونجمع النتائج */
+  async function fetchMine(path){
+    const id=myId(); const out={};
+    if(id==null||!window.firebase) return out;
+    const vals=[Number(id),String(id)].filter((v,i,a)=>!(typeof v==='number'&&isNaN(v))&&a.indexOf(v)===i);
+    for(const v of vals){
+      try{
+        const s=await firebase.database().ref(path).orderByChild('clientId').equalTo(v).once('value');
+        Object.assign(out,s.val()||{});
+      }catch(e){ /* قد لا تتطابق قيمة الاستعلام مع القاعدة؛ نكمل بالنوع الآخر */ }
+    }
+    return out;
+  }
+  window.__myRequestsSnap=async function(path){ const val=await fetchMine(path); return {val:()=>val}; };
+
+  const INITIAL=['','جديد'];
+  const seenKey=()=>'stepProReqSeen:'+myId();
+  const getSeen=()=>{try{return JSON.parse(localStorage.getItem(seenKey())||'null')}catch(e){return null}};
+  const putSeen=o=>{try{localStorage.setItem(seenKey(),JSON.stringify(o))}catch(e){}};
+  function msgFor(kind,status){
+    const en=isEn(); const s=String(status||'');
+    const k=kind==='طوارئ'?(en?'emergency request':'طلب الطوارئ'):(en?'request':'طلبك');
+    if(s==='تمت المعالجة'||s==='تم التنفيذ') return en?('✅ Your '+k+' has been resolved successfully'):('✅ تمت معالجة '+(kind==='طوارئ'?'طلب الطوارئ':'طلبك')+' بنجاح');
+    if(s==='جاري المعالجة'||s==='جاري التنفيذ') return en?('🔧 Your '+k+' is being handled'):('🔧 جاري معالجة '+(kind==='طوارئ'?'طلب الطوارئ':'طلبك'));
+    return en?('🔔 Your '+k+' status was updated: '+s):('🔔 تم تحديث حالة '+(kind==='طوارئ'?'طلب الطوارئ':'طلبك')+': '+s);
+  }
+  function setDots(n){
+    document.querySelectorAll('.req-dot-v2102').forEach(e=>e.remove());
+    if(!n) return;
+    document.querySelectorAll('[onclick*="client_requests"],[data-panel="client_requests"]').forEach(el=>{
+      const d=document.createElement('span'); d.className='req-dot-v2102'; d.textContent=n>9?'9+':String(n);
+      d.style.cssText='display:inline-block;min-width:18px;height:18px;line-height:18px;padding:0 5px;margin:0 6px;border-radius:9px;background:#dc2626;color:#fff;font-size:11px;font-weight:800;text-align:center;vertical-align:middle';
+      el.appendChild(d);
+    });
+  }
+  let unread=0;
+  async function check(){
+    if(roleNow()!=='client'||myId()==null||!window.firebase||!firebase.auth||!firebase.auth().currentUser) return;
+    const items=[];
+    for(const [path,kind] of PATHS){ const o=await fetchMine(path); Object.entries(o).forEach(([key,v])=>items.push({path,kind,key,status:String(v.status||'')})); }
+    const prev=getSeen(); const next={}; const changed=[];
+    items.forEach(x=>{
+      const k=x.path+'/'+x.key; next[k]=x.status;
+      if(prev===null) return;                       /* أول تشغيل على هذا المتصفح: نسجل بدون إزعاج */
+      const was=prev[k];
+      if(was===undefined? !INITIAL.includes(x.status) : was!==x.status) changed.push(x);
+    });
+    const onRequests=!!document.getElementById('clientRequestsBox');
+    if(prev===null||onRequests){ putSeen(next); unread=0; setDots(0); return; }
+    /* غير المقروء = كل ما تغيّر ولم يُفتح بعد */
+    const pending=Object.assign({},window.__reqPending||{});
+    changed.forEach(x=>{ const k=x.path+'/'+x.key; if(!pending[k]){ pending[k]=x.status; try{ showToast(msgFor(x.kind,x.status)); }catch(e){} } else if(pending[k]!==x.status){ pending[k]=x.status; try{ showToast(msgFor(x.kind,x.status)); }catch(e){} } });
+    window.__reqPending=pending;
+    /* نحفظ prev كما هو حتى يفتح العميل "طلباتي"، فتبقى النقطة الحمراء */
+    unread=Object.keys(pending).filter(k=>next[k]!==undefined&&next[k]!==prev[k]).length;
+    setDots(unread);
+  }
+  window.__reqNotifyCheck=check;
+  function loop(){ check().catch(()=>{}); }
+  setTimeout(loop,4000); setInterval(loop,60000);
+  document.addEventListener('visibilitychange',()=>{ if(!document.hidden) loop(); });
+  /* إعادة رسم النقطة بعد تغيّر الشاشة */
+  setInterval(()=>{ if(unread&&!document.querySelector('.req-dot-v2102')) setDots(unread); if(document.getElementById('clientRequestsBox')&&unread){ loop(); } },3000);
 })();
 </script>
 
