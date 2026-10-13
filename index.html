@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.99">
+<meta name="app-version" content="2.3.100">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -3074,6 +3074,12 @@ oninput="filterClientsTable(this.value)"
     🔄 تجديد
   </button>
 
+  <button class="submit-btn"
+    style="width:auto; padding:4px 10px; font-size:11px; margin-left:4px; background:#0f766e;"
+    onclick="openClientSites(${c.id})">
+    🏢 المواقع
+  </button>
+
   <button class="submit-btn red"
     style="width:auto; padding:4px 10px; font-size:11px; background:var(--red);"
     onclick="deleteClient(${c.id})">
@@ -3183,7 +3189,7 @@ function showClientSchedule(id) {
             ${schedule.length ? schedule.map(v => `
                 <div class="visit-item">
                     <div class="visit-info">
-                        <div class="visit-title">الزيارة رقم ${v.number}</div>
+                        <div class="visit-title">الزيارة رقم ${v.number}${v.siteName?' — '+v.siteName:''}</div>
                         <div class="visit-date">${v.date}</div>
                     </div>
                     <span class="visit-badge upcoming">${v.status || 'مجدولة'}</span>
@@ -5382,7 +5388,7 @@ function showClientSchedule(id) {
       ${schedule.length ? schedule.map((v, idx) => `
         <div class="visit-item">
           <div class="visit-info">
-            <div class="visit-title">الزيارة رقم ${v.number || idx + 1}</div>
+            <div class="visit-title">الزيارة رقم ${v.number || idx + 1}${v.siteName?' — '+v.siteName:''}</div>
             <div class="visit-date">${v.date || '-'} — ${v.type || 'زيارة دورية'} | الفني: ${v.tech || 'غير محدد'}</div>
             <div class="visit-admin-actions">
               ${v.status !== 'منفذة' && v.status !== 'مكتمل' ? `<button class="submit-btn green" onclick="adminMarkVisitCompleted(${client.id}, ${idx}, 'schedule')">✅ تم التنفيذ</button>` : ''}
@@ -14777,5 +14783,171 @@ console.log('✅ v2.3.90 payment root fix loaded');
   };
 })();
 </script>
+<script>
+/* ===== v2.3.100: مواقع متعددة للعميل (عقد واحد، زيارات مستقلة لكل موقع) ===== */
+(function(){
+  const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  const FREQ=[['monthly','شهرياً'],['15days','كل 15 يوم'],['10days','كل 10 أيام'],['weekly','أسبوعياً'],['manual','يدوي (بدون جدول تلقائي)']];
+  const isDone=v=>!!v&&(v.status==='منفذة'||v.status==='مكتمل'||v.status==='مكتملة'||!!v.reportId||!!v.executionDate);
+  const siteOf=v=>v.siteId||'main';
+  const client=id=>(window.db&&db.clients||[]).find(c=>String(c.id)===String(id));
+  let draft=null;
+
+  function today(){return new Date().toISOString().split('T')[0];}
+  function sitesOf(c){
+    if(Array.isArray(c.sites)&&c.sites.length) return c.sites;
+    return null;
+  }
+  window.siteLabelFor=function(v){return v&&v.siteName?v.siteName:'';};
+  window.__sitesDraft=()=>draft;
+
+  function rowHtml(s,i){
+    const used=s._done||0;
+    return `<div class="card" style="margin-bottom:10px;border-right:4px solid #1a3a5c" data-site="${i}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <b>🏢 موقع ${i+1}</b>
+        <button class="submit-btn red" style="width:auto;padding:3px 10px;font-size:12px" onclick="siteRemove(${i})">حذف</button>
+      </div>
+      <div class="form-group"><label class="form-label">اسم الموقع</label><input class="form-input" id="st_name_${i}" value="${esc(s.name)}" placeholder="مثال: سكن العمال" oninput="siteSync()"></div>
+      <div class="form-group"><label class="form-label">عدد الزيارات</label><input type="number" min="${used}" class="form-input" id="st_visits_${i}" value="${esc(s.visits)}" oninput="siteSync()">${used?`<small>المنفذ منها ${used}</small>`:''}</div>
+      <div class="form-group"><label class="form-label">التكرار</label><select class="form-select" id="st_freq_${i}" onchange="siteSync()">${FREQ.map(f=>`<option value="${f[0]}" ${f[0]===s.visitFrequency?'selected':''}>${f[1]}</option>`).join('')}</select></div>
+      <div class="form-group"><label class="form-label">تاريخ أول زيارة</label><input type="date" class="form-input" id="st_start_${i}" value="${esc(s.startDate)}" onchange="siteSync()"></div>
+    </div>`;
+  }
+  function render(c){
+    const total=draft.reduce((a,s)=>a+(Number(s.visits)||0),0);
+    document.getElementById('modalTitle').textContent='🏢 مواقع العميل — '+(c.name||'');
+    document.getElementById('modalContent').innerHTML=`<div id="sitesBox">
+      <div class="card" style="background:#f0f9ff;margin-bottom:10px;font-size:13px">العقد واحد لكل المواقع، ولكل موقع زياراته وجدوله. إجمالي زيارات العقد: <b id="sitesTotal">${total}</b></div>
+      ${draft.map(rowHtml).join('')}
+      <button class="submit-btn" style="background:#475569" onclick="siteAdd()">➕ إضافة موقع</button>
+      <div id="sitesStatus" style="color:#b91c1c;font-size:13px;margin:8px 0"></div>
+      <button class="submit-btn green" id="sitesSaveBtn" onclick="siteSave(${JSON.stringify(String(c.id))})">💾 حفظ المواقع</button>
+    </div>`;
+    document.getElementById('modalOverlay').classList.add('active');
+  }
+  window.siteSync=function(){
+    draft.forEach((s,i)=>{
+      const g=id=>document.getElementById(id);
+      if(g('st_name_'+i)) s.name=g('st_name_'+i).value;
+      if(g('st_visits_'+i)) s.visits=g('st_visits_'+i).value;
+      if(g('st_freq_'+i)) s.visitFrequency=g('st_freq_'+i).value;
+      if(g('st_start_'+i)) s.startDate=g('st_start_'+i).value;
+    });
+    const t=document.getElementById('sitesTotal');
+    if(t) t.textContent=draft.reduce((a,s)=>a+(Number(s.visits)||0),0);
+  };
+  window.siteAdd=function(){
+    siteSync();
+    const c=draft._client;
+    const nid='s'+Date.now().toString(36)+draft.length;
+    const arr=draft; arr.push({id:nid,name:'',visits:6,visitFrequency:'monthly',startDate:c.contractStartDate||c.start||today(),_done:0});
+    render(c);
+  };
+  window.siteRemove=function(i){
+    siteSync();
+    const c=draft._client; const s=draft[i];
+    if(s._done>0){ if(typeof showToast==='function')showToast('❌ لا يمكن حذف موقع فيه زيارات منفذة'); return; }
+    if(draft.length<=1){ if(typeof showToast==='function')showToast('❌ يجب أن يبقى موقع واحد على الأقل'); return; }
+    draft.splice(i,1); render(c);
+  };
+
+  window.openClientSites=function(id){
+    const c=client(id); if(!c) return;
+    const existing=sitesOf(c);
+    const sched=Array.isArray(c.visitSchedule)?c.visitSchedule:[];
+    if(existing){
+      draft=existing.map(s=>({...s,_done:sched.filter(v=>siteOf(v)===s.id&&isDone(v)).length}));
+    }else{
+      /* عميل بدون مواقع: ننشئ "الموقع الرئيسي" من جدوله الحالي دون أي تغيير */
+      draft=[{id:'main',name:'الموقع الرئيسي',visits:Number(c.visits||sched.length||0),
+        visitFrequency:c.visitFrequency||'monthly',startDate:c.contractStartDate||c.start||today(),
+        _done:sched.filter(isDone).length}];
+    }
+    draft._client=c;
+    render(c);
+  };
+
+  function genForSite(site,count,startNum,idBase){
+    const gen=(typeof window.generateVisitSchedule==='function')?window.generateVisitSchedule(site.startDate,count,site.visitFrequency):[];
+    return gen.slice(0,count).map((v,k)=>({...v,id:idBase+k,number:startNum+k,siteId:site.id,siteName:site.name,status:'مجدولة',reportId:null}));
+  }
+
+  /* منطق إعادة بناء الجدول (دالة نقية قابلة للاختبار) */
+  window.rebuildSitesSchedule=function(oldSched,sites){
+    const old=Array.isArray(oldSched)?oldSched:[];
+    let maxNum=old.reduce((m,v)=>Math.max(m,Number(v.number)||0),0);
+    let idSeq=Date.now();
+    const out=[];
+    const siteIds=new Set(sites.map(s=>s.id));
+    sites.forEach(site=>{
+      const mine=old.filter(v=>siteOf(v)===site.id);
+      const done=mine.filter(isDone);
+      const pending=mine.filter(v=>!isDone(v));
+      const want=Math.max(Number(site.visits)||0,done.length);
+      const needPending=want-done.length;
+      done.forEach(v=>out.push({...v,siteId:site.id,siteName:site.name}));
+      const sigSame=site._sig && site._sig===[site.visits,site.visitFrequency,site.startDate].join('|');
+      if(sigSame && pending.length===needPending){
+        pending.forEach(v=>out.push({...v,siteId:site.id,siteName:site.name}));
+      }else if(site.visitFrequency==='manual'){
+        pending.slice(0,needPending).forEach(v=>out.push({...v,siteId:site.id,siteName:site.name}));
+      }else{
+        const gen=genForSite(site,want,0,0).slice(done.length,want);
+        gen.forEach((v,k)=>{
+          const reuse=pending[k];
+          maxNum+=1; idSeq+=1;
+          out.push({...v,id:reuse?reuse.id:idSeq,number:reuse?reuse.number:maxNum,siteId:site.id,siteName:site.name,status:reuse?(reuse.status||'مجدولة'):'مجدولة',reportId:null,tech:reuse?reuse.tech:undefined,type:reuse?reuse.type:undefined});
+        });
+      }
+    });
+    return out;
+  };
+
+  window.siteSave=async function(id){
+    siteSync();
+    const c=draft._client; const st=document.getElementById('sitesStatus'); const btn=document.getElementById('sitesSaveBtn');
+    const sites=draft.map(s=>({id:s.id,name:String(s.name||'').trim(),visits:Number(s.visits)||0,visitFrequency:s.visitFrequency||'monthly',startDate:s.startDate||'',_done:s._done,_sig:s._sig}));
+    const names=new Set();
+    for(const s of sites){
+      if(!s.name){st.textContent='اكتب اسم كل موقع';return;}
+      if(names.has(s.name)){st.textContent='اسم الموقع "'+s.name+'" مكرر';return;}
+      names.add(s.name);
+      if(s.visits<(s._done||0)){st.textContent='عدد زيارات "'+s.name+'" أقل من المنفذ فعلاً';return;}
+      if(s.visits<1){st.textContent='عدد زيارات "'+s.name+'" لازم يكون 1 أو أكثر';return;}
+      if(s.visitFrequency!=='manual'&&!s.startDate){st.textContent='حدد تاريخ أول زيارة لـ "'+s.name+'"';return;}
+    }
+    /* حذف موقع كان موجوداً وفيه زيارات منفذة ممنوع */
+    const oldSched=Array.isArray(c.visitSchedule)?c.visitSchedule:[];
+    const newIds=new Set(sites.map(s=>s.id));
+    const dropped=(sitesOf(c)||[{id:'main'}]).filter(s=>!newIds.has(s.id));
+    if(dropped.some(s=>oldSched.some(v=>siteOf(v)===s.id&&isDone(v)))){st.textContent='لا يمكن حذف موقع فيه زيارات منفذة';return;}
+    const backup=JSON.parse(JSON.stringify({sites:c.sites,visits:c.visits,visitSchedule:c.visitSchedule}));
+    /* أول مرة: الموقع الرئيسي يحتفظ بجدوله الحالي كما هو */
+    const prev=sitesOf(c);
+    const sigOld=(prev||[{id:'main',visits:c.visits,visitFrequency:c.visitFrequency||'monthly',startDate:c.contractStartDate||c.start||today()}])
+      .reduce((m,s)=>{m[s.id]=[s.visits,s.visitFrequency,s.startDate].join('|');return m;},{});
+    sites.forEach(s=>{s._sig=sigOld[s.id]||null;});
+    const sched=window.rebuildSitesSchedule(oldSched,sites);
+    btn.disabled=true; btn.textContent='⏳ جاري الحفظ...';
+    c.sites=sites.map(s=>({id:s.id,name:s.name,visits:s.visits,visitFrequency:s.visitFrequency,startDate:s.startDate}));
+    c.visitSchedule=sched;
+    c.visits=sites.reduce((a,s)=>a+s.visits,0);
+    try{ if(typeof saveDB==='function')saveDB(); }catch(e){}
+    let ok=false;
+    try{ ok=await window.saveClientToFirebase(c); }catch(e){ ok=false; }
+    if(!ok){
+      c.sites=backup.sites; c.visits=backup.visits; c.visitSchedule=backup.visitSchedule;
+      if(!c.sites) delete c.sites;
+      try{ if(typeof saveDB==='function')saveDB(); }catch(e){}
+      st.textContent='تعذر الحفظ في Firebase، لم يتم أي تغيير'; btn.disabled=false; btn.textContent='💾 حفظ المواقع'; return;
+    }
+    if(typeof closeModal==='function')closeModal();
+    if(typeof showToast==='function')showToast('✅ تم حفظ المواقع ('+c.visits+' زيارة)');
+    if(typeof renderPanel==='function')renderPanel('all_clients');
+  };
+})();
+</script>
+
 </body>
 </html>
