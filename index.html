@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.102">
+<meta name="app-version" content="2.3.103">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -13141,16 +13141,22 @@ window.openClientServiceRequestDetail_v2376=async function(path,key,fromHistory)
       ?window.getServiceRequestNo_v2356(x,path,key):(x.requestNo||'-');
     const tl=typeof window.timeline59==='function'?window.timeline59(x):(Array.isArray(x.timeline)?x.timeline:[]);
     const publicAction=(z)=>typeof window.publicAction59==='function'?window.publicAction59(z):(z.action||z.status||'تحديث');
+    const noteBox=n=>`<div style="margin-top:6px;padding:8px 10px;background:#f0f9ff;border-right:3px solid #0ea5e9;border-radius:6px;font-size:13px;line-height:1.8;white-space:pre-wrap">📝 ${esc76(n)}</div>`;
     const steps=(tl||[]).map(z=>`<div class="client-timeline-step-v2359">
       <div class="client-timeline-title-v2359">${esc76(publicAction(z))}</div>
       <div class="client-timeline-meta-v2359">${esc76(fmt76(z.at))}</div>
+      ${(z.note&&String(z.action||'').includes('ملاحظة'))?noteBox(z.note):''}
     </div>`).join('');
+    /* ملاحظات المعالجة القديمة التي لم تُسجَّل داخل المسار الزمني */
+    const shownNotes=new Set((tl||[]).filter(z=>String(z.action||'').includes('ملاحظة')).map(z=>String(z.note||'')).filter(Boolean));
+    const extraNotes=(Array.isArray(x.processingNotes)?x.processingNotes:[]).filter(n=>n&&n.note&&!shownNotes.has(String(n.note)));
+    const extraHtml=extraNotes.length?`<div class="card"><div class="section-title">📝 ملاحظات المعالجة</div>${extraNotes.map(n=>`<div style="margin-bottom:10px"><div class="client-timeline-meta-v2359">${esc76(fmt76(n.at))}</div>${noteBox(n.note)}</div>`).join('')}</div>`:'';
     root.innerHTML=`<div class="app-backbar"><button type="button" class="app-back-btn" onclick="history.back()">↩ رجوع</button><div class="app-back-title">متابعة الطلب</div></div>
       <div class="app-screen-head"><div><div class="app-screen-title">${path==='emergencyRequests'?'🚨 طوارئ':'📣 شكوى/اقتراح'}</div>
       <div class="request-no-line-v2356"><span class="request-no-chip-v2356">${esc76(no)}</span></div></div>
       <span class="request-status ${typeof statusClass==='function'?statusClass(x.status):''}">${esc76(x.status||'جديد')}</span></div>
       <div class="card"><div style="line-height:1.9"><b>الموضوع / الموقع:</b> ${esc76(x.subject||x.location||'-')}<br><b>التفاصيل:</b> ${esc76(x.details||x.description||'-')}<br><b>تاريخ الطلب:</b> ${esc76(fmt76(x.createdAt))}</div></div>
-      <div class="card"><div class="section-title">🕒 حالة الطلب</div><div class="client-timeline-v2359">${steps||'<div>تم استلام الطلب.</div>'}</div></div>`;
+      <div class="card"><div class="section-title">🕒 حالة الطلب</div><div class="client-timeline-v2359">${steps||'<div>تم استلام الطلب.</div>'}</div></div>${extraHtml}`;
   }catch(e){
     console.error(e);
     root.innerHTML='<div class="card">تعذر عرض هذا الطلب.</div><button class="submit-btn" onclick="history.back()">رجوع</button>';
