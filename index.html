@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.100">
+<meta name="app-version" content="2.3.101">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -13981,7 +13981,7 @@ if(oldPanel88){
     if(appActive88())syncRole88();
     const ui=uiRole88(window.actualSystemRole||window.currentUser?.role||window.currentRole);
     const allowed={
-      client:new Set(['home','reports','map','payments','client_requests','report_detail']),
+      client:new Set(['home','reports','map','payments','client_requests','client_visits','report_detail']),
       employee:new Set(['home','visits','report_upload','clients_list','reports']),
       admin:null
     };
@@ -14946,6 +14946,91 @@ console.log('✅ v2.3.90 payment root fix loaded');
     if(typeof showToast==='function')showToast('✅ تم حفظ المواقع ('+c.visits+' زيارة)');
     if(typeof renderPanel==='function')renderPanel('all_clients');
   };
+})();
+</script>
+
+<script>
+/* ===== v2.3.101: طبقة ترجمة إضافية (إنجليزي) لشاشات العميل والفني ===== */
+(function(){
+  const EXACT={
+    '↩ رجوع':'↩ Back','رجوع':'Back',
+    'طلب طوارئ':'Emergency Request','🚨 طلب طوارئ':'🚨 Emergency Request',
+    'اكتب المشكلة بشكل واضح':'Describe the problem clearly',
+    'اذكر مكان المشكلة وما الذي شاهدته حتى يصل البلاغ واضحًا للفريق.':'Mention where the problem is and what you saw so the team gets a clear report.',
+    '📍 الموقع داخل المنشأة':'📍 Location inside the facility','📝 وصف المشكلة':'📝 Problem description',
+    'مثال: المستودع B — قرب الباب الخلفي':'Example: Warehouse B — near the back door',
+    'صف المشكلة التي شاهدتها...':'Describe the problem you saw...',
+    '📣 شكوى أو اقتراح':'📣 Complaint or Suggestion','أرسل ملاحظتك للإدارة':'Send your feedback to management',
+    'اختر النوع ثم اكتب الموضوع والتفاصيل. يمكنك متابعة الحالة لاحقًا من شاشة طلباتي.':'Choose the type, then write the subject and details. You can track the status later from My Requests.',
+    'عنوان مختصر':'Short title','اكتب التفاصيل...':'Write the details...',
+    'تفاصيل التقرير':'Report Details','لا توجد':'None','غير مسجل':'Not recorded',
+    'جدول زياراتي':'My Visit Schedule','📆 جدول الزيارات':'📆 Visit Schedule','📆 جدول زياراتي':'📆 My Visit Schedule',
+    'متبقية':'Remaining','منفذة':'Completed','مجدولة':'Scheduled','متأخرة':'Overdue',
+    '🗺️ المصائد والخرائط':'🗺️ Traps & Maps','💳 الدفعات':'💳 Payments','📦 طلباتي':'📦 My Requests',
+    'عرض الدفعة':'View Payment','🔄 طلب تجديد العقد':'🔄 Request Contract Renewal',
+    'زيارة دورية':'Routine Visit','طوارئ':'Emergency','متابعة':'Follow-up',
+    'غير مدفوعة':'Unpaid','مدفوعة':'Paid','بانتظار المراجعة':'Pending review','مرفوضة':'Rejected',
+    'جديد':'New','قيد المعالجة':'In progress','تم الحل':'Resolved','مغلق':'Closed','مغلقة':'Closed',
+    'سيتم التحديد':'To be assigned','لم يرفع':'Not uploaded','لم يتم الرفع':'Not uploaded',
+    'عرض التقرير':'View Report','⬇️ تحميل التقرير PDF':'⬇️ Download Report PDF',
+    '— اختر العميل —':'— Select client —','اختر العميل أولاً':'Select a client first',
+    'يُقترح تلقائياً — عدّله لو التقرير يخص زيارة مختلفة':'Suggested automatically — edit it if the report is for a different visit',
+    'لا توجد تقارير مرفوعة حتى الآن':'No reports uploaded yet','عميلنا العزيز':'Dear client',
+    'مكة المكرمة':'Makkah','الرياض':'Riyadh','جدة':'Jeddah','الدمام':'Dammam'
+  };
+  const REGEX=[
+    [/دفعة متأخرة منذ\s*(\d+)\s*(?:أيام|يوم|يوماً|أيّام)/,'Payment overdue by $1 days'],
+    [/متأخرة منذ\s*(\d+)\s*(?:أيام|يوم|يوماً|أيّام)/,'Overdue by $1 days'],
+    [/ينتهي عقدك خلال\s*(\d+)\s*(?:أيام|يوم|يوماً)/,'Your contract ends in $1 days'],
+    [/انتهى عقدك منذ\s*(\d+)\s*(?:أيام|يوم|يوماً)/,'Your contract expired $1 days ago'],
+    [/تاريخ الانتهاء:\s*/,'End date: '],
+    [/\s*—\s*يرجى التواصل لتجديد العقد/,' — please contact us to renew the contract'],
+    [/يرجى التواصل لتجديد العقد/,'Please contact us to renew the contract'],
+    [/(\d+)\s*أيام/,'$1 days'],[/(\d+)\s*يوم/,'$1 days']
+  ];
+  const PARTIAL=[
+    ['سيتم التحديد','To be assigned'],['زيارة دورية','Routine Visit'],['متأخرة','Overdue']
+  ].sort((a,b)=>b[0].length-a[0].length);
+  const AR=/[؀-ۿ]/;
+  const origText=new WeakMap();
+  function tr(t){
+    const k=t.trim(); if(!k||!AR.test(k)) return t;
+    let out=EXACT[k]; if(out!==undefined) return t.replace(k,out);
+    let v=t, hit=false;
+    for(const [re,rep] of REGEX){ if(re.test(v)){ v=v.replace(re,rep); hit=true; } }
+    for(const [ar,en] of PARTIAL){ if(v.includes(ar)){ v=v.split(ar).join(en); hit=true; } }
+    return hit?v:t;
+  }
+  const ROOTS=['appContent','bottomNav','appTopnav','modalOverlay'];
+  const lang=()=>localStorage.getItem('khotwah_lang')||'ar';
+  function run(){
+    const en=lang()==='en';
+    ROOTS.forEach(id=>{
+      const root=document.getElementById(id); if(!root) return;
+      const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT); const nodes=[]; let n; while((n=w.nextNode())) nodes.push(n);
+      nodes.forEach(node=>{
+        if(en){
+          const cur=node.nodeValue; if(!AR.test(cur)) return;
+          const t=tr(cur); if(t!==cur){ if(!origText.has(node)) origText.set(node,cur); node.nodeValue=t; }
+        }else if(origText.has(node)){ node.nodeValue=origText.get(node); origText.delete(node); }
+      });
+      root.querySelectorAll('[placeholder],[title]').forEach(el=>['placeholder','title'].forEach(a=>{
+        const key='data-ar-'+a;
+        if(en){ const v=el.getAttribute(a); if(v&&AR.test(v)){ const t=tr(v); if(t!==v){ if(!el.hasAttribute(key)) el.setAttribute(key,v); el.setAttribute(a,t); } } }
+        else if(el.hasAttribute(key)){ el.setAttribute(a,el.getAttribute(key)); el.removeAttribute(key); }
+      }));
+    });
+  }
+  window.__i18nExtraRun=run;
+  let timer=null; const sched=()=>{ clearTimeout(timer); timer=setTimeout(run,60); };
+  function observe(){
+    ROOTS.forEach(id=>{ const el=document.getElementById(id); if(el&&!el.__i18nObs&&window.MutationObserver){ el.__i18nObs=new MutationObserver(sched); el.__i18nObs.observe(el,{childList:true,subtree:true}); } });
+  }
+  const prevToggle=window.toggleAppLanguage;
+  if(typeof prevToggle==='function'){ window.toggleAppLanguage=function(){ const r=prevToggle.apply(this,arguments); setTimeout(run,0); setTimeout(run,300); return r; }; }
+  document.addEventListener('DOMContentLoaded',()=>{observe();run();});
+  setInterval(()=>{observe();run();},1500);
+  setTimeout(()=>{observe();run();},800);
 })();
 </script>
 
