@@ -159,16 +159,6 @@ async function sendOnce(eventKey, message, meta = {}) {
 function visitMessage(c, cid, visit, index, total, days) {
   const number = visit?.number || index + 1;
   const date = String(visit?.date || visit?.scheduledVisitDate || '').slice(0, 10);
-  if (days === 6) {
-    return withBranchLabel(c, [
-      '🔔 تذكير زيارة / Visit Reminder',
-      `👤 العميل / Customer: ${clientName(c)}`,
-      `📄 العقد / Contract: #${cid}`,
-      `📅 الزيارة / Visit: ${number} / ${total}`,
-      `🗓️ الموعد / Date: ${date}`,
-      '⏳ المتبقي / Remaining: 6 Days',
-    ]).join('\n');
-  }
   return withBranchLabel(c, [
     '🔔 زيارة غدًا / Visit Tomorrow',
     `👤 العميل / Customer: ${clientName(c)}`,
@@ -403,14 +393,14 @@ async function main() {
   for (const [key, c] of entries) {
     const cid = clientId(c, key);
 
-    // 1) Scheduled visits: 6 days before and 1 day before.
+    // 1) Scheduled visits: one reminder, 1 day before.
     const visits = visitsOf(c);
     for (let i = 0; i < visits.length; i++) {
       const v = visits[i];
       if (!v || isCompletedVisit(v)) continue;
       const date = String(v.date || v.scheduledVisitDate || '').slice(0, 10);
       const days = diffDays(date, today);
-      if (days !== 6 && days !== 1) continue;
+      if (days !== 1) continue; // v2.3.104: تنبيه واحد فقط قبل الزيارة بيوم
       const eventKey = `visit_${cid}_${v.id || i + 1}_${date}_d${days}`;
       if (await sendOnce(eventKey, visitMessage(c, cid, v, i, visits.length, days), { type: 'visit', clientId: cid, date, days })) sent++;
     }
