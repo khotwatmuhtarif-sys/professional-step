@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.98">
+<meta name="app-version" content="2.3.99">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -13357,14 +13357,17 @@ window.StepPro.fixClientOwnershipLinks_v2379=async function(){
   if(r.missingClientProfiles.length){
     throw new Error('يوجد عملاء بدون حساب Firebase مرتبط؛ لن يتم التخمين في الربط.');
   }
-  const updates={};
-  r.clientUsers.forEach(u=>{
-    if(u.clientId!=null){
-      updates[u.uid+'/clientKey']=String(u.clientId);
+  const todo=r.clientUsers.filter(u=>u.clientId!=null && String(u.clientKey??'')!==String(u.clientId));
+  let done=0;
+  for(const u of todo){
+    try{
+      await firebase.database().ref('users/'+u.uid+'/clientKey').set(String(u.clientId));
+      done++;
+    }catch(err){
+      throw new Error('تعذر تحديث الحساب '+(u.email||u.uid)+' (عميل '+u.clientId+'): '+(err.message||err));
     }
-  });
-  if(Object.keys(updates).length) await firebase.database().ref('users').update(updates);
-  return Object.keys(updates).length;
+  }
+  return done;
 };
 
 window.openSecurityGate_v2379=async function(){
