@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.103">
+<meta name="app-version" content="2.3.104">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -3013,7 +3013,7 @@ function adminClients() {
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
       <div class="section-title" style="margin:0;">👥 جميع العملاء (${db.clients.length})</div>
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
-        <button class="submit-btn" style="width:auto; padding:8px 16px; font-size:13px; background:#0f766e;" onclick="exportClientsReportCSV()">⬇️ تصدير جدول لجميع العملاء</button>
+        <button class="submit-btn" style="width:auto; padding:8px 16px; font-size:13px; background:#0f766e;" onclick="printClientsTable()">🖨️ طباعة جدول لجميع العملاء</button>
         <button class="submit-btn" style="width:auto; padding:8px 16px; font-size:13px;" onclick="openModal('newClient')">+ إضافة عميل</button>
       </div>
     </div>
@@ -15111,6 +15111,64 @@ console.log('✅ v2.3.90 payment root fix loaded');
   document.addEventListener('visibilitychange',()=>{ if(!document.hidden) loop(); });
   /* إعادة رسم النقطة بعد تغيّر الشاشة */
   setInterval(()=>{ if(unread&&!document.querySelector('.req-dot-v2102')) setDots(unread); if(document.getElementById('clientRequestsBox')&&unread){ loop(); } },3000);
+})();
+</script>
+
+<script>
+/* ===== v2.3.104: طباعة جدول جميع العملاء ===== */
+(function(){
+  const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  const money=n=>Number(n||0).toLocaleString('en-US');
+  function planText(c){
+    try{ if(typeof paymentCountText56==='function') return paymentCountText56(c); }catch(e){}
+    return c.pay||c.paymentPlan||'-';
+  }
+  function rowsOf(){
+    return (window.db&&db.clients||[]).map(c=>{
+      let stats={contractValue:Number(c.value||c.contractValue||c.contractAmount||0),paid:0,remaining:0};
+      try{ if(typeof getPaymentStats==='function') stats=getPaymentStats(c)||stats; }catch(e){}
+      const cv=Number(stats.contractValue||0), paid=Number(stats.paid||0);
+      const rem=Number(stats.remaining!=null?stats.remaining:Math.max(cv-paid,0));
+      let end='-'; try{ end=(window.getContractStatusInfo?window.getContractStatusInfo(c)?.endDate:null)||c.end||c.contractEndDate||c.endDate||'-'; }catch(e){ end=c.end||c.contractEndDate||c.endDate||'-'; }
+      const visits=Number(c.visits||0)||(Array.isArray(c.visitSchedule)?c.visitSchedule.length:0)||0;
+      return {no:c.contractNo||c.contractNumber||c.id||'-',name:c.name||'-',city:c.city||'-',cv,plan:planText(c),paid,rem,end,visits,used:Number(c.used||0)};
+    });
+  }
+  window.printClientsTable=function(){
+    const rows=rowsOf();
+    if(!rows.length){ if(typeof showToast==='function') showToast('لا يوجد عملاء للطباعة'); return; }
+    const tot=rows.reduce((a,r)=>({cv:a.cv+r.cv,paid:a.paid+r.paid,rem:a.rem+r.rem}),{cv:0,paid:0,rem:0});
+    const today=new Date().toISOString().slice(0,10);
+    const body=rows.map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r.no)}</td><td class="nm">${esc(r.name)}</td><td>${esc(r.city)}</td><td>${money(r.cv)}</td><td>${esc(r.plan)}</td><td>${money(r.paid)}</td><td>${money(r.rem)}</td><td>${esc(r.end)}</td><td>${r.used} / ${r.visits}</td></tr>`).join('');
+    const html=`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>جدول العملاء — خطوة محترف</title>
+<style>
+@page{size:A4 landscape;margin:10mm}
+*{box-sizing:border-box}
+body{font-family:Tahoma,Arial,sans-serif;color:#0f172a;margin:0;font-size:11px}
+h1{font-size:18px;margin:0 0 4px;color:#1a3a5c}
+.sub{color:#475569;margin-bottom:10px;font-size:11px}
+table{width:100%;border-collapse:collapse}
+th{background:#1a3a5c;color:#fff;padding:6px 4px;border:1px solid #1a3a5c;font-size:11px}
+td{padding:5px 4px;border:1px solid #cbd5e1;text-align:center}
+td.nm{text-align:right;font-weight:700}
+tbody tr:nth-child(even){background:#f1f5f9}
+tr{page-break-inside:avoid}
+thead{display:table-header-group}
+tfoot td{background:#e2e8f0;font-weight:800}
+</style></head><body>
+<h1>جدول جميع العملاء</h1>
+<div class="sub">مؤسسة خطوة محترف للتشغيل والصيانة — عدد العملاء: ${rows.length} — تاريخ الطباعة: ${today}</div>
+<table><thead><tr><th>#</th><th>رقم العقد</th><th>اسم المتعاقد</th><th>المدينة</th><th>قيمة العقد</th><th>طريقة الدفع</th><th>المدفوع</th><th>المتبقي</th><th>نهاية العقد</th><th>الزيارات (منفذة / إجمالي)</th></tr></thead>
+<tbody>${body}</tbody>
+<tfoot><tr><td colspan="4">الإجمالي</td><td>${money(tot.cv)}</td><td></td><td>${money(tot.paid)}</td><td>${money(tot.rem)}</td><td colspan="2"></td></tr></tfoot></table>
+</body></html>`;
+    const old=document.getElementById('printClientsFrame'); if(old) old.remove();
+    const f=document.createElement('iframe'); f.id='printClientsFrame';
+    f.style.cssText='position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
+    document.body.appendChild(f);
+    const d=f.contentWindow.document; d.open(); d.write(html); d.close();
+    setTimeout(()=>{ try{ f.contentWindow.focus(); f.contentWindow.print(); }catch(e){ if(typeof showToast==='function') showToast('تعذرت الطباعة'); } },400);
+  };
 })();
 </script>
 
