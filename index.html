@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.104">
+<meta name="app-version" content="2.3.105">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -14828,7 +14828,7 @@ console.log('✅ v2.3.90 payment root fix loaded');
       ${draft.map(rowHtml).join('')}
       <button class="submit-btn" style="background:#475569" onclick="siteAdd()">➕ إضافة موقع</button>
       <div id="sitesStatus" style="color:#b91c1c;font-size:13px;margin:8px 0"></div>
-      <button class="submit-btn green" id="sitesSaveBtn" onclick="siteSave(${JSON.stringify(String(c.id))})">💾 حفظ المواقع</button>
+      <button class="submit-btn green" id="sitesSaveBtn" onclick="siteSave('${String(c.id).replace(/[^0-9A-Za-z_-]/g,'')}')">💾 حفظ المواقع</button>
     </div>`;
     document.getElementById('modalOverlay').classList.add('active');
   }
