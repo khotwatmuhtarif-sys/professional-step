@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.107">
+<meta name="app-version" content="2.3.108">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -10790,6 +10790,11 @@ window.openClientDetails=function(id,fromPop){
   root.innerHTML=`<div class="app-screen-head"><div><div class="app-screen-title">🏢 ${esc(c.name||'العميل')}</div><div class="app-screen-sub">رقم العقد #${esc(c.contractNo||c.contractNumber||c.id||'-')}</div></div><span class="status-badge ${c.status||'active'}">${c.status==='expired'?'منتهي':c.status==='pending'?'قريب الانتهاء':'نشط'}</span></div>
   <div class="app-detail-grid"><div class="app-detail-cell"><small>نوع الخدمة</small><b>${esc(c.type||'-')}</b></div><div class="app-detail-cell"><small>المدينة / الموقع</small><b>${esc(c.city||c.location||'-')}</b></div><div class="app-detail-cell"><small>عدد الزيارات</small><b>${sched.length||c.visits||0}</b></div><div class="app-detail-cell"><small>عدد التقارير</small><b>${reps.length}</b></div><div class="app-detail-cell"><small>المدفوع</small><b>${Number(pay.paid||0).toLocaleString()} ر.س</b></div><div class="app-detail-cell"><small>المتبقي</small><b>${Number(pay.remaining||0).toLocaleString()} ر.س</b></div></div>
   <div class="app-screen-actions"><button class="submit-btn" onclick="showClientSchedule(${Number(c.id)})">📅 جدول الزيارات</button><button class="submit-btn green" onclick="adminOpenClientPayments(${Number(c.id)})">💳 الدفعات</button><button class="submit-btn" onclick="showAdminClientReports(${Number(c.id)})">📄 التقارير</button><button class="submit-btn" style="background:#64748b" onclick="editClient(${Number(c.id)})">✏️ تعديل العميل</button></div>
+  ${(function(){try{const sites=Array.isArray(c.sites)?c.sites:[];if(sites.length<2)return '';const isDone=v=>/منفذ|مكتم/.test(String(v.status||''))||!!v.reportId;const today=new Date().toISOString().slice(0,10);
+    const cards=sites.map(st=>{const sid=String(st.id||'main');const vs=sched.filter(v=>String(v.siteId||'main')===sid);const done=vs.filter(isDone);const nums=new Set(vs.map(v=>String(v.number)));const rc=reps.filter(r=>r.visitNumber!=null&&nums.has(String(r.visitNumber))).length||done.filter(v=>v.reportId).length;
+      const nxt=vs.filter(v=>!isDone(v)&&v.date).sort((x,y)=>String(x.date).localeCompare(String(y.date)))[0];const total=vs.length||Number(st.visits)||0;const pct=total?Math.round(done.length/total*100):0;
+      return `<div style="background:#fff;border:1px solid var(--border);border-radius:14px;padding:12px;margin-bottom:10px"><div style="font-weight:900;color:var(--primary);margin-bottom:8px">🏢 ${esc(st.name||'الموقع')}</div><div class="app-detail-grid"><div class="app-detail-cell"><small>إجمالي الزيارات</small><b>${total}</b></div><div class="app-detail-cell"><small>المنفذة</small><b>${done.length}</b></div><div class="app-detail-cell"><small>المتبقية</small><b>${Math.max(0,total-done.length)}</b></div><div class="app-detail-cell"><small>التقارير</small><b>${rc}</b></div><div class="app-detail-cell"><small>الزيارة القادمة</small><b>${nxt?esc(nxt.date):'-'}</b></div><div class="app-detail-cell"><small>نسبة الإنجاز</small><b>${pct}%</b></div></div></div>`}).join('');
+    return `<div class="section-title">🏢 تفصيل المواقع (${sites.length})</div>`+cards}catch(e){return ''}})()}
   ${reps.length?`<div class="section-title">📄 آخر التقارير</div>${reps.slice(0,3).map(r=>`<div class="report-card" onclick="openReportDetails(${Number(r.id)})"><div class="report-icon">📄</div><div class="report-info"><div class="report-title">${esc(r.type||'زيارة فنية')}</div><div class="report-date">${esc(r.date||r.actualExecutionDate||'-')} — ${esc(r.tech||r.employeeName||'-')}</div></div><span class="report-arrow">›</span></div>`).join('')}`:''}`;
   decorate('ملف العميل',()=>window.renderPanel('all_clients'));
 };
