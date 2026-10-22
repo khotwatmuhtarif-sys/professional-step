@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.105">
+<meta name="app-version" content="2.3.106">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -14934,7 +14934,8 @@ console.log('✅ v2.3.90 payment root fix loaded');
     const sigOld=(prev||[{id:'main',visits:c.visits,visitFrequency:c.visitFrequency||'monthly',startDate:c.contractStartDate||c.start||today()}])
       .reduce((m,s)=>{m[s.id]=[s.visits,s.visitFrequency,s.startDate].join('|');return m;},{});
     sites.forEach(s=>{s._sig=sigOld[s.id]||null;});
-    const sched=window.rebuildSitesSchedule(oldSched,sites);
+    /* Firebase يرفض أي قيمة undefined؛ نمرّر الجدول عبر JSON لإزالتها */
+    const sched=JSON.parse(JSON.stringify(window.rebuildSitesSchedule(oldSched,sites)));
     btn.disabled=true; btn.textContent='⏳ جاري الحفظ...';
     c.sites=sites.map(s=>({id:s.id,name:s.name,visits:s.visits,visitFrequency:s.visitFrequency,startDate:s.startDate}));
     c.visitSchedule=sched;
