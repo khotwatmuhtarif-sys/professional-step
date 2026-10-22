@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.106">
+<meta name="app-version" content="2.3.107">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -5385,10 +5385,10 @@ function showClientSchedule(id) {
       <button class="submit-btn" style="background:#7c3aed;margin-bottom:10px" onclick="fixClientVisitsTotal(${client.id})">🔧 تصحيح إجمالي الزيارات (بدون لمس الجدول)</button>
       <button class="submit-btn green" style="margin-bottom:16px" onclick="window.downloadVisitSchedulePDFForClient?window.downloadVisitSchedulePDFForClient(${client.id}):showToast('غير متاح')">⬇️ تحميل جدول الزيارات PDF</button>
 
-      ${schedule.length ? schedule.map((v, idx) => `
+      ${schedule.length ? schedule.map((v, idx) => `${window.siteHeaderHtml?window.siteHeaderHtml(schedule, idx):''}
         <div class="visit-item">
           <div class="visit-info">
-            <div class="visit-title">الزيارة رقم ${v.number || idx + 1}${v.siteName?' — '+v.siteName:''}</div>
+            <div class="visit-title">${window.siteVisitTitle?window.siteVisitTitle(schedule, idx, v.number || idx + 1):'الزيارة رقم '+(v.number || idx + 1)}</div>
             <div class="visit-date">${v.date || '-'} — ${v.type || 'زيارة دورية'} | الفني: ${v.tech || 'غير محدد'}</div>
             <div class="visit-admin-actions">
               ${v.status !== 'منفذة' && v.status !== 'مكتمل' ? `<button class="submit-btn green" onclick="adminMarkVisitCompleted(${client.id}, ${idx}, 'schedule')">✅ تم التنفيذ</button>` : ''}
@@ -9981,11 +9981,11 @@ window.clientHome=function(){
  return `<div class="welcome-header"><h2>أهلاً بك 👋</h2><p>${E(c.name||'عميلنا العزيز')}</p><span class="contract-badge">عقد #${E(c.id||'-')}</span></div>${paymentBanner}${contractCard}${summary}
  <div class="stats-row cols-4"><div class="stat-card" onclick="renderPanel('client_visits')"><span class="stat-icon">📆</span><span class="stat-num">${m.total}</span><span class="stat-label">إجمالي الزيارات</span></div><div class="stat-card clickable-stat" onclick="renderPanel('client_visits')"><span class="stat-icon">📅</span><span class="stat-num green">${m.remaining}</span><span class="stat-label">زيارات متبقية — اضغط لعرض الجدول</span></div><div class="stat-card clickable-stat" onclick="renderPanel('client_visits')"><span class="stat-icon">✅</span><span class="stat-num">${m.completed}</span><span class="stat-label">زيارات منفذة</span></div><div class="stat-card" onclick="renderPanel('reports')"><span class="stat-icon">📋</span><span class="stat-num">${m.reports.length}</span><span class="stat-label">تقارير</span></div></div>
  <div class="section-title">⚡ إجراءات سريعة</div><div class="action-grid"><div class="action-btn emergency" onclick="openModal('emergency')"><span class="btn-icon">🚨</span><span class="btn-label">طوارئ</span><span class="btn-sub">طلب عاجل</span></div><div class="action-btn" onclick="openModal('complaint')"><span class="btn-icon">📣</span><span class="btn-label">شكوى أو اقتراح</span></div><div class="action-btn" onclick="renderPanel('client_requests')"><span class="btn-icon">📦</span><span class="btn-label">طلباتي</span><span class="btn-sub">متابعة الحالة</span></div><div class="action-btn" onclick="renderPanel('reports')"><span class="btn-icon">📋</span><span class="btn-label">تقاريري</span></div><div class="action-btn" onclick="renderPanel('map')"><span class="btn-icon">🗺️</span><span class="btn-label">المصائد</span></div><div class="action-btn" onclick="renderPanel('payments')"><span class="btn-icon">💳</span><span class="btn-label">الدفع</span></div><div class="action-btn" onclick="renderPanel('client_visits')"><span class="btn-icon">📆</span><span class="btn-label">جدول زياراتي</span></div></div>
- ${next?`<div class="section-title">📅 الزيارة القادمة</div><div class="card"><div style="font-size:18px;font-weight:900">الزيارة رقم ${E(next.number||'-')}</div><div style="font-size:17px;margin-top:8px">${E(next.date||next.dateTime||'-')}</div><div style="margin-top:8px;color:var(--text-light)">الفني: ${E(next.tech||'سيتم التحديد')}</div></div>`:''}`;
+ ${next?`<div class="section-title">📅 الزيارة القادمة</div><div class="card"><div style="font-size:18px;font-weight:900">${window.siteVisitTitle?window.siteVisitTitle(m.schedule, m.schedule.indexOf(next), next.number||'-'):'الزيارة رقم '+E(next.number||'-')}</div><div style="font-size:17px;margin-top:8px">${E(next.date||next.dateTime||'-')}</div><div style="margin-top:8px;color:var(--text-light)">الفني: ${E(next.tech||'سيتم التحديد')}</div></div>`:''}`;
 };try{clientHome=window.clientHome}catch(e){}
 
 /* جدول الزيارات المرئي */
-window.clientVisitSchedulePanel=function(){const c=clientNowFinal(),m=visitsMetrics(c),vs=m.schedule;return `<div class="section-title">📆 جدول زياراتي</div><div class="stats-row cols-3"><div class="stat-card"><span class="stat-num">${m.total}</span><span class="stat-label">إجمالي الزيارات</span></div><div class="stat-card"><span class="stat-num green">${m.completed}</span><span class="stat-label">منفذة</span></div><div class="stat-card"><span class="stat-num gold">${m.remaining}</span><span class="stat-label">متبقية</span></div></div><button class="submit-btn green" style="margin-bottom:12px" onclick="downloadVisitSchedulePDF()">⬇️ تحميل جدول الزيارات PDF</button><div class="card" style="overflow-x:auto"><table class="client-visit-table"><thead><tr><th>#</th><th>التاريخ المجدول</th><th>تاريخ التنفيذ</th><th>الفني</th><th>الحالة</th><th>التقرير</th></tr></thead><tbody>${vs.length?vs.map((v,i)=>{const rep=m.reports.find(r=>{const vn=String(v.number||v.id||i+1);return String(r.visitNumber||r.number||r.visitId)===vn||(v.executionDate&&r.date===v.executionDate)||(v.date&&r.date===v.date);});const done=completeStatus(v.status)||v.executionDate||v.doneDate||v.completedAt||rep;return `<tr><td>${E(v.number||i+1)}</td><td>${E(v.date||v.scheduledDate||'-')}</td><td>${E(v.executionDate||v.doneDate||v.completedAt||rep?.executionDate||rep?.date||'-')}</td><td>${E(v.tech||rep?.tech||'سيتم التحديد')}</td><td>${done?'منفذة':E(v.status||'مجدولة')}</td><td>${rep?`<button class="submit-btn" style="width:auto;padding:6px 10px" onclick="openReportDetails(${Number(rep.id)})">عرض</button>`:'لم يرفع'}</td></tr>`}).join(''):'<tr><td colspan="6">لا يوجد جدول زيارات محفوظ</td></tr>'}</tbody></table></div><button class="submit-btn" style="background:#64748b" onclick="renderPanel('home')">رجوع</button>`};try{clientVisitSchedulePanel=window.clientVisitSchedulePanel}catch(e){}
+window.clientVisitSchedulePanel=function(){const c=clientNowFinal(),m=visitsMetrics(c),vs=m.schedule;return `<div class="section-title">📆 جدول زياراتي</div><div class="stats-row cols-3"><div class="stat-card"><span class="stat-num">${m.total}</span><span class="stat-label">إجمالي الزيارات</span></div><div class="stat-card"><span class="stat-num green">${m.completed}</span><span class="stat-label">منفذة</span></div><div class="stat-card"><span class="stat-num gold">${m.remaining}</span><span class="stat-label">متبقية</span></div></div><button class="submit-btn green" style="margin-bottom:12px" onclick="downloadVisitSchedulePDF()">⬇️ تحميل جدول الزيارات PDF</button><div class="card" style="overflow-x:auto"><table class="client-visit-table"><thead><tr><th>#</th><th>التاريخ المجدول</th><th>تاريخ التنفيذ</th><th>الفني</th><th>الحالة</th><th>التقرير</th></tr></thead><tbody>${vs.length?vs.map((v,i)=>{const rep=m.reports.find(r=>{const vn=String(v.number||v.id||i+1);return String(r.visitNumber||r.number||r.visitId)===vn||(v.executionDate&&r.date===v.executionDate)||(v.date&&r.date===v.date);});const done=completeStatus(v.status)||v.executionDate||v.doneDate||v.completedAt||rep;return `${window.siteRowHeader?window.siteRowHeader(vs,i,6):''}<tr><td>${E(window.siteVisitNo?window.siteVisitNo(vs,i,v.number||i+1):(v.number||i+1))}</td><td>${E(v.date||v.scheduledDate||'-')}</td><td>${E(v.executionDate||v.doneDate||v.completedAt||rep?.executionDate||rep?.date||'-')}</td><td>${E(v.tech||rep?.tech||'سيتم التحديد')}</td><td>${done?'منفذة':E(v.status||'مجدولة')}</td><td>${rep?`<button class="submit-btn" style="width:auto;padding:6px 10px" onclick="openReportDetails(${Number(rep.id)})">عرض</button>`:'لم يرفع'}</td></tr>`}).join(''):'<tr><td colspan="6">لا يوجد جدول زيارات محفوظ</td></tr>'}</tbody></table></div><button class="submit-btn" style="background:#64748b" onclick="renderPanel('home')">رجوع</button>`};try{clientVisitSchedulePanel=window.clientVisitSchedulePanel}catch(e){}
 
 /* إيصال الدفع: عرض/استبدال/حذف قبل الاعتماد، عرض فقط بعده */
 window.viewClientReceipt=function(n){const c=clientNowFinal(),p=(window.ensureClientPayments?ensureClientPayments(c,false):(c.payments||[])).find(x=>Number(x.number)===Number(n));if(!p?.receipt)return showToast('لا يوجد إيصال');openAttachment(p.receipt,p.receiptName||'receipt')};
@@ -14908,6 +14908,28 @@ console.log('✅ v2.3.90 payment root fix loaded');
       }
     });
     return out;
+  };
+
+  /* ترقيم وعرض الزيارات لكل موقع على حدة (الأرقام الداخلية تبقى فريدة لربط التقارير) */
+  window.siteVisitInfo=function(list,i){
+    const v=list&&list[i]; if(!v||!v.siteId) return null;
+    let n=0,total=0,done=0;
+    list.forEach((x,k)=>{ if(x&&x.siteId===v.siteId){ total++; if(k<=i) n++; if(isDone(x)) done++; } });
+    return {site:v.siteName||'',n,total,done};
+  };
+  window.siteVisitNo=function(list,i,fallback){ const f=window.siteVisitInfo(list,i); return f?f.n:fallback; };
+  window.siteVisitTitle=function(list,i,fallbackNo){
+    const f=window.siteVisitInfo(list,i);
+    return f?('الزيارة رقم '+f.n+' من '+f.total+(f.site?' — '+esc(f.site):'')):('الزيارة رقم '+esc(fallbackNo));
+  };
+  function firstOfSite(list,i){ const v=list[i]; if(!v||!v.siteId) return false; const p=list[i-1]; return !p||p.siteId!==v.siteId; }
+  window.siteHeaderHtml=function(list,i){
+    if(!firstOfSite(list,i)) return ''; const f=window.siteVisitInfo(list,i);
+    return '<div style="margin:18px 0 8px;padding:8px 12px;background:#1a3a5c;color:#fff;border-radius:8px;font-weight:800">🏢 '+esc(f.site)+' — منفذة '+f.done+' من '+f.total+'</div>';
+  };
+  window.siteRowHeader=function(list,i,cols){
+    if(!firstOfSite(list,i)) return ''; const f=window.siteVisitInfo(list,i);
+    return '<tr><td colspan="'+cols+'" style="background:#1a3a5c;color:#fff;font-weight:800;text-align:right;padding:8px 10px">🏢 '+esc(f.site)+' — منفذة '+f.done+' من '+f.total+'</td></tr>';
   };
 
   window.siteSave=async function(id){
