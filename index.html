@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.126">
+<meta name="app-version" content="2.3.127">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -15733,11 +15733,31 @@ console.log('✅ v2.3.110 client sites home');
       const r=baseDet.apply(this,arguments);
       try{const i=info(cl(id));const root=document.getElementById('appContent');
         if(i&&root){const cell=[...root.querySelectorAll('.app-detail-cell')].find(x=>/عدد الزيارات/.test(x.textContent));
-          if(cell){const b=cell.querySelector('b');if(b)b.innerHTML=`${i.total} <span style="font-size:11px;color:#92400e">(${i.base} + 🎁${i.carried} مرحّلة)</span>`}}}catch(e){}
+          if(cell){const b=cell.querySelector('b');if(b)b.innerHTML=`${i.total} <span style="font-size:11px;color:#92400e">(${i.base} + 🎁${i.carried} مرحّلة)</span>`}}
+        const c=cl(id);const acts=root&&root.querySelector('.app-screen-actions');
+        if(acts&&c&&(c.contractHistory||[]).length&&!acts.querySelector('[data-carry-btn]')){
+          const bt=document.createElement('button');bt.className='submit-btn';bt.setAttribute('data-carry-btn','1');bt.style.background='#b45309';
+          bt.textContent=i?'🎁 تعديل الرصيد المرحّل':'🎁 تحديد الرصيد المرحّل';bt.onclick=()=>window.setCarriedVisits(id);acts.appendChild(bt);
+        }}catch(e){}
       return r;
     };
     try{openClientDetails=window.openClientDetails}catch(e){}
   }
+  window.setCarriedVisits=async function(id){
+    const c=cl(id);if(!c||!Array.isArray(c.visitSchedule))return;
+    const h=c.contractHistory||[];const last=h[h.length-1];
+    const cur=Number(c.carriedVisits||0)||(c.visitSchedule||[]).filter(v=>v.carried).length||Number(last&&last.remainingVisits||0);
+    const val=prompt('كم زيارة مرحّلة من العقد السابق ضمن إجمالي '+c.visitSchedule.length+' زيارة؟\n(اكتب 0 لإلغاء الرصيد المرحّل)',String(cur));
+    if(val===null)return;const n=Math.floor(Number(val));
+    if(!(n>=0)||n>c.visitSchedule.length)return showToast('⚠️ رقم غير صحيح');
+    c.visitSchedule.forEach(v=>{delete v.carried});
+    if(n>0)c.visitSchedule.slice(-n).forEach(v=>{v.carried=true});
+    c.carriedVisits=n;c.newContractVisits=c.visitSchedule.length-n;
+    try{if(typeof saveDB==='function')saveDB()}catch(e){}
+    let ok=true;try{if(window.saveClientToFirebase)ok=await window.saveClientToFirebase(JSON.parse(JSON.stringify(c)))}catch(e){ok=false}
+    showToast(ok===false?'⚠️ حُفظ محلياً ولم يُحفظ في السحابة':'✅ تم حفظ الرصيد المرحّل');
+    window.openClientDetails(id,true);
+  };
   console.log('✅ v2.3.126 carried visits');
 })();
 </script>
