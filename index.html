@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.124">
+<meta name="app-version" content="2.3.125">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -15018,7 +15018,7 @@ console.log('✅ v2.3.90 payment root fix loaded');
     '— اختر العميل —':'— Select client —','اختر العميل أولاً':'Select a client first',
     'يُقترح تلقائياً — عدّله لو التقرير يخص زيارة مختلفة':'Suggested automatically — edit it if the report is for a different visit',
     'لا توجد تقارير مرفوعة حتى الآن':'No reports uploaded yet','عميلنا العزيز':'Dear client',
-    'إجمالي':'Total','الدفعة السنوية':'Annual Payment','الزيارات القادمة':'Upcoming Visits','📅 الزيارات القادمة':'📅 Upcoming Visits','✅ اكتملت كل الزيارات':'✅ All visits completed','الدفعة الواحدة':'Single Payment','كل شهرين':'Every 2 months','كل 3 أشهر':'Every 3 months','كل 4 أشهر':'Every 4 months','كل 6 أشهر':'Every 6 months','نصف شهري (كل 15 يوم)':'Twice a month (every 15 days)','الزيارة القادمة:':'Next visit:','الزيارة القادمة':'Next Visit','مواقعي':'My Sites','🏢 مواقعي':'🏢 My Sites','تفصيل المواقع':'Site Breakdown',
+    'إجمالي':'Total','الدفعة السنوية':'Annual Payment','الزيارات القادمة':'Upcoming Visits','العقود السابقة':'Previous Contracts','📜 العقود السابقة':'📜 Previous Contracts','📅 الزيارات القادمة':'📅 Upcoming Visits','✅ اكتملت كل الزيارات':'✅ All visits completed','الدفعة الواحدة':'Single Payment','كل شهرين':'Every 2 months','كل 3 أشهر':'Every 3 months','كل 4 أشهر':'Every 4 months','كل 6 أشهر':'Every 6 months','نصف شهري (كل 15 يوم)':'Twice a month (every 15 days)','الزيارة القادمة:':'Next visit:','الزيارة القادمة':'Next Visit','مواقعي':'My Sites','🏢 مواقعي':'🏢 My Sites','تفصيل المواقع':'Site Breakdown',
     'مكة المكرمة':'Makkah','الرياض':'Riyadh','جدة':'Jeddah','الدمام':'Dammam'
   };
   const REGEX=[
@@ -15608,6 +15608,78 @@ console.log('✅ v2.3.110 client sites home');
     try{saveReportEdit_v196=window.saveReportEdit_v196}catch(e){}
   }
   console.log('✅ v2.3.124 shift following visits');
+})();
+</script>
+
+<!-- ===== v2.3.125 Previous contracts (schedule / reports / payments / contract copy) ===== -->
+<script id="v23125-old-contracts">
+(function(){
+  const E=x=>String(x==null?'':x).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+  const $=id=>document.getElementById(id);
+  const cl=id=>(db.clients||[]).find(c=>String(c.id)===String(id));
+  const snapOf=(c,seq)=>(c&&c.contractHistory||[]).find(x=>Number(x.seq)===Number(seq));
+  const isEn=()=>{try{return localStorage.getItem('khotwah_lang')==='en'}catch(e){return false}};
+  function listHtml(c){
+    const h=(c&&c.contractHistory)||[];if(!h.length)return '';
+    const btn='style="width:auto;padding:6px 10px;font-size:11px;margin:3px"';
+    return `<div class="section-title">📜 ${isEn()?'My Previous Contracts':'العقود السابقة'} (${h.length})</div>`+h.slice().reverse().map(s=>`
+      <div class="card" style="margin-bottom:10px"><div style="font-weight:900;margin-bottom:6px">${isEn()?'Contract':'عقد'} ${E(s.seq)}: ${E(s.contractStartDate||'-')} ← ${E(s.contractEndDate||'-')}</div>
+      <div style="font-size:12px;color:var(--text-light);margin-bottom:8px">${Number(s.contractAmount||0).toLocaleString()} ${isEn()?'SAR':'ريال'} | ${E(s.pay||'-')}</div>
+      <button class="submit-btn" ${btn} onclick="__openOldContract(${Number(c.id)},${Number(s.seq)},'schedule')">📅 ${isEn()?'Visit schedule':'جدول الزيارات'}</button>
+      <button class="submit-btn" ${btn} onclick="__openOldContract(${Number(c.id)},${Number(s.seq)},'reports')">📄 ${isEn()?'Reports':'التقارير'}</button>
+      <button class="submit-btn" ${btn} onclick="__openOldContract(${Number(c.id)},${Number(s.seq)},'payments')">💳 ${isEn()?'Payments':'الدفعات'}</button>
+      ${s.contractPdf?`<button class="submit-btn green" ${btn} onclick="viewRenewHistoryPdf&&viewRenewHistoryPdf(${Number(c.id)},${Number(s.seq)})">👁️ ${isEn()?'Contract copy':'نسخة العقد'}</button>`:''}</div>`).join('');
+  }
+  function reportsOf(c,s){
+    const ids=new Set((s.visitSchedule||[]).map(v=>v.reportId).filter(Boolean).map(String));
+    const a=String(s.contractStartDate||'').slice(0,10),b=String(s.contractEndDate||'').slice(0,10);
+    return (db.reports||[]).filter(r=>String(r.clientId)===String(c.id)&&(ids.has(String(r.id))||(a&&b&&String(r.date||'')>=a&&String(r.date||'')<=b)))
+      .sort((x,y)=>String(y.date||'').localeCompare(String(x.date||'')));
+  }
+  window.__openOldContract=function(id,seq,tab){
+    const c=cl(id),s=snapOf(c,seq);if(!c||!s)return showToast('تعذر العثور على العقد');
+    const en=isEn();let body='';
+    const tabs=[['schedule',en?'📅 Schedule':'📅 الجدول'],['reports',en?'📄 Reports':'📄 التقارير'],['payments',en?'💳 Payments':'💳 الدفعات']].map(([k,t])=>`<button class="submit-btn" style="width:auto;padding:6px 12px;font-size:12px;margin:2px;${k===tab?'':'background:#64748b'}" onclick="__openOldContract(${Number(id)},${Number(seq)},'${k}')">${t}</button>`).join('');
+    if(tab==='schedule'){
+      const vs=s.visitSchedule||[];let last=null;
+      body=vs.length?`<div style="overflow-x:auto"><table class="client-visit-table"><thead><tr><th>#</th><th>${en?'Date':'التاريخ'}</th><th>${en?'Executed':'التنفيذ'}</th><th>${en?'Status':'الحالة'}</th></tr></thead><tbody>`+vs.map((v,i)=>{
+        const g=v.siteName||'';const head=(g&&g!==last)?`<tr><td colspan="4" style="background:#1a3a5c;color:#fff;font-weight:800">🏢 ${E(g)}</td></tr>`:'';last=g||last;
+        const done=window.__visitDone2?window.__visitDone2(Object.assign({},c,{id:c.id}),v):/منفذ/.test(v.status||'');
+        return head+`<tr><td>${E(v.number||i+1)}</td><td>${E(v.date||'-')}</td><td>${E(v.executionDate||v.doneDate||'-')}</td><td>${done?(en?'Completed':'منفذة'):E(v.status||'مجدولة')}</td></tr>`}).join('')+'</tbody></table></div>':`<div class="card">${en?'No schedule':'لا يوجد جدول'}</div>`;
+    }else if(tab==='reports'){
+      const rs=reportsOf(c,s);
+      body=rs.length?rs.map(r=>`<div class="report-card" onclick="closeModal&&closeModal();openReportDetails(${Number(r.id)})"><div class="report-icon">📄</div><div class="report-info"><div class="report-title">${E(r.reportTitle||r.type||'زيارة فنية')}</div><div class="report-date">${E(r.date||'-')} — ${E(r.tech||r.employeeName||'-')}</div></div><span class="report-arrow">›</span></div>`).join(''):`<div class="card">${en?'No reports for this contract':'لا توجد تقارير لهذا العقد'}</div>`;
+    }else{
+      const ps=s.payments||[];
+      body=ps.length?ps.map(p=>`<div class="card" style="margin-bottom:8px"><b>${ps.length>1?(en?'Payment ':'الدفعة ')+E(p.number):(en?'Payment':'الدفعة')}</b> — ${Number(p.amount||0).toLocaleString()} ${en?'SAR':'ريال'}<div style="font-size:12px;color:var(--text-light)">${E(p.dueDate||'-')} | ${E(p.status||'-')}</div></div>`).join(''):`<div class="card">${en?'No payments':'لا توجد دفعات'}</div>`;
+    }
+    $('modalTitle').textContent=(en?'Contract ':'عقد ')+s.seq+' — '+(s.contractStartDate||'')+' ← '+(s.contractEndDate||'');
+    $('modalContent').innerHTML=`<div style="margin-bottom:10px">${tabs}</div>${body}`;
+    $('modalOverlay').classList.add('active');
+  };
+  // لوحة العميل
+  const baseHome=window.clientHome;
+  if(typeof baseHome==='function'){
+    window.clientHome=function(){
+      let html=String(baseHome.apply(this,arguments));
+      try{const cid=(typeof currentClientId!=='undefined'?currentClientId:window.currentClientId);const c=cl(cid);const l=listHtml(c);
+        if(l){const mark='<div class="section-title">⚡ إجراءات سريعة</div>';const i=html.lastIndexOf('<div class="section-title">📅 الزيارات القادمة</div>');
+          html=i>-1?html+l:(html.indexOf(mark)>-1?html:html+l);if(i<0&&html.indexOf(l)<0)html+=l}}catch(e){}
+      return html;
+    };
+    try{clientHome=window.clientHome}catch(e){}
+  }
+  // ملف العميل للإدارة
+  const baseDet=window.openClientDetails;
+  if(typeof baseDet==='function'){
+    window.openClientDetails=function(id,fromPop){
+      const r=baseDet.apply(this,arguments);
+      try{const c=cl(id);const l=listHtml(c);const root=document.getElementById('appContent');if(l&&root&&!root.querySelector('[data-old-contracts]')){const d=document.createElement('div');d.setAttribute('data-old-contracts','1');d.innerHTML=l;root.appendChild(d)}}catch(e){}
+      return r;
+    };
+    try{openClientDetails=window.openClientDetails}catch(e){}
+  }
+  console.log('✅ v2.3.125 old contracts');
 })();
 </script>
 </body>
