@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.120">
+<meta name="app-version" content="2.3.121">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -15493,21 +15493,35 @@ console.log('✅ v2.3.110 client sites home');
   let deferred=null;
   const KEY='khotwaInstallDismissed';
   const dismissed=()=>{try{return localStorage.getItem(KEY)==='1'}catch(e){return false}};
-  function bar(msg,btn,onclick){
+  const isEn=()=>{try{return localStorage.getItem('khotwah_lang')==='en'}catch(e){return false}};
+  const T={
+    install:{ar:'ثبّت تطبيق خطوة محترف على جوالك',en:'Install the Khotwa Muhtarif app on your phone'},
+    btn:{ar:'تثبيت',en:'Install'},
+    ios:{ar:'لتثبيت التطبيق: اضغط زر المشاركة <b>⬆️</b> في Safari ثم اختر <b>إضافة إلى الشاشة الرئيسية</b>',en:'To install the app: tap the Share button <b>⬆️</b> in Safari, then choose <b>Add to Home Screen</b>'}
+  };
+  const L=k=>T[k][isEn()?'en':'ar'];
+  function refreshBar(){
+    const d=document.getElementById('pwaInstallBar');if(!d)return;
+    const m=d.querySelector('[data-pwa-msg]');if(m)m.innerHTML=L(m.getAttribute('data-pwa-msg'));
+    const b=document.getElementById('pwaInstallBtn');if(b)b.textContent=L('btn');
+    d.dir=isEn()?'ltr':'rtl';
+  }
+  setInterval(refreshBar,800);
+  function bar(msgKey,btn,onclick){
     if(document.getElementById('pwaInstallBar')||standalone()||dismissed())return;
-    const d=document.createElement('div');d.id='pwaInstallBar';d.dir='rtl';
+    const d=document.createElement('div');d.id='pwaInstallBar';d.dir=isEn()?'ltr':'rtl';
     d.style.cssText='position:fixed;left:12px;right:12px;bottom:76px;z-index:99998;background:#1a3a5c;color:#fff;border-radius:14px;padding:12px 14px;display:flex;gap:10px;align-items:center;box-shadow:0 8px 24px rgba(0,0,0,.3);font-family:inherit;font-size:13px';
-    d.innerHTML=`<span style="font-size:22px">📲</span><div style="flex:1;line-height:1.5">${msg}</div>${btn?`<button id="pwaInstallBtn" style="background:#f59e0b;color:#1a3a5c;border:0;border-radius:10px;padding:8px 12px;font-weight:900;font-family:inherit">${btn}</button>`:''}<button id="pwaCloseBtn" style="background:transparent;color:#fff;border:0;font-size:18px">✕</button>`;
+    d.innerHTML=`<span style="font-size:22px">📲</span><div data-pwa-msg="${msgKey}" style="flex:1;line-height:1.5">${L(msgKey)}</div>${btn?`<button id="pwaInstallBtn" style="background:#f59e0b;color:#1a3a5c;border:0;border-radius:10px;padding:8px 12px;font-weight:900;font-family:inherit">${L('btn')}</button>`:''}<button id="pwaCloseBtn" style="background:transparent;color:#fff;border:0;font-size:18px">✕</button>`;
     document.body.appendChild(d);
     document.getElementById('pwaCloseBtn').onclick=()=>{try{localStorage.setItem(KEY,'1')}catch(e){}d.remove()};
     const b=document.getElementById('pwaInstallBtn');if(b)b.onclick=onclick;
   }
   window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferred=e;
-    bar('ثبّت تطبيق خطوة محترف على جوالك','تثبيت',async()=>{try{deferred.prompt();await deferred.userChoice}catch(x){}deferred=null;const d=document.getElementById('pwaInstallBar');if(d)d.remove()})});
+    bar('install','btn',async()=>{try{deferred.prompt();await deferred.userChoice}catch(x){}deferred=null;const d=document.getElementById('pwaInstallBar');if(d)d.remove()})});
   window.addEventListener('appinstalled',()=>{const d=document.getElementById('pwaInstallBar');if(d)d.remove()});
   window.addEventListener('load',()=>setTimeout(()=>{
     const ua=navigator.userAgent||'';
-    if(/iPhone|iPad|iPod/.test(ua)&&!standalone())bar('لتثبيت التطبيق: اضغط زر المشاركة <b>⬆️</b> في Safari ثم اختر <b>إضافة إلى الشاشة الرئيسية</b>','',null);
+    if(/iPhone|iPad|iPod/.test(ua)&&!standalone())bar('ios','',null);
   },2500));
   console.log('✅ v2.3.119 PWA');
 })();
