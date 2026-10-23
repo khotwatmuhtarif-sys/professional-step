@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.127">
+<meta name="app-version" content="2.3.128">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -15735,7 +15735,7 @@ console.log('✅ v2.3.110 client sites home');
         if(i&&root){const cell=[...root.querySelectorAll('.app-detail-cell')].find(x=>/عدد الزيارات/.test(x.textContent));
           if(cell){const b=cell.querySelector('b');if(b)b.innerHTML=`${i.total} <span style="font-size:11px;color:#92400e">(${i.base} + 🎁${i.carried} مرحّلة)</span>`}}
         const c=cl(id);const acts=root&&root.querySelector('.app-screen-actions');
-        if(acts&&c&&(c.contractHistory||[]).length&&!acts.querySelector('[data-carry-btn]')){
+        if(acts&&c&&(window.currentRole==='admin'||(typeof currentRole!=='undefined'&&currentRole==='admin'))&&!acts.querySelector('[data-carry-btn]')){
           const bt=document.createElement('button');bt.className='submit-btn';bt.setAttribute('data-carry-btn','1');bt.style.background='#b45309';
           bt.textContent=i?'🎁 تعديل الرصيد المرحّل':'🎁 تحديد الرصيد المرحّل';bt.onclick=()=>window.setCarriedVisits(id);acts.appendChild(bt);
         }}catch(e){}
