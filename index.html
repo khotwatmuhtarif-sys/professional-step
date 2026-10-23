@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.116">
+<meta name="app-version" content="2.3.117">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -10798,7 +10798,7 @@ window.openClientDetails=function(id,fromPop){
   root.innerHTML=`<div class="app-screen-head"><div><div class="app-screen-title">🏢 ${esc(c.name||'العميل')}</div><div class="app-screen-sub">رقم العقد #${esc(c.contractNo||c.contractNumber||c.id||'-')}</div></div><span class="status-badge ${c.status||'active'}">${c.status==='expired'?'منتهي':c.status==='pending'?'قريب الانتهاء':'نشط'}</span></div>
   <div class="app-detail-grid"><div class="app-detail-cell"><small>نوع الخدمة</small><b>${esc(c.type||'-')}</b></div><div class="app-detail-cell"><small>المدينة / الموقع</small><b>${esc(c.city||c.location||'-')}</b></div><div class="app-detail-cell"><small>عدد الزيارات</small><b>${sched.length||c.visits||0}</b></div><div class="app-detail-cell"><small>عدد التقارير</small><b>${reps.length}</b></div><div class="app-detail-cell"><small>المدفوع</small><b>${Number(pay.paid||0).toLocaleString()} ر.س</b></div><div class="app-detail-cell"><small>المتبقي</small><b>${Number(pay.remaining||0).toLocaleString()} ر.س</b></div></div>
   <div class="app-screen-actions"><button class="submit-btn" onclick="showClientSchedule(${Number(c.id)})">📅 جدول الزيارات</button><button class="submit-btn green" onclick="adminOpenClientPayments(${Number(c.id)})">💳 الدفعات</button><button class="submit-btn" onclick="showAdminClientReports(${Number(c.id)})">📄 التقارير</button><button class="submit-btn" style="background:#64748b" onclick="editClient(${Number(c.id)})">✏️ تعديل العميل</button></div>
-  ${(function(){try{const sites=Array.isArray(c.sites)?c.sites:[];if(sites.length<2)return '';const isDone=v=>/منفذ|مكتم/.test(String(v.status||''))||!!v.reportId;const today=new Date().toISOString().slice(0,10);
+  ${(function(){try{const sites=Array.isArray(c.sites)?c.sites:[];if(sites.length<2)return '';const isDone=v=>window.__visitDone2?window.__visitDone2(c,v):(/منفذ|مكتم/.test(String(v.status||''))||!!v.reportId);const today=new Date().toISOString().slice(0,10);
     const cards=sites.map(st=>{const sid=String(st.id||'main');const vs=sched.filter(v=>String(v.siteId||'main')===sid);const done=vs.filter(isDone);const nums=new Set(vs.map(v=>String(v.number)));const rc=reps.filter(r=>r.visitNumber!=null&&nums.has(String(r.visitNumber))).length||done.filter(v=>v.reportId).length;
       const nxt=vs.filter(v=>!isDone(v)&&v.date).sort((x,y)=>String(x.date).localeCompare(String(y.date)))[0];const total=vs.length||Number(st.visits)||0;const pct=total?Math.round(done.length/total*100):0;
       return `<div style="background:#fff;border:1px solid var(--border);border-radius:14px;padding:12px;margin-bottom:10px"><div style="font-weight:900;color:var(--primary);margin-bottom:8px">🏢 ${esc(st.name||'الموقع')}</div><div class="app-detail-grid"><div class="app-detail-cell"><small>إجمالي الزيارات</small><b>${total}</b></div><div class="app-detail-cell"><small>المنفذة</small><b>${done.length}</b></div><div class="app-detail-cell"><small>المتبقية</small><b>${Math.max(0,total-done.length)}</b></div><div class="app-detail-cell"><small>التقارير</small><b>${rc}</b></div><div class="app-detail-cell"><small>الزيارة القادمة</small><b>${nxt?esc(nxt.date):'-'}</b></div><div class="app-detail-cell"><small>نسبة الإنجاز</small><b>${pct}%</b></div></div></div>`}).join('');
@@ -15246,7 +15246,7 @@ function esc2(x){return String(x==null?'':x).replace(/[&<>"]/g,m=>({'&':'&amp;',
 function stats(c){
   const sites=Array.isArray(c.sites)?c.sites:[];if(sites.length<2)return null;
   const sched=Array.isArray(c.visitSchedule)?c.visitSchedule:[];
-  const isDone=v=>/منفذ|مكتم/.test(String(v.status||''))||!!v.reportId||!!v.executionDate;
+  const isDone=v=>window.__visitDone2?window.__visitDone2(c,v):(/منفذ|مكتم/.test(String(v.status||''))||!!v.reportId||!!v.executionDate);
   return sites.map(st=>{const sid=String(st.id||'main');const vs=sched.filter(v=>String(v.siteId||'main')===sid);const done=vs.filter(isDone).length;const total=vs.length||Number(st.visits)||0;
     const nxt=vs.filter(v=>!isDone(v)&&v.date).sort((a,b)=>String(a.date).localeCompare(String(b.date)))[0];
     return {name:st.name||'الموقع',total,done,rem:Math.max(0,total-done),next:nxt?nxt.date:''}});
@@ -15307,7 +15307,7 @@ console.log('✅ v2.3.110 client sites home');
 <!-- ===== v2.3.113 Report upload: choose site for multi-site clients ===== -->
 <script id="v23113-report-site">
 (function(){
-  const done=v=>/منفذ|مكتم/.test(String(v.status||''))||!!v.reportId;
+  const done=v=>{const id=document.getElementById('reportClientSelect')?.value;const c=(db.clients||[]).find(x=>String(x.id)===String(id));return window.__visitDone2?window.__visitDone2(c||{},v):(/منفذ|مكتم/.test(String(v.status||''))||!!v.reportId)};
   const E=x=>String(x==null?'':x).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
   const $=id=>document.getElementById(id);
   function cl(){const id=$('reportClientSelect')?.value;return (db.clients||[]).find(c=>String(c.id)===String(id))||null}
@@ -15455,6 +15455,20 @@ console.log('✅ v2.3.110 client sites home');
     return html;
   };
   console.log('✅ v2.3.116 service log by site');
+})();
+</script>
+
+<!-- ===== v2.3.117 Unified "visit done" rule (status OR execution date OR a report linked to it) ===== -->
+<script id="v23117-visit-done">
+(function(){
+  window.__visitDone2=function(c,v){
+    if(!v)return false;
+    if(/منفذ|مكتم/.test(String(v.status||''))||v.reportId||v.executionDate||v.doneDate||v.completedAt)return true;
+    if(!c||c.id==null)return false;
+    const vn=String(v.number!=null?v.number:v.id);
+    return (db.reports||[]).some(r=>String(r.clientId)===String(c.id)&&String(r.visitNumber||r.number||r.visitId||'')===vn&&(!r.siteId||String(r.siteId)===String(v.siteId||'main')));
+  };
+  console.log('✅ v2.3.117 unified visit-done rule');
 })();
 </script>
 </body>
