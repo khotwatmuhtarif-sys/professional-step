@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.128">
+<meta name="app-version" content="2.3.129">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -15535,11 +15535,11 @@ console.log('✅ v2.3.110 client sites home');
   const isDone=(c,v)=>window.__visitDone2?window.__visitDone2(c,v):/منفذ|مكتم/.test(String(v.status||''));
   const okStatus=v=>!v.status||/مجدول/.test(String(v.status));
   const iso=x=>String(x||'').slice(0,10);
-  window.__shiftFollowingVisits=function(c,v){
+  window.__shiftFollowingVisits=function(c,v,useDate){
     try{
       const sched=Array.isArray(c&&c.visitSchedule)?c.visitSchedule:[];const idx=sched.indexOf(v);if(idx<0)return 0;
-      const exec=iso(v.executionDate);if(!/^\d{4}-\d{2}-\d{2}$/.test(exec))return 0;
-      const planned=iso(v.date||v.scheduledVisitDate);if(planned&&planned===exec)return 0;
+      const exec=useDate?iso(v.date):iso(v.executionDate);if(!/^\d{4}-\d{2}-\d{2}$/.test(exec))return 0;
+      const planned=iso(v.date||v.scheduledVisitDate);if(!useDate&&planned&&planned===exec)return 0;
       const sid=String(v.siteId||'main');
       const site=(c.sites||[]).find(s=>String(s.id||'main')===sid);
       const freq=(site&&site.visitFrequency)||c.visitFrequency||c.frequency||'';
@@ -15563,10 +15563,12 @@ console.log('✅ v2.3.110 client sites home');
   if(baseRow){
     window.editClientVisitRow=async function(clientId,visitIndex){
       const c=(db.clients||[]).find(x=>String(x.id)===String(clientId));
-      const v=c&&c.visitSchedule&&c.visitSchedule[visitIndex];const old=v?iso(v.executionDate):'';
+      const v=c&&c.visitSchedule&&c.visitSchedule[visitIndex];const old=v?iso(v.executionDate):'';const oldDate=v?iso(v.date):'';
       const r=await baseRow.apply(this,arguments);
-      if(v&&iso(v.executionDate)&&iso(v.executionDate)!==old){
-        const n=window.__shiftFollowingVisits(c,v);
+      if(v){
+        let n=0;
+        if(iso(v.executionDate)&&iso(v.executionDate)!==old)n=window.__shiftFollowingVisits(c,v);
+        else if(iso(v.date)&&iso(v.date)!==oldDate)n=window.__shiftFollowingVisits(c,v,true);
         if(n){await persist(c);note(n);try{if(typeof showClientSchedule==='function')showClientSchedule(clientId)}catch(e){}}
       }
       return r;
