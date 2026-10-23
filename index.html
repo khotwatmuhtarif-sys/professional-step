@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.113">
+<meta name="app-version" content="2.3.114">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -7243,6 +7243,7 @@ https://khotwatmuhtarif-sys.github.io/professional-step/
     // العميل أثناء التحميل ما نفقد اختياره.
     const old = select.value;
     const filtered = clients195().filter(c => {
+      if (window.__techCityAllows && !window.__techCityAllows(c)) return false;
       const txt = [c.name,c.englishName,c.id,c.contractNo,c.contractNumber,c.username,c.location,c.city].join(' ').toLowerCase();
       return !q || txt.includes(q);
     });
@@ -15396,6 +15397,22 @@ console.log('✅ v2.3.110 client sites home');
     try{saveVisitReport=window.saveVisitReport}catch(e){}
   }
   console.log('✅ v2.3.113 report site selector');
+})();
+</script>
+
+<!-- ===== v2.3.114 Technician sees only clients of own city in report upload ===== -->
+<script id="v23114-tech-city">
+(function(){
+  const norm=x=>String(x||'').trim().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/^ال/,'').replace(/\s+/g,' ');
+  window.__techCityAllows=function(c){
+    try{
+      if((window.currentRole||'')!=='employee')return true;
+      const mine=norm(window.currentUser&&window.currentUser.city);
+      if(!mine)return true;
+      return norm(c&&(c.city||c.location))===mine;
+    }catch(e){return true}
+  };
+  console.log('✅ v2.3.114 tech city filter');
 })();
 </script>
 </body>
