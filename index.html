@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.110">
+<meta name="app-version" content="2.3.111">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -15011,6 +15011,7 @@ console.log('✅ v2.3.90 payment root fix loaded');
     '— اختر العميل —':'— Select client —','اختر العميل أولاً':'Select a client first',
     'يُقترح تلقائياً — عدّله لو التقرير يخص زيارة مختلفة':'Suggested automatically — edit it if the report is for a different visit',
     'لا توجد تقارير مرفوعة حتى الآن':'No reports uploaded yet','عميلنا العزيز':'Dear client',
+    'إجمالي':'Total','الزيارة القادمة:':'Next visit:','الزيارة القادمة':'Next Visit','مواقعي':'My Sites','🏢 مواقعي':'🏢 My Sites','تفصيل المواقع':'Site Breakdown',
     'مكة المكرمة':'Makkah','الرياض':'Riyadh','جدة':'Jeddah','الدمام':'Dammam'
   };
   const REGEX=[
@@ -15018,6 +15019,7 @@ console.log('✅ v2.3.90 payment root fix loaded');
     [/متأخرة منذ\s*(\d+)\s*(?:أيام|يوم|يوماً|أيّام)/,'Overdue by $1 days'],
     [/ينتهي عقدك خلال\s*(\d+)\s*(?:أيام|يوم|يوماً)/,'Your contract ends in $1 days'],
     [/انتهى عقدك منذ\s*(\d+)\s*(?:أيام|يوم|يوماً)/,'Your contract expired $1 days ago'],
+    [/مواقعي\s*\((\d+)\)/,'My Sites ($1)'],
     [/تاريخ الانتهاء:\s*/,'End date: '],
     [/\s*—\s*يرجى التواصل لتجديد العقد/,' — please contact us to renew the contract'],
     [/يرجى التواصل لتجديد العقد/,'Please contact us to renew the contract'],
