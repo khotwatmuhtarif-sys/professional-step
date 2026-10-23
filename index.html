@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.123">
+<meta name="app-version" content="2.3.124">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -15524,6 +15524,90 @@ console.log('✅ v2.3.110 client sites home');
     if(/iPhone|iPad|iPod/.test(ua)&&!standalone())bar('ios','',null);
   },2500));
   console.log('✅ v2.3.119 PWA');
+})();
+</script>
+
+<!-- ===== v2.3.124 Shift following visits when execution date differs from schedule ===== -->
+<script id="v23124-shift-following">
+(function(){
+  const isDone=(c,v)=>window.__visitDone2?window.__visitDone2(c,v):/منفذ|مكتم/.test(String(v.status||''));
+  const okStatus=v=>!v.status||/مجدول/.test(String(v.status));
+  const iso=x=>String(x||'').slice(0,10);
+  window.__shiftFollowingVisits=function(c,v){
+    try{
+      const sched=Array.isArray(c&&c.visitSchedule)?c.visitSchedule:[];const idx=sched.indexOf(v);if(idx<0)return 0;
+      const exec=iso(v.executionDate);if(!/^\d{4}-\d{2}-\d{2}$/.test(exec))return 0;
+      const planned=iso(v.date||v.scheduledVisitDate);if(planned&&planned===exec)return 0;
+      const sid=String(v.siteId||'main');
+      const site=(c.sites||[]).find(s=>String(s.id||'main')===sid);
+      const freq=(site&&site.visitFrequency)||c.visitFrequency||c.frequency||'';
+      if(!freq||freq==='manual'||typeof window.generateVisitSchedule!=='function')return 0;
+      const follow=sched.slice(idx+1).filter(x=>String(x.siteId||'main')===sid);
+      if(!follow.length)return 0;
+      const gen=window.generateVisitSchedule(exec,follow.length+1,freq);
+      if(!gen||gen.length<follow.length+1)return 0;
+      let n=0;
+      follow.forEach((x,k)=>{if(isDone(c,x)||!okStatus(x))return;const nd=gen[k+1].date;if(nd&&nd!==iso(x.date)){x.date=nd;n++}});
+      return n;
+    }catch(e){console.warn('shift',e);return 0}
+  };
+  async function persist(c){
+    try{if(typeof saveDB==='function')saveDB()}catch(e){}
+    try{if(window.saveClientToFirebase)await window.saveClientToFirebase(JSON.parse(JSON.stringify(c)))}catch(e){console.warn(e)}
+  }
+  function note(n){if(n&&typeof showToast==='function')showToast('📅 تم تحريك '+n+' زيارة قادمة حسب التكرار')}
+  // 1) تعديل الزيارة من شاشة المدير
+  const baseRow=window.editClientVisitRow||(typeof editClientVisitRow==='function'?editClientVisitRow:null);
+  if(baseRow){
+    window.editClientVisitRow=async function(clientId,visitIndex){
+      const c=(db.clients||[]).find(x=>String(x.id)===String(clientId));
+      const v=c&&c.visitSchedule&&c.visitSchedule[visitIndex];const old=v?iso(v.executionDate):'';
+      const r=await baseRow.apply(this,arguments);
+      if(v&&iso(v.executionDate)&&iso(v.executionDate)!==old){
+        const n=window.__shiftFollowingVisits(c,v);
+        if(n){await persist(c);note(n);try{if(typeof showClientSchedule==='function')showClientSchedule(clientId)}catch(e){}}
+      }
+      return r;
+    };
+    try{editClientVisitRow=window.editClientVisitRow}catch(e){}
+  }
+  // 2) رفع تقرير (الفني أو المدير)
+  const baseSave=window.saveVisitReport;
+  if(typeof baseSave==='function'){
+    window.saveVisitReport=async function(){
+      const before=(db.reports||[]).length;const first=(db.reports||[])[0];
+      const res=await baseSave.apply(this,arguments);
+      try{
+        const nr=(db.reports||[])[0];
+        if(nr&&nr!==first&&(db.reports||[]).length>=before){
+          const c=(db.clients||[]).find(x=>String(x.id)===String(nr.clientId));
+          const v=c&&(c.visitSchedule||[]).find(x=>String(x.reportId)===String(nr.id));
+          if(v){const n=window.__shiftFollowingVisits(c,v);if(n){await persist(c);note(n)}}
+        }
+      }catch(e){console.warn(e)}
+      return res;
+    };
+    try{saveVisitReport=window.saveVisitReport}catch(e){}
+  }
+  // 3) تعديل تقرير موجود
+  const baseEdit=window.saveReportEdit_v196;
+  if(typeof baseEdit==='function'){
+    window.saveReportEdit_v196=async function(id){
+      const r0=(db.reports||[]).find(x=>String(x.id)===String(id));
+      const c0=r0&&(db.clients||[]).find(x=>String(x.id)===String(r0.clientId));
+      const v0=c0&&(c0.visitSchedule||[]).find(x=>String(x.reportId)===String(id));const old=v0?iso(v0.executionDate):'';
+      const res=await baseEdit.apply(this,arguments);
+      try{
+        const r=(db.reports||[]).find(x=>String(x.id)===String(id));
+        const c=r&&(db.clients||[]).find(x=>String(x.id)===String(r.clientId));
+        const v=c&&(c.visitSchedule||[]).find(x=>String(x.reportId)===String(id));
+        if(v&&iso(v.executionDate)&&iso(v.executionDate)!==old){const n=window.__shiftFollowingVisits(c,v);if(n){await persist(c);note(n)}}
+      }catch(e){console.warn(e)}
+      return res;
+    };
+    try{saveReportEdit_v196=window.saveReportEdit_v196}catch(e){}
+  }
+  console.log('✅ v2.3.124 shift following visits');
 })();
 </script>
 </body>
