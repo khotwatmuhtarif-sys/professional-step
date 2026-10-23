@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.109">
+<meta name="app-version" content="2.3.110">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -15227,6 +15227,40 @@ window.resetClientAccess=async function(clientId){
   }catch(e){console.error(e);showToast('⚠️ تعذر التوليد: '+(e.message||'خطأ'))}
 };
 console.log('✅ v2.3.109 reset client access');
+})();
+</script>
+
+<!-- ===== v2.3.110 Client home: per-site breakdown (مواقعي) ===== -->
+<script id="v23110-client-sites-home">
+(function(){
+function esc2(x){return String(x==null?'':x).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]))}
+function stats(c){
+  const sites=Array.isArray(c.sites)?c.sites:[];if(sites.length<2)return null;
+  const sched=Array.isArray(c.visitSchedule)?c.visitSchedule:[];
+  const isDone=v=>/منفذ|مكتم/.test(String(v.status||''))||!!v.reportId||!!v.executionDate;
+  return sites.map(st=>{const sid=String(st.id||'main');const vs=sched.filter(v=>String(v.siteId||'main')===sid);const done=vs.filter(isDone).length;const total=vs.length||Number(st.visits)||0;
+    const nxt=vs.filter(v=>!isDone(v)&&v.date).sort((a,b)=>String(a.date).localeCompare(String(b.date)))[0];
+    return {name:st.name||'الموقع',total,done,rem:Math.max(0,total-done),next:nxt?nxt.date:''}});
+}
+const base=window.clientHome;
+if(typeof base!=='function')return;
+window.clientHome=function(){
+  let html=String(base.apply(this,arguments));
+  try{
+    const cid=(typeof currentClientId!=='undefined'?currentClientId:window.currentClientId);const c=(db.clients||[]).find(x=>String(x.id)===String(cid))||null;const st=c&&stats(c);if(!st)return html;
+    const line=k=>`<small style="display:block;font-size:10px;line-height:1.5;color:var(--text-light);margin-top:2px">${st.map(x=>esc2(x.name)+' '+x[k]).join(' · ')}</small>`;
+    const add=(label,k)=>{html=html.replace('<span class="stat-label">'+label+'</span>','<span class="stat-label">'+label+'</span>'+line(k))};
+    add('إجمالي الزيارات','total');add('زيارات منفذة','done');
+    html=html.replace('<span class="stat-label">زيارات متبقية — اضغط لعرض الجدول</span>','<span class="stat-label">زيارات متبقية — اضغط لعرض الجدول</span>'+line('rem'));
+    const cards=st.map(x=>`<div onclick="renderPanel('client_visits')" style="cursor:pointer;background:#fff;border:1px solid var(--border);border-radius:14px;padding:12px;margin-bottom:10px"><div style="font-weight:900;color:var(--primary);margin-bottom:8px">🏢 ${esc2(x.name)}</div><div style="display:flex;gap:8px;text-align:center"><div style="flex:1"><b style="font-size:18px">${x.total}</b><div style="font-size:11px;color:var(--text-light)">إجمالي</div></div><div style="flex:1"><b style="font-size:18px;color:#16a34a">${x.done}</b><div style="font-size:11px;color:var(--text-light)">منفذة</div></div><div style="flex:1"><b style="font-size:18px;color:#d97706">${x.rem}</b><div style="font-size:11px;color:var(--text-light)">متبقية</div></div></div>${x.next?`<div style="font-size:12px;margin-top:8px;color:var(--text-light)">الزيارة القادمة: <b>${esc2(x.next)}</b></div>`:''}</div>`).join('');
+    const sec=`<div class="section-title">🏢 مواقعي (${st.length})</div>${cards}`;
+    const mark='<div class="section-title">⚡ إجراءات سريعة</div>';
+    html=html.indexOf(mark)>-1?html.replace(mark,sec+mark):html+sec;
+  }catch(e){console.warn('sites home',e)}
+  return html;
+};
+try{clientHome=window.clientHome}catch(e){}
+console.log('✅ v2.3.110 client sites home');
 })();
 </script>
 </body>
