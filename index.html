@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.129">
+<meta name="app-version" content="2.3.130">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -15535,6 +15535,18 @@ console.log('✅ v2.3.110 client sites home');
   const isDone=(c,v)=>window.__visitDone2?window.__visitDone2(c,v):/منفذ|مكتم/.test(String(v.status||''));
   const okStatus=v=>!v.status||/مجدول/.test(String(v.status));
   const iso=x=>String(x||'').slice(0,10);
+  function inferFreq(sched,sid,skip){
+    const L=sched.filter(x=>String(x.siteId||'main')===sid&&x!==skip&&/^\d{4}-\d{2}-\d{2}$/.test(iso(x.date)));
+    for(let i=0;i+1<L.length;i++){
+      if(sched.indexOf(L[i+1])-sched.indexOf(L[i])!==1)continue;
+      const a=iso(L[i].date).split('-').map(Number),b=iso(L[i+1].date).split('-').map(Number);
+      const mm=(b[0]-a[0])*12+(b[1]-a[1]);
+      if(mm>0&&a[2]===b[2]){return {1:'monthly',2:'bimonthly',3:'quarterly',4:'every4m',6:'every6m'}[mm]||''}
+      const d=Math.round((Date.UTC(b[0],b[1]-1,b[2])-Date.UTC(a[0],a[1]-1,a[2]))/864e5);
+      return {7:'weekly',10:'10days',15:'15days'}[d]||'';
+    }
+    return '';
+  }
   window.__shiftFollowingVisits=function(c,v,useDate){
     try{
       const sched=Array.isArray(c&&c.visitSchedule)?c.visitSchedule:[];const idx=sched.indexOf(v);if(idx<0)return 0;
@@ -15542,7 +15554,8 @@ console.log('✅ v2.3.110 client sites home');
       const planned=iso(v.date||v.scheduledVisitDate);if(!useDate&&planned&&planned===exec)return 0;
       const sid=String(v.siteId||'main');
       const site=(c.sites||[]).find(s=>String(s.id||'main')===sid);
-      const freq=(site&&site.visitFrequency)||c.visitFrequency||c.frequency||'';
+      let freq=(site&&site.visitFrequency)||c.visitFrequency||c.frequency||'';
+      if(!freq)freq=inferFreq(sched,sid,v);
       if(!freq||freq==='manual'||typeof window.generateVisitSchedule!=='function')return 0;
       const follow=sched.slice(idx+1).filter(x=>String(x.siteId||'main')===sid);
       if(!follow.length)return 0;
