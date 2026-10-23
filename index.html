@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.115">
+<meta name="app-version" content="2.3.116">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -5690,7 +5690,7 @@ window.openClientServiceLog=function(clientId){
   document.getElementById('modalContent').innerHTML=`<div class="card"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><div><b>العميل:</b> ${esc(c.name||'')}</div><div><b>رقم العقد:</b> #${esc(c.id||'')}</div><div><b>عدد التقارير:</b> ${reps.length}</div></div></div>
   ${note?`<div class="tech-note-card"><b>📌 آخر ملاحظة للفني القادم</b><div style="margin-top:8px;font-size:15px">${esc(note.note)}</div><div class="tech-note-mini">كتبها: ${esc(note.by||'-')} | ${esc(note.date||'')} ${note.fromVisit?`| تخص الزيارة ${esc(note.fromVisit)}`:''}</div><button class="mini-btn green" style="margin-top:10px" onclick="markTechNoteRead(${c.id},${note.id})">تمت قراءة الملاحظة</button></div>`:'<div class="tech-note-empty">لا توجد ملاحظة انتقالية للفني القادم</div>'}
   <button class="submit-btn" style="margin:12px 0" onclick="addNextTechNote(${c.id}, ${reps[0]?reps[0].id:'null'})">📝 إضافة ملاحظة للفني القادم</button>
-  <div class="section-title">📄 تقارير الزيارات السابقة</div>${reps.length?reps.map((r,i)=>`<div class="tech-report-block ${i===0?'latest':''}"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>الزيارة ${esc(getVisitNumberForReport(c,r))}</b><span>${esc(r.date||'')}</span><span>الفني: ${esc(r.tech||r.employeeName||'-')}</span></div><div style="margin-top:8px;color:#475569">${esc(r.notes||'لا توجد ملاحظات في التقرير')}</div><div class="tech-log-actions" style="margin-top:10px"><button class="mini-btn green" onclick="openReportDetails(${r.id})">📄 عرض التقرير</button><button class="mini-btn gray" onclick="addNextTechNote(${c.id},${r.id})">📝 ملاحظة للزيارة القادمة</button></div></div>`).join(''):'<div class="card">لا توجد تقارير لهذا العميل</div>'}`;
+  <div class="section-title">📄 تقارير الزيارات السابقة</div>${window.__svcReportsHtml?window.__svcReportsHtml(c,reps):(reps.length?reps.map((r,i)=>`<div class="tech-report-block ${i===0?'latest':''}"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>الزيارة ${esc(getVisitNumberForReport(c,r))}</b><span>${esc(r.date||'')}</span><span>الفني: ${esc(r.tech||r.employeeName||'-')}</span></div><div style="margin-top:8px;color:#475569">${esc(r.notes||'لا توجد ملاحظات في التقرير')}</div><div class="tech-log-actions" style="margin-top:10px"><button class="mini-btn green" onclick="openReportDetails(${r.id})">📄 عرض التقرير</button><button class="mini-btn gray" onclick="addNextTechNote(${c.id},${r.id})">📝 ملاحظة للزيارة القادمة</button></div></div>`).join(''):'<div class="card">لا توجد تقارير لهذا العميل</div>')}`;
   document.getElementById('modalOverlay').classList.add('active');
   if(typeof applyLanguage==='function') applyLanguage();
 };
@@ -15424,6 +15424,37 @@ console.log('✅ v2.3.110 client sites home');
     }catch(e){return true}
   };
   console.log('✅ v2.3.114 tech city filter');
+})();
+</script>
+
+<!-- ===== v2.3.116 Technician client log grouped by site ===== -->
+<script id="v23116-svc-log-sites">
+(function(){
+  const e=x=>String(x==null?'':x).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+  function block(c,r,i,label){
+    return `<div class="tech-report-block ${i===0?'latest':''}"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>الزيارة ${e(label)}</b><span>${e(r.date||'')}</span><span>الفني: ${e(r.tech||r.employeeName||'-')}</span></div><div style="margin-top:8px;color:#475569">${e(r.notes||'لا توجد ملاحظات في التقرير')}</div><div class="tech-log-actions" style="margin-top:10px"><button class="mini-btn green" onclick="openReportDetails(${Number(r.id)})">📄 عرض التقرير</button><button class="mini-btn gray" onclick="addNextTechNote(${Number(c.id)},${Number(r.id)})">📝 ملاحظة للزيارة القادمة</button></div></div>`;
+  }
+  window.__svcReportsHtml=function(c,reps){
+    if(!reps||!reps.length)return '<div class="card">لا توجد تقارير لهذا العميل</div>';
+    const sites=Array.isArray(c.sites)&&c.sites.length>=2?c.sites:null;
+    const sched=Array.isArray(c.visitSchedule)?c.visitSchedule:[];
+    if(!sites){return reps.map((r,i)=>block(c,r,i,(typeof getVisitNumberForReport==='function'?getVisitNumberForReport(c,r):(r.visitNumber||'-')))).join('')}
+    const groups={};sites.forEach(s=>groups[String(s.id||'main')]=[]);groups.__other=[];
+    reps.forEach(r=>{
+      const v=sched.find(x=>String(x.reportId)===String(r.id))||sched.find(x=>Number(x.number)===Number(r.visitNumber));
+      let sid=String(r.siteId||(v&&v.siteId)||'main');if(!groups[sid])sid='__other';
+      let label=r.localVisitNumber||'';
+      if(!label&&v){const sv=sched.filter(x=>String(x.siteId||'main')===String(v.siteId||'main'));label=sv.indexOf(v)+1}
+      if(!label)label=r.visitNumber||'-';
+      groups[sid].push({r,label});
+    });
+    let html='';
+    sites.forEach(s=>{const g=groups[String(s.id||'main')];if(!g||!g.length)return;
+      html+=`<div class="section-title" style="margin-top:14px">🏢 ${e(s.name||'الموقع')} <span style="font-size:12px;color:var(--text-light)">(${g.length} تقرير)</span></div>`+g.map((x,i)=>block(c,x.r,i,x.label)).join('')});
+    if(groups.__other.length)html+=`<div class="section-title" style="margin-top:14px">📄 أخرى</div>`+groups.__other.map((x,i)=>block(c,x.r,i,x.label)).join('');
+    return html;
+  };
+  console.log('✅ v2.3.116 service log by site');
 })();
 </script>
 </body>
