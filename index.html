@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.125">
+<meta name="app-version" content="2.3.126">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -14733,6 +14733,8 @@ console.log('✅ v2.3.90 payment root fix loaded');
       c.city = city;
       c.visits = totalVisits; c.used = 0; c.visitFrequency = freq;
       c.visitSchedule = generateVisitSchedule(start, totalVisits, freq);
+      c.carriedVisits = carry ? remaining : 0; c.newContractVisits = baseVisits;
+      if (c.carriedVisits > 0) c.visitSchedule.slice(-c.carriedVisits).forEach(v => { v.carried = true; });
       c.payments = buildPayments(amount, plan, start);
       c.manualPayments = [];
       c.contractPdf = pdf; c.contractPdfName = pdfName;
@@ -15018,7 +15020,7 @@ console.log('✅ v2.3.90 payment root fix loaded');
     '— اختر العميل —':'— Select client —','اختر العميل أولاً':'Select a client first',
     'يُقترح تلقائياً — عدّله لو التقرير يخص زيارة مختلفة':'Suggested automatically — edit it if the report is for a different visit',
     'لا توجد تقارير مرفوعة حتى الآن':'No reports uploaded yet','عميلنا العزيز':'Dear client',
-    'إجمالي':'Total','الدفعة السنوية':'Annual Payment','الزيارات القادمة':'Upcoming Visits','العقود السابقة':'Previous Contracts','📜 العقود السابقة':'📜 Previous Contracts','📅 الزيارات القادمة':'📅 Upcoming Visits','✅ اكتملت كل الزيارات':'✅ All visits completed','الدفعة الواحدة':'Single Payment','كل شهرين':'Every 2 months','كل 3 أشهر':'Every 3 months','كل 4 أشهر':'Every 4 months','كل 6 أشهر':'Every 6 months','نصف شهري (كل 15 يوم)':'Twice a month (every 15 days)','الزيارة القادمة:':'Next visit:','الزيارة القادمة':'Next Visit','مواقعي':'My Sites','🏢 مواقعي':'🏢 My Sites','تفصيل المواقع':'Site Breakdown',
+    'إجمالي':'Total','الدفعة السنوية':'Annual Payment','الزيارات القادمة':'Upcoming Visits','العقود السابقة':'Previous Contracts','إجمالي زياراتك':'Your total visits','📜 العقود السابقة':'📜 Previous Contracts','📅 الزيارات القادمة':'📅 Upcoming Visits','✅ اكتملت كل الزيارات':'✅ All visits completed','الدفعة الواحدة':'Single Payment','كل شهرين':'Every 2 months','كل 3 أشهر':'Every 3 months','كل 4 أشهر':'Every 4 months','كل 6 أشهر':'Every 6 months','نصف شهري (كل 15 يوم)':'Twice a month (every 15 days)','الزيارة القادمة:':'Next visit:','الزيارة القادمة':'Next Visit','مواقعي':'My Sites','🏢 مواقعي':'🏢 My Sites','تفصيل المواقع':'Site Breakdown',
     'مكة المكرمة':'Makkah','الرياض':'Riyadh','جدة':'Jeddah','الدمام':'Dammam'
   };
   const REGEX=[
@@ -15680,6 +15682,63 @@ console.log('✅ v2.3.110 client sites home');
     try{openClientDetails=window.openClientDetails}catch(e){}
   }
   console.log('✅ v2.3.125 old contracts');
+})();
+</script>
+
+<!-- ===== v2.3.126 Carried-over visits (bonus from previous contract) clearly shown ===== -->
+<script id="v23126-carried-visits">
+(function(){
+  const E=x=>String(x==null?'':x).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+  const isEn=()=>{try{return localStorage.getItem('khotwah_lang')==='en'}catch(e){return false}};
+  const cl=id=>(db.clients||[]).find(c=>String(c.id)===String(id));
+  function info(c){
+    if(!c)return null;const n=Number(c.carriedVisits||0)||(c.visitSchedule||[]).filter(v=>v.carried).length;if(!n)return null;
+    const total=(c.visitSchedule||[]).length||Number(c.visits||0);return {carried:n,total,base:Math.max(0,total-n)};
+  }
+  window.__carriedInfo=info;
+  function banner(i){
+    const en=isEn();
+    return `<div style="background:linear-gradient(135deg,#fef3c7,#fde68a);border:1px solid #f59e0b;border-radius:14px;padding:12px 14px;margin:12px 0;display:flex;gap:12px;align-items:center"><div style="font-size:30px">🎁</div><div style="flex:1;line-height:1.7"><div style="font-weight:900;color:#92400e">${en?'Bonus visits carried over from your previous contract':'رصيد زيارات مرحّل من العقد السابق'}: +${i.carried}</div><div style="font-size:13px;color:#78350f">${en?'Total visits':'إجمالي زياراتك'}: <b>${i.total}</b> = ${i.base} ${en?'new':'جديدة'} + 🎁 ${i.carried} ${en?'carried over':'مرحّلة'}</div></div></div>`;
+  }
+  // علامة 🎁 بجانب رقم الزيارة المرحّلة
+  const baseNo=window.siteVisitNo;
+  if(typeof baseNo==='function'){window.siteVisitNo=function(list,i,fb){const r=baseNo.apply(this,arguments);return (list&&list[i]&&list[i].carried)?(r+' 🎁'):r}}
+  // لوحة العميل
+  const baseHome=window.clientHome;
+  if(typeof baseHome==='function'){
+    window.clientHome=function(){
+      let html=String(baseHome.apply(this,arguments));
+      try{const cid=(typeof currentClientId!=='undefined'?currentClientId:window.currentClientId);const i=info(cl(cid));
+        if(i){const m='<div class="stats-row cols-4">';const k=html.indexOf(m);html=k>-1?html.slice(0,k)+banner(i)+html.slice(k):html+banner(i);
+          html=html.replace('<span class="stat-label">إجمالي الزيارات</span>',`<span class="stat-label">إجمالي الزيارات</span><small style="display:block;font-size:10px;color:#92400e">${i.base} + 🎁${i.carried}</small>`)}}catch(e){}
+      return html;
+    };
+    try{clientHome=window.clientHome}catch(e){}
+  }
+  // جدول زياراتي للعميل
+  const baseSch=window.clientVisitSchedulePanel;
+  if(typeof baseSch==='function'){
+    window.clientVisitSchedulePanel=function(){
+      let html=String(baseSch.apply(this,arguments));
+      try{const cid=(typeof currentClientId!=='undefined'?currentClientId:window.currentClientId);const i=info(cl(cid));
+        if(i){const mark='<div class="stats-row cols-3">';const k=html.indexOf(mark);html=k>-1?html.slice(0,k)+banner(i)+html.slice(k):banner(i)+html}}catch(e){}
+      return html;
+    };
+    try{clientVisitSchedulePanel=window.clientVisitSchedulePanel}catch(e){}
+  }
+  // ملف العميل (الإدارة)
+  const baseDet=window.openClientDetails;
+  if(typeof baseDet==='function'){
+    window.openClientDetails=function(id){
+      const r=baseDet.apply(this,arguments);
+      try{const i=info(cl(id));const root=document.getElementById('appContent');
+        if(i&&root){const cell=[...root.querySelectorAll('.app-detail-cell')].find(x=>/عدد الزيارات/.test(x.textContent));
+          if(cell){const b=cell.querySelector('b');if(b)b.innerHTML=`${i.total} <span style="font-size:11px;color:#92400e">(${i.base} + 🎁${i.carried} مرحّلة)</span>`}}}catch(e){}
+      return r;
+    };
+    try{openClientDetails=window.openClientDetails}catch(e){}
+  }
+  console.log('✅ v2.3.126 carried visits');
 })();
 </script>
 </body>
