@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.131">
+<meta name="app-version" content="2.3.132">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -1776,10 +1776,16 @@ async function doLogin() {
           currentRole = 'client';
           window.currentRole = 'client';
           window.actualSystemRole = 'client';
+          /* v2.3.132: لا نعتمد على نسخة محلية قديمة؛ بيانات العميل تُقرأ من السحابة فقط */
+          db.clients = []; db.reports = [];
           try {
             const snap = await firebase.database().ref('clients/' + currentClientId).get();
             if (snap.exists()) db.clients = [snap.val()];
-          } catch(e) {}
+            else showToast('⚠️ لم نجد بيانات العقد لهذا الحساب — تواصل مع الإدارة');
+          } catch(e) {
+            console.error('CLIENT_LOAD_ERROR', e);
+            showToast('⚠️ تعذر تحميل بيانات العقد (' + String(e && (e.code || e.message) || 'خطأ') + ') — تواصل مع الإدارة لربط الحساب');
+          }
           await window.loadClientReportsScoped?.(currentClientId);
           document.getElementById('navUserName').textContent = migratedProfile.name || username;
           document.getElementById('navUserRole').textContent = 'عميل متعاقد';
