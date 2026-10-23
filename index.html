@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.111">
+<meta name="app-version" content="2.3.112">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -4261,7 +4261,11 @@ onchange="renderPaymentSchedulePreview()">
   <label class="form-label">تكرار الزيارة</label>
   <select class="form-select" id="visitFrequency">
     <option value="monthly">شهري</option>
-    <option value="15days">كل 15 يوم</option>
+    <option value="15days">نصف شهري (كل 15 يوم)</option>
+    <option value="bimonthly">كل شهرين</option>
+    <option value="quarterly">كل 3 أشهر</option>
+    <option value="every4m">كل 4 أشهر</option>
+    <option value="every6m">كل 6 أشهر</option>
     <option value="10days">كل 10 أيام</option>
     <option value="weekly">أسبوعي</option>
     <option value="manual">يدوي</option>
@@ -4397,8 +4401,10 @@ function generateVisitSchedule(startDate, visitsCount, frequency) {
     for (let i = 0; i < visitsCount; i++) {
         const visitDate = new Date(start);
 
-        if (frequency === 'monthly') {
-            visitDate.setMonth(start.getMonth() + i);
+        const __stepM={monthly:1,bimonthly:2,quarterly:3,every4m:4,every6m:6}[frequency];
+        if (__stepM) {
+            const __day=start.getDate();visitDate.setDate(1);visitDate.setMonth(start.getMonth() + i*__stepM);
+            visitDate.setDate(Math.min(__day,new Date(visitDate.getFullYear(),visitDate.getMonth()+1,0).getDate()));
         } else if (frequency === '15days') {
             visitDate.setDate(start.getDate() + (i * 15));
         } else if (frequency === '10days') {
@@ -11525,7 +11531,7 @@ if(prevSchedule59){
    setTimeout(()=>{
      const root=document.getElementById('appContent'),c=(window.db?.clients||db.clients||[]).find(x=>String(x.id)===String(id));if(!root||!c)return;
      if(root.querySelector('.schedule-anchor-v2359'))return;
-     const first=inferFirst59(c), freqLabel={monthly:'شهري','15days':'كل 15 يوم','10days':'كل 10 أيام',weekly:'أسبوعي',manual:'يدوي'}[c.visitFrequency]||c.visitFrequency||'يدوي';
+     const first=inferFirst59(c), freqLabel={monthly:'شهري',bimonthly:'كل شهرين',quarterly:'كل 3 أشهر',every4m:'كل 4 أشهر',every6m:'كل 6 أشهر','15days':'نصف شهري','10days':'كل 10 أيام',weekly:'أسبوعي',manual:'يدوي'}[c.visitFrequency]||c.visitFrequency||'يدوي';
      const card=document.createElement('div');card.className='schedule-anchor-v2359';
      card.innerHTML=`<div style="font-weight:900;color:#1e3a5f;margin-bottom:8px;">📌 الزيارة الأولى هي مرجع الجدول</div><div class="schedule-anchor-row-v2359"><div><label class="form-label">تاريخ الزيارة الأولى</label><input type="date" class="form-input" id="firstVisitAnchor59" value="${esc59(first)}"></div><button class="submit-btn" style="width:auto" onclick="updateFirstVisitDate_v2359('${esc59(id)}')">تحديث الجدول</button></div><div class="schedule-preview-v2359">التكرار الحالي: <b>${esc59(freqLabel)}</b>. سيتم تعديل الزيارات غير المنفذة فقط؛ الزيارات المنفذة وتقاريرها تبقى كما هي.</div>`;
      const target=root.querySelector('.card');if(target)target.insertBefore(card,target.children[1]||null);else root.prepend(card);
@@ -14799,7 +14805,7 @@ console.log('✅ v2.3.90 payment root fix loaded');
 /* ===== v2.3.100: مواقع متعددة للعميل (عقد واحد، زيارات مستقلة لكل موقع) ===== */
 (function(){
   const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-  const FREQ=[['monthly','شهرياً'],['15days','كل 15 يوم'],['10days','كل 10 أيام'],['weekly','أسبوعياً'],['manual','يدوي (بدون جدول تلقائي)']];
+  const FREQ=[['monthly','شهرياً'],['15days','نصف شهري (كل 15 يوم)'],['bimonthly','كل شهرين'],['quarterly','كل 3 أشهر'],['every4m','كل 4 أشهر'],['every6m','كل 6 أشهر'],['10days','كل 10 أيام'],['weekly','أسبوعياً'],['manual','يدوي (بدون جدول تلقائي)']];
   const isDone=v=>!!v&&(v.status==='منفذة'||v.status==='مكتمل'||v.status==='مكتملة'||!!v.reportId||!!v.executionDate);
   const siteOf=v=>v.siteId||'main';
   const client=id=>(window.db&&db.clients||[]).find(c=>String(c.id)===String(id));
@@ -15011,7 +15017,7 @@ console.log('✅ v2.3.90 payment root fix loaded');
     '— اختر العميل —':'— Select client —','اختر العميل أولاً':'Select a client first',
     'يُقترح تلقائياً — عدّله لو التقرير يخص زيارة مختلفة':'Suggested automatically — edit it if the report is for a different visit',
     'لا توجد تقارير مرفوعة حتى الآن':'No reports uploaded yet','عميلنا العزيز':'Dear client',
-    'إجمالي':'Total','الزيارة القادمة:':'Next visit:','الزيارة القادمة':'Next Visit','مواقعي':'My Sites','🏢 مواقعي':'🏢 My Sites','تفصيل المواقع':'Site Breakdown',
+    'إجمالي':'Total','الدفعة السنوية':'Annual Payment','الدفعة الواحدة':'Single Payment','كل شهرين':'Every 2 months','كل 3 أشهر':'Every 3 months','كل 4 أشهر':'Every 4 months','كل 6 أشهر':'Every 6 months','نصف شهري (كل 15 يوم)':'Twice a month (every 15 days)','الزيارة القادمة:':'Next visit:','الزيارة القادمة':'Next Visit','مواقعي':'My Sites','🏢 مواقعي':'🏢 My Sites','تفصيل المواقع':'Site Breakdown',
     'مكة المكرمة':'Makkah','الرياض':'Riyadh','جدة':'Jeddah','الدمام':'Dammam'
   };
   const REGEX=[
@@ -15263,6 +15269,37 @@ window.clientHome=function(){
 };
 try{clientHome=window.clientHome}catch(e){}
 console.log('✅ v2.3.110 client sites home');
+})();
+</script>
+
+<!-- ===== v2.3.112 Single/annual payment label ===== -->
+<script id="v23112-single-payment-label">
+(function(){
+  const AR=/الدفعة رقم\s*1(?!\d)/;
+  function planOf(c){return String((c&&(c.paymentPlan||c.pay))||'')}
+  function label(c){return /سنوي/.test(planOf(c))&&!/نصف|ربع|ثلث/.test(planOf(c))?'الدفعة السنوية':'الدفعة الواحدة'}
+  function run(){
+    ['appContent','modalOverlay'].forEach(id=>{
+      const root=document.getElementById(id);if(!root)return;
+      const cards=[...root.querySelectorAll('.payment-title')].filter(el=>AR.test(el.textContent));
+      if(!cards.length)return;
+      const total=root.querySelectorAll('.payment-title').length;
+      if(total!==1)return;
+      const el=cards[0];const m=el.textContent.match(/([\d,٠-٩٬]+)\s*ريال/);
+      const cid=(typeof currentClientId!=='undefined'?currentClientId:window.currentClientId);
+      let cl=(typeof currentRole!=='undefined'&&currentRole==='client')?(db.clients||[]).find(x=>String(x.id)===String(cid)):null;
+      if(!cl&&m){const amt=Number(String(m[1]).replace(/[^\d]/g,''));const hits=(db.clients||[]).filter(x=>Array.isArray(x.payments)&&x.payments.length===1&&Math.round(Number(x.payments[0].amount))===amt);cl=hits.find(x=>/سنوي/.test(planOf(x)))||hits[0]||null}
+      if(cl&&Array.isArray(cl.payments)&&cl.payments.length>1)return;
+      const w=document.createTreeWalker(el,NodeFilter.SHOW_TEXT);let n;
+      while((n=w.nextNode())){if(AR.test(n.nodeValue)){n.nodeValue=n.nodeValue.replace(AR,label(cl));break}}
+    });
+  }
+  let t=null;const sch=()=>{clearTimeout(t);t=setTimeout(run,40)};
+  function obs(){['appContent','modalOverlay'].forEach(id=>{const el=document.getElementById(id);if(el&&!el.__singlePayObs&&window.MutationObserver){el.__singlePayObs=new MutationObserver(sch);el.__singlePayObs.observe(el,{childList:true,subtree:true})}})}
+  window.__singlePayRun=run;
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',obs);else obs();
+  setInterval(obs,2000);
+  console.log('✅ v2.3.112 single payment label');
 })();
 </script>
 </body>
