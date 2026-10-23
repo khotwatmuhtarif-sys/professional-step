@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.117">
+<meta name="app-version" content="2.3.118">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -15018,7 +15018,7 @@ console.log('✅ v2.3.90 payment root fix loaded');
     '— اختر العميل —':'— Select client —','اختر العميل أولاً':'Select a client first',
     'يُقترح تلقائياً — عدّله لو التقرير يخص زيارة مختلفة':'Suggested automatically — edit it if the report is for a different visit',
     'لا توجد تقارير مرفوعة حتى الآن':'No reports uploaded yet','عميلنا العزيز':'Dear client',
-    'إجمالي':'Total','الدفعة السنوية':'Annual Payment','الدفعة الواحدة':'Single Payment','كل شهرين':'Every 2 months','كل 3 أشهر':'Every 3 months','كل 4 أشهر':'Every 4 months','كل 6 أشهر':'Every 6 months','نصف شهري (كل 15 يوم)':'Twice a month (every 15 days)','الزيارة القادمة:':'Next visit:','الزيارة القادمة':'Next Visit','مواقعي':'My Sites','🏢 مواقعي':'🏢 My Sites','تفصيل المواقع':'Site Breakdown',
+    'إجمالي':'Total','الدفعة السنوية':'Annual Payment','الزيارات القادمة':'Upcoming Visits','📅 الزيارات القادمة':'📅 Upcoming Visits','✅ اكتملت كل الزيارات':'✅ All visits completed','الدفعة الواحدة':'Single Payment','كل شهرين':'Every 2 months','كل 3 أشهر':'Every 3 months','كل 4 أشهر':'Every 4 months','كل 6 أشهر':'Every 6 months','نصف شهري (كل 15 يوم)':'Twice a month (every 15 days)','الزيارة القادمة:':'Next visit:','الزيارة القادمة':'Next Visit','مواقعي':'My Sites','🏢 مواقعي':'🏢 My Sites','تفصيل المواقع':'Site Breakdown',
     'مكة المكرمة':'Makkah','الرياض':'Riyadh','جدة':'Jeddah','الدمام':'Dammam'
   };
   const REGEX=[
@@ -15027,6 +15027,7 @@ console.log('✅ v2.3.90 payment root fix loaded');
     [/ينتهي عقدك خلال\s*(\d+)\s*(?:أيام|يوم|يوماً)/,'Your contract ends in $1 days'],
     [/انتهى عقدك منذ\s*(\d+)\s*(?:أيام|يوم|يوماً)/,'Your contract expired $1 days ago'],
     [/مواقعي\s*\((\d+)\)/,'My Sites ($1)'],
+    [/^\s*الزيارة\s*(\d+)\s*من\s*(\d+)\s*$/,'Visit $1 of $2'],
     [/تاريخ الانتهاء:\s*/,'End date: '],
     [/\s*—\s*يرجى التواصل لتجديد العقد/,' — please contact us to renew the contract'],
     [/يرجى التواصل لتجديد العقد/,'Please contact us to renew the contract'],
@@ -15265,6 +15266,18 @@ window.clientHome=function(){
     const sec=`<div class="section-title">🏢 مواقعي (${st.length})</div>${cards}`;
     const mark='<div class="section-title">⚡ إجراءات سريعة</div>';
     html=html.indexOf(mark)>-1?html.replace(mark,sec+mark):html+sec;
+    /* الزيارة القادمة لكل موقع */
+    const ni=html.indexOf('<div class="section-title">📅 الزيارة القادمة</div>');
+    const sched=Array.isArray(c.visitSchedule)?c.visitSchedule:[];
+    const nextCards=(c.sites||[]).map(site=>{
+      const sid=String(site.id||'main');const sv=sched.filter(v=>String(v.siteId||'main')===sid);
+      const pend=sv.filter(v=>!(window.__visitDone2?window.__visitDone2(c,v):false)).sort((x,y)=>String(x.date||'').localeCompare(String(y.date||'')))[0];
+      if(!pend)return `<div class="card" style="margin-bottom:10px"><div style="font-weight:900;color:var(--primary)">🏢 ${esc2(site.name||'الموقع')}</div><div style="margin-top:8px;color:#16a34a;font-weight:800">✅ اكتملت كل الزيارات</div></div>`;
+      const k=sv.indexOf(pend)+1;
+      return `<div class="card" style="margin-bottom:10px"><div style="font-weight:900;color:var(--primary)">🏢 ${esc2(site.name||'الموقع')}</div><div style="font-size:17px;font-weight:900;margin-top:8px">الزيارة ${k} من ${sv.length}</div><div style="font-size:16px;margin-top:6px">${esc2(pend.date||pend.dateTime||'-')}</div><div style="margin-top:6px;color:var(--text-light)">الفني: ${esc2(pend.tech||'سيتم التحديد')}</div></div>`;
+    }).join('');
+    const nsec=`<div class="section-title">📅 الزيارات القادمة</div>`+nextCards;
+    html=ni>-1?html.slice(0,ni)+nsec:html+nsec;
   }catch(e){console.warn('sites home',e)}
   return html;
 };
