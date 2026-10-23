@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.112">
+<meta name="app-version" content="2.3.113">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -15300,6 +15300,102 @@ console.log('✅ v2.3.110 client sites home');
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',obs);else obs();
   setInterval(obs,2000);
   console.log('✅ v2.3.112 single payment label');
+})();
+</script>
+
+<!-- ===== v2.3.113 Report upload: choose site for multi-site clients ===== -->
+<script id="v23113-report-site">
+(function(){
+  const done=v=>/منفذ|مكتم/.test(String(v.status||''))||!!v.reportId;
+  const E=x=>String(x==null?'':x).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+  const $=id=>document.getElementById(id);
+  function cl(){const id=$('reportClientSelect')?.value;return (db.clients||[]).find(c=>String(c.id)===String(id))||null}
+  function sitesOf(c){return c&&Array.isArray(c.sites)&&c.sites.length>=2?c.sites:null}
+  function siteVisits(c,sid){return (c.visitSchedule||[]).map((v,i)=>({v,i})).filter(x=>String(x.v.siteId||'main')===String(sid))}
+  function ensureBox(c){
+    let box=$('reportSiteBox');const sites=sitesOf(c);
+    if(!sites){if(box)box.remove();return null}
+    if(!box){box=document.createElement('div');box.id='reportSiteBox';box.className='form-group';
+      const ref=$('selectedClientNextNote');if(!ref||!ref.parentNode)return null;ref.parentNode.insertBefore(box,ref)}
+    const cur=box.getAttribute('data-cid')===String(c.id)?($('reportSiteSelect')?.value||''):'';
+    box.setAttribute('data-cid',String(c.id));
+    box.innerHTML='<label class="form-label">🏢 الموقع (اختر موقع الزيارة)</label><select class="form-select" id="reportSiteSelect" onchange="window.__reportSitePicked()"><option value="">— اختر الموقع —</option>'+
+      sites.map(s=>{const sv=siteVisits(c,s.id||'main');const rem=sv.filter(x=>!done(x.v)).length;return `<option value="${E(s.id||'main')}" ${String(s.id||'main')===cur?'selected':''}>${E(s.name||'الموقع')} — متبقية ${rem} من ${sv.length}</option>`}).join('')+'</select>';
+    return box;
+  }
+  function apply(c){
+    const sel=$('reportSiteSelect');const sid=sel?.value;const hint=$('scheduledVisitNumberHint');const title=$('reportUploadVisitTitle');
+    const site=(c.sites||[]).find(s=>String(s.id||'main')===String(sid));
+    if(!sid||!site){
+      ['scheduledVisitNumber','scheduledVisitIndex','scheduledVisitTotal','scheduledVisitDate'].forEach(i=>{const el=$(i);if(el)el.value=''});
+      if(hint)hint.textContent='اختر الموقع أولاً';if(title)title.textContent='📤 رفع تقرير زيارة';return;
+    }
+    const sv=siteVisits(c,sid);
+    const pend=sv.filter(x=>!done(x.v)).sort((a,b)=>String(a.v.date||'').localeCompare(String(b.v.date||'')))[0]||null;
+    const pick=pend||null;
+    const local=pick?sv.indexOf(pick)+1:0;
+    $('scheduledVisitNumber').value=pick?(pick.v.number||pick.i+1):'';
+    $('scheduledVisitIndex').value=pick?String(pick.i):'';
+    $('scheduledVisitTotal').value=sv.length||'';
+    $('scheduledVisitDate').value=pick?(pick.v.date||''):'';
+    if(title)title.textContent=pick?`📤 رفع تقرير ${site.name} — الزيارة ${local} من ${sv.length}`:'📤 رفع تقرير زيارة';
+    if(hint)hint.textContent=pick?`${site.name}: الزيارة ${local} من ${sv.length} — من جدول الزيارات`:`⚠️ كل زيارات ${site.name} منفذة`;
+  }
+  window.__reportSitePicked=function(){window.__visitNumberManuallyEdited=false;const c=cl();if(c)apply(c)};
+  const baseUpd=window.updateReportVisitDates;
+  if(typeof baseUpd==='function'){
+    window.updateReportVisitDates=function(){
+      const r=baseUpd.apply(this,arguments);
+      try{const c=cl();const box=ensureBox(c);if(box&&!window.__visitNumberManuallyEdited)apply(c)}catch(e){console.warn(e)}
+      return r;
+    };
+    try{updateReportVisitDates=window.updateReportVisitDates}catch(e){}
+  }
+  const baseSync=window.syncVisitNumberManualEdit_v197;
+  if(typeof baseSync==='function'){
+    window.syncVisitNumberManualEdit_v197=function(){
+      const r=baseSync.apply(this,arguments);
+      try{const c=cl();if(sitesOf(c)){const n=$('scheduledVisitNumber')?.value;const v=(c.visitSchedule||[]).find(x=>Number(x.number)===Number(n));
+        if(v){const sel=$('reportSiteSelect');if(sel)sel.value=String(v.siteId||'main');
+          const sv=siteVisits(c,v.siteId||'main');const loc=sv.findIndex(x=>x.v===v)+1;const st=(c.sites||[]).find(s=>String(s.id||'main')===String(v.siteId||'main'));
+          if($('scheduledVisitTotal'))$('scheduledVisitTotal').value=sv.length;
+          const t=$('reportUploadVisitTitle');if(t&&st)t.textContent=`📤 رفع تقرير ${st.name} — الزيارة ${loc} من ${sv.length}`;
+          const h=$('scheduledVisitNumberHint');if(h&&st)h.textContent=`${st.name}: الزيارة ${loc} من ${sv.length} — من جدول الزيارات`}}}catch(e){}
+      return r;
+    };
+    try{syncVisitNumberManualEdit_v197=window.syncVisitNumberManualEdit_v197}catch(e){}
+  }
+  const baseSave=window.saveVisitReport;
+  if(typeof baseSave==='function'){
+    window.saveVisitReport=async function(){
+      const c=cl();const sites=sitesOf(c);let sid='',site=null,local='',total='';
+      if(sites){
+        sid=$('reportSiteSelect')?.value||'';
+        if(!sid){if(typeof showToast==='function')showToast('⚠️ اختر الموقع أولاً');return}
+        const num=$('scheduledVisitNumber')?.value;const v=(c.visitSchedule||[]).find(x=>Number(x.number)===Number(num));
+        if(v)sid=String(v.siteId||'main');
+        site=sites.find(s=>String(s.id||'main')===sid)||null;
+        const sv=siteVisits(c,sid);const k=v?sv.findIndex(x=>x.v===v)+1:0;local=k||'';total=sv.length;
+      }
+      const before=(db.reports||[]).length;
+      const res=await baseSave.apply(this,arguments);
+      if(sites&&site){
+        try{
+          const newest=(db.reports||[])[0];
+          if(newest&&(db.reports||[]).length>=before){
+            newest.siteId=sid;newest.siteName=site.name||'';
+            if(local)newest.totalVisits=String(total);
+            newest.reportTitle=local?`تقرير ${site.name} — الزيارة ${local} من ${total}`:newest.reportTitle;
+            if(typeof saveDB==='function')saveDB();
+            if(window.firebase&&firebase.database&&newest.id)await firebase.database().ref('reports/'+newest.id).update({siteId:sid,siteName:newest.siteName,totalVisits:newest.totalVisits||'',reportTitle:newest.reportTitle||''});
+          }
+        }catch(e){console.warn('report site',e)}
+      }
+      return res;
+    };
+    try{saveVisitReport=window.saveVisitReport}catch(e){}
+  }
+  console.log('✅ v2.3.113 report site selector');
 })();
 </script>
 </body>
