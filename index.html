@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.130">
+<meta name="app-version" content="2.3.131">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -15481,7 +15481,7 @@ console.log('✅ v2.3.110 client sites home');
     if(/منفذ|مكتم/.test(String(v.status||''))||v.reportId||v.executionDate||v.doneDate||v.completedAt)return true;
     if(!c||c.id==null)return false;
     const vn=String(v.number!=null?v.number:v.id);
-    return (db.reports||[]).some(r=>String(r.clientId)===String(c.id)&&String(r.visitNumber||r.number||r.visitId||'')===vn&&(!r.siteId||String(r.siteId)===String(v.siteId||'main')));
+    return (window.contractReports?window.contractReports(c):(db.reports||[])).some(r=>String(r.clientId)===String(c.id)&&String(r.visitNumber||r.number||r.visitId||'')===vn&&(!r.siteId||String(r.siteId)===String(v.siteId||'main')));
   };
   console.log('✅ v2.3.117 unified visit-done rule');
 })();
@@ -15533,7 +15533,7 @@ console.log('✅ v2.3.110 client sites home');
 <script id="v23124-shift-following">
 (function(){
   const isDone=(c,v)=>window.__visitDone2?window.__visitDone2(c,v):/منفذ|مكتم/.test(String(v.status||''));
-  const okStatus=v=>!v.status||/مجدول/.test(String(v.status));
+  const okStatus=v=>!/ملغ|مؤجل|ألغ|تأجيل/.test(String(v.status||''));
   const iso=x=>String(x||'').slice(0,10);
   function inferFreq(sched,sid,skip){
     const L=sched.filter(x=>String(x.siteId||'main')===sid&&x!==skip&&/^\d{4}-\d{2}-\d{2}$/.test(iso(x.date)));
