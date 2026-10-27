@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.136">
+<meta name="app-version" content="2.3.137">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -1780,7 +1780,7 @@ async function doLogin() {
           db.clients = []; db.reports = [];
           try {
             const snap = await firebase.database().ref('clients/' + currentClientId).get();
-            if (snap.exists()) db.clients = [snap.val()];
+            if (snap.exists()) db.clients = [Object.assign({}, snap.val(), {id: snap.val().id!=null?snap.val().id:(isNaN(currentClientId)?currentClientId:Number(currentClientId))})];
             else { window.__clientDiag='لا توجد بيانات في المسار clients/'+currentClientId; showToast('⚠️ لم نجد بيانات العقد لهذا الحساب — تواصل مع الإدارة'); }
           } catch(e) {
             window.__clientDiag='رفض القراءة: '+String(e&&(e.code||e.message)||'خطأ')+' | clients/'+currentClientId+' | uid '+(migratedProfile.uid||'');
@@ -15845,6 +15845,10 @@ console.log('✅ v2.3.110 client sites home');
     try{
       if(String(window.currentRole||'')!=='client')return;
       if(!document.getElementById('appScreen')||!document.getElementById('appScreen').classList.contains('active'))return;
+      {const cid0=window.currentClientId!=null?window.currentClientId:(typeof currentClientId!=='undefined'?currentClientId:null);
+       const r=(db.clients||[])[0];
+       if(r&&r.name&&r.id==null&&cid0!=null){r.id=isNaN(cid0)?cid0:Number(cid0);try{await renderPanel('home')}catch(e){}return}
+       if(r&&r.name&&String(r.id)!==String(cid0)&&cid0!=null){r.id=isNaN(cid0)?cid0:Number(cid0);try{await renderPanel('home')}catch(e){}return}}
       if(db.clients&&db.clients.length&&db.clients[0]&&db.clients[0].name)return;
       busy=true;
       const v=(document.querySelector('meta[name="app-version"]')||{}).content;
