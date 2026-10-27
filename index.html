@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.134">
+<meta name="app-version" content="2.3.135">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -1781,8 +1781,9 @@ async function doLogin() {
           try {
             const snap = await firebase.database().ref('clients/' + currentClientId).get();
             if (snap.exists()) db.clients = [snap.val()];
-            else showToast('⚠️ لم نجد بيانات العقد لهذا الحساب — تواصل مع الإدارة');
+            else { window.__clientDiag='لا توجد بيانات في المسار clients/'+currentClientId; showToast('⚠️ لم نجد بيانات العقد لهذا الحساب — تواصل مع الإدارة'); }
           } catch(e) {
+            window.__clientDiag='رفض القراءة: '+String(e&&(e.code||e.message)||'خطأ')+' | clients/'+currentClientId+' | uid '+(migratedProfile.uid||'');
             console.error('CLIENT_LOAD_ERROR', e);
             showToast('⚠️ تعذر تحميل بيانات العقد (' + String(e && (e.code || e.message) || 'خطأ') + ') — تواصل مع الإدارة لربط الحساب');
           }
@@ -1795,6 +1796,7 @@ async function doLogin() {
           await renderPanel('home');
           document.getElementById('loginScreen').classList.remove('active');
           document.getElementById('appScreen').classList.add('active');
+          if(!(db.clients&&db.clients.length)){try{const d=document.createElement('div');d.style.cssText='position:fixed;bottom:80px;left:10px;right:10px;z-index:99999;background:#7f1d1d;color:#fff;padding:12px;border-radius:12px;font-size:12px;direction:rtl;line-height:1.7';d.innerHTML='<b>⚠️ تعذر تحميل بيانات العقد</b><br>'+String(window.__clientDiag||'سبب غير معروف')+'<br><button onclick=\"location.reload()\" style=\"margin-top:6px;padding:6px 12px;border-radius:8px\">إعادة المحاولة</button>';document.body.appendChild(d)}catch(e){}}
           showToast('✅ تم تسجيل الدخول بنجاح');
           return;
         }
