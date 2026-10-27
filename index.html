@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.137">
+<meta name="app-version" content="2.3.138">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -15869,6 +15869,36 @@ console.log('✅ v2.3.110 client sites home');
   }
   setInterval(probe,3000);
   console.log('✅ v2.3.136 client watchdog');
+})();
+</script>
+
+<!-- ===== v2.3.138 Bulk repair of all client account links ===== -->
+<script id="v23138-bulk-link-fix">
+(function(){
+  window.fixAllClientLinks=async function(){
+    try{
+      showToast('⏳ جاري إصلاح روابط كل العملاء...');
+      const us=(await firebase.database().ref('users').get()).val()||{};
+      let n=0;
+      for(const uid of Object.keys(us)){
+        const u=us[uid];
+        if(!u||u.role!=='client'||u.clientId==null||u.clientId==='')continue;
+        if(typeof u.clientKey==='string'&&u.clientKey===String(u.clientId))continue;
+        await firebase.database().ref('users/'+uid+'/clientKey').set(String(u.clientId));n++;
+      }
+      showToast('✅ تم إصلاح '+n+' حساب عميل');
+    }catch(e){console.error(e);showToast('⚠️ '+(e.message||e.code||'تعذر الإصلاح'))}
+  };
+  const base=window.openSecurityGate_v2379;
+  if(typeof base==='function'){
+    window.openSecurityGate_v2379=async function(){
+      const r=await base.apply(this,arguments);
+      try{const root=document.getElementById('appContent');
+        if(root&&!root.querySelector('[data-bulk-fix]')){const b=document.createElement('button');b.className='submit-btn green';b.setAttribute('data-bulk-fix','1');b.style.marginTop='10px';b.textContent='🔧 إصلاح روابط كل حسابات العملاء دفعة واحدة';b.onclick=window.fixAllClientLinks;root.appendChild(b)}}catch(e){}
+      return r;
+    };
+  }
+  console.log('✅ v2.3.138 bulk link fix');
 })();
 </script>
 </body>
