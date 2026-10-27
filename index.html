@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.133">
+<meta name="app-version" content="2.3.134">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -15795,7 +15795,7 @@ console.log('✅ v2.3.110 client sites home');
       const us=(await firebase.database().ref('users').get()).val()||{};
       const sid=String(id);
       const rows=Object.keys(us).map(k=>Object.assign({uid:k},us[k])).filter(u=>u.role==='client'&&(String(u.clientId)===sid||String(u.clientKey)===sid||String(u.email||'').indexOf(sid+'@khotwa-clients.app')>-1||String(u.email||'').indexOf(sid+'r')>-1&&String(u.email||'').indexOf('@khotwa-clients.app')>-1));
-      const okRow=u=>String(u.clientId)===sid&&String(u.clientKey)===sid&&u.active!==false;
+      const okRow=u=>String(u.clientId)===sid&&typeof u.clientKey==='string'&&u.clientKey===sid&&u.active!==false;
       let html=`<div style="margin-bottom:10px;font-size:13px">العميل: <b>${E(c.name)}</b> — عقد #${E(c.id)}</div>`;
       if(!rows.length){
         html+=`<div class="card" style="background:#fef2f2;border:1px solid #fecaca">⚠️ لا يوجد حساب دخول مرتبط بهذا العميل في النظام.<br>استخدم زر «🔑 توليد كلمة مرور جديدة» من «تعديل العميل» لإنشاء حساب جديد.</div>`;
@@ -15803,7 +15803,7 @@ console.log('✅ v2.3.110 client sites home');
         html+=rows.map(u=>`<div class="card" style="margin-bottom:10px;border:1px solid ${okRow(u)?'#86efac':'#fecaca'}">
           <div style="font-weight:900">${okRow(u)?'✅ سليم':'⚠️ يحتاج إصلاح'} — ${E(u.name||'-')}</div>
           <div style="font-size:12px;direction:ltr;text-align:left;margin:6px 0">${E(u.email||'-')}</div>
-          <div style="font-size:12px;line-height:1.8">الحالة: ${u.active===false?'موقوف':'نشط'} | clientId: <b>${E(u.clientId==null?'—':u.clientId)}</b> | clientKey: <b>${E(u.clientKey==null?'—':u.clientKey)}</b></div>
+          <div style="font-size:12px;line-height:1.8">الحالة: ${u.active===false?'موقوف':'نشط'} | clientId: <b>${E(u.clientId==null?'—':u.clientId)}</b> | clientKey: <b>${E(u.clientKey==null?'—':u.clientKey)}</b> (${typeof u.clientKey==='string'?'نص ✓':'رقم ✗ — يجب أن يكون نصاً'})</div>
           ${okRow(u)?'':`<button class="submit-btn green" style="margin-top:8px" onclick="fixClientLink('${E(u.uid)}',${Number(id)})">🔧 إصلاح الربط الآن</button>`}</div>`).join('');
       }
       document.getElementById('modalTitle').textContent='🔗 فحص ربط حساب العميل';
