@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.135">
+<meta name="app-version" content="2.3.136">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -15833,6 +15833,38 @@ console.log('✅ v2.3.110 client sites home');
     try{openClientDetails=window.openClientDetails}catch(e){}
   }
   console.log('✅ v2.3.133 client link check');
+})();
+</script>
+
+<!-- ===== v2.3.136 Client empty-data watchdog (works for any login/restore path) ===== -->
+<script id="v23136-client-watchdog">
+(function(){
+  let shown=false,busy=false;
+  async function probe(){
+    if(busy||shown)return;
+    try{
+      if(String(window.currentRole||'')!=='client')return;
+      if(!document.getElementById('appScreen')||!document.getElementById('appScreen').classList.contains('active'))return;
+      if(db.clients&&db.clients.length&&db.clients[0]&&db.clients[0].name)return;
+      busy=true;
+      const v=(document.querySelector('meta[name="app-version"]')||{}).content;
+      const u=firebase.auth().currentUser;
+      const cid=window.currentClientId!=null?window.currentClientId:(typeof currentClientId!=='undefined'?currentClientId:null);
+      let msg='نسخة '+v+' | uid '+(u?u.uid.slice(0,8):'لا يوجد مستخدم')+' | clientId '+cid;
+      try{
+        const s=await firebase.database().ref('clients/'+cid).get();
+        if(s.exists()){db.clients=[s.val()];try{await window.loadClientReportsScoped?.(cid)}catch(e){}try{await renderPanel('home')}catch(e){};return}
+        msg+=' | المسار فارغ';
+      }catch(e){msg+=' | '+(e.code||e.message||'خطأ')}
+      shown=true;
+      const d=document.createElement('div');
+      d.style.cssText='position:fixed;bottom:80px;left:10px;right:10px;z-index:99999;background:#7f1d1d;color:#fff;padding:12px;border-radius:12px;font-size:12px;direction:rtl;line-height:1.7';
+      d.innerHTML='<b>⚠️ تعذر تحميل بيانات العقد</b><br><span dir="ltr" style="display:block;text-align:left;word-break:break-all">'+msg+'</span><button onclick="location.reload()" style="margin-top:6px;padding:6px 12px;border-radius:8px">إعادة المحاولة</button>';
+      document.body.appendChild(d);
+    }catch(e){}finally{busy=false}
+  }
+  setInterval(probe,3000);
+  console.log('✅ v2.3.136 client watchdog');
 })();
 </script>
 </body>
