@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.138">
+<meta name="app-version" content="2.3.139">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -1669,10 +1669,11 @@ async function doLogin() {
       // بدل تحميل كل عملاء وتقارير الشركة. المدير/الفني يحمّلون قائمة العملاء (يحتاجونها في لوحاتهم)
       // لكن تحميل التقارير الكاملة يتأجل لحين فتح قسم التقارير فعلياً (Lazy Loading).
       if (profile.role === 'client' && currentClientId) {
+        db.clients=[]; db.reports=[];
         try {
           const snap = await db_fire.ref('clients/' + currentClientId).get();
-          if (snap.exists()) db.clients = [snap.val()];
-        } catch(e) { await window.loadClientsFromFirebase?.(); }
+          if (snap.exists()) db.clients = [Object.assign({}, snap.val(), {id: snap.val().id!=null?snap.val().id:currentClientId})];
+        } catch(e) { db.clients=[]; console.error('CLIENT_LOAD_ERROR',e); }
         await window.loadClientReportsScoped?.(currentClientId);
       } else {
         await window.loadClientsFromFirebase?.();
@@ -15846,9 +15847,10 @@ console.log('✅ v2.3.110 client sites home');
       if(String(window.currentRole||'')!=='client')return;
       if(!document.getElementById('appScreen')||!document.getElementById('appScreen').classList.contains('active'))return;
       {const cid0=window.currentClientId!=null?window.currentClientId:(typeof currentClientId!=='undefined'?currentClientId:null);
-       const r=(db.clients||[])[0];
-       if(r&&r.name&&r.id==null&&cid0!=null){r.id=isNaN(cid0)?cid0:Number(cid0);try{await renderPanel('home')}catch(e){}return}
-       if(r&&r.name&&String(r.id)!==String(cid0)&&cid0!=null){r.id=isNaN(cid0)?cid0:Number(cid0);try{await renderPanel('home')}catch(e){}return}}
+       if(cid0!=null){
+         const own=(db.clients||[]).filter(c=>c&&c.id!=null&&String(c.id)===String(cid0));
+         if((db.clients||[]).length!==own.length){db.clients=own;try{await renderPanel('home')}catch(e){}}
+       }}
       if(db.clients&&db.clients.length&&db.clients[0]&&db.clients[0].name)return;
       busy=true;
       const v=(document.querySelector('meta[name="app-version"]')||{}).content;
@@ -15857,7 +15859,7 @@ console.log('✅ v2.3.110 client sites home');
       let msg='نسخة '+v+' | uid '+(u?u.uid.slice(0,8):'لا يوجد مستخدم')+' | clientId '+cid;
       try{
         const s=await firebase.database().ref('clients/'+cid).get();
-        if(s.exists()){db.clients=[s.val()];try{await window.loadClientReportsScoped?.(cid)}catch(e){}try{await renderPanel('home')}catch(e){};return}
+        if(s.exists()){const v0=s.val();db.clients=[Object.assign({},v0,{id:v0.id!=null?v0.id:(isNaN(cid)?cid:Number(cid))})];try{await window.loadClientReportsScoped?.(cid)}catch(e){}try{await renderPanel('home')}catch(e){};return}
         msg+=' | المسار فارغ';
       }catch(e){msg+=' | '+(e.code||e.message||'خطأ')}
       shown=true;
