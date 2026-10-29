@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.140">
+<meta name="app-version" content="2.3.141">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -15045,11 +15045,17 @@ console.log('✅ v2.3.90 payment root fix loaded');
     [/(\d+)\s*أيام/,'$1 days'],[/(\d+)\s*يوم/,'$1 days']
   ];
   const PARTIAL=[
-    ['سيتم التحديد','To be assigned'],['زيارة دورية','Routine Visit'],['متأخرة','Overdue']
+    ['سيتم التحديد','To be assigned'],['زيارة دورية','Routine Visit'],['متأخرة','Overdue'],
+    ['إرفاق صور أو ملف (اختياري)','Attach photos or a file (optional)'],['اختيار صورة أو ملف','Choose a photo or file'],
+    ['تُضغط الصور تلقائياً قبل الرفع. حتى','Photos are compressed automatically before upload. Up to'],['ملفات.','files.'],
+    ['المرفقات','Attachments'],['استبدال الإيصال','Replace Receipt'],['حذف الإيصال','Delete Receipt'],
+    ['الاستحقاق خلال اليوم','Due today'],['الاستحقاق غداً','Due tomorrow'],['الاستحقاق','Due']
   ].sort((a,b)=>b[0].length-a[0].length);
   const AR=/[؀-ۿ]/;
   const origText=new WeakMap();
-  function tr(t){
+  const LAT=x=>x.replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/٬/g,',').replace(/٫/g,'.');
+  function tr(t){const r=tr0(t);return LAT(r)}
+  function tr0(t){
     const k=t.trim(); if(!k||!AR.test(k)) return t;
     let out=EXACT[k]; if(out!==undefined) return t.replace(k,out);
     let v=t, hit=false;
