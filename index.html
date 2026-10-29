@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.139">
+<meta name="app-version" content="2.3.140">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -15901,6 +15901,139 @@ console.log('✅ v2.3.110 client sites home');
     };
   }
   console.log('✅ v2.3.138 bulk link fix');
+})();
+</script>
+
+<!-- ===== v2.3.140 Client attachments on emergency/complaint requests (compressed) ===== -->
+<script id="v23140-request-attachments">
+(function(){
+  const MAX_FILES=3, MAX_IMG_BYTES=140*1024, MAX_FILE_BYTES=450*1024;
+  const esc=x=>String(x==null?'':x).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+  window.__reqFiles=[];
+  const b64size=d=>Math.round((d.length-d.indexOf(',')-1)*0.75);
+  function loadImg(file){return new Promise((res,rej)=>{const u=URL.createObjectURL(file),i=new Image();i.onload=()=>{URL.revokeObjectURL(u);res(i)};i.onerror=()=>{URL.revokeObjectURL(u);rej(new Error('img'))};i.src=u})}
+  async function compressImage(file){
+    const img=await loadImg(file);let w=1000;let q=0.6;let data='';
+    for(let k=0;k<6;k++){
+      const sc=Math.min(1,w/Math.max(img.width,img.height));
+      const c=document.createElement('canvas');c.width=Math.max(1,Math.round(img.width*sc));c.height=Math.max(1,Math.round(img.height*sc));
+      c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+      data=c.toDataURL('image/jpeg',q);
+      if(b64size(data)<=MAX_IMG_BYTES)break;
+      w=Math.round(w*0.8);q=Math.max(0.4,q-0.05);
+    }
+    if(b64size(data)>MAX_IMG_BYTES)throw new Error('big');
+    return {name:(file.name||'image').replace(/\.[^.]+$/,'')+'.jpg',type:'image/jpeg',data,size:b64size(data)};
+  }
+  async function toDataURL(blob){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(blob)})}
+  async function compressFile(file){
+    let blob=file,enc='';
+    try{
+      if(window.CompressionStream){
+        const gz=await new Response(file.stream().pipeThrough(new CompressionStream('gzip'))).blob();
+        if(gz.size<file.size*0.95){blob=gz;enc='gzip'}
+      }
+    }catch(e){}
+    if(blob.size>MAX_FILE_BYTES)throw new Error('big');
+    const data=await toDataURL(blob);
+    return {name:file.name||'file',type:file.type||'application/octet-stream',data,size:blob.size,enc:enc||undefined,origSize:file.size};
+  }
+  function render(){
+    const box=document.getElementById('reqFilesList140');if(!box)return;
+    box.innerHTML=window.__reqFiles.map((f,i)=>`<div style="display:flex;align-items:center;gap:8px;margin:6px 0;padding:6px;border:1px solid #e2e8f0;border-radius:10px">${f.type.startsWith('image/')?`<img src="${f.data}" style="width:44px;height:44px;object-fit:cover;border-radius:8px">`:'<span style="font-size:26px">📄</span>'}<div style="flex:1;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.name)}<br><small>${Math.max(1,Math.round(f.size/1024))} KB</small></div><button type="button" onclick="removeReqFile140(${i})" style="border:0;background:#fee2e2;color:#b91c1c;border-radius:8px;padding:4px 10px">✕</button></div>`).join('');
+    const cnt=document.getElementById('reqFilesCount140');if(cnt)cnt.textContent=window.__reqFiles.length+'/'+MAX_FILES;
+  }
+  window.removeReqFile140=function(i){window.__reqFiles.splice(i,1);render()};
+  window.pickReqFiles140=async function(inp){
+    const files=Array.from(inp.files||[]);inp.value='';
+    for(const f of files){
+      if(window.__reqFiles.length>=MAX_FILES){showToast('⚠️ الحد الأقصى '+MAX_FILES+' ملفات');break}
+      try{
+        const item=f.type.startsWith('image/')?await compressImage(f):await compressFile(f);
+        window.__reqFiles.push(item);
+      }catch(e){showToast('⚠️ تعذر إرفاق «'+(f.name||'ملف')+'» — الملف كبير جداً بعد الضغط')}
+    }
+    render();
+  };
+  function injectPicker(){
+    const form=document.querySelector('#appContent .card');if(!form||document.getElementById('reqFilesBox140'))return;
+    const btn=form.querySelector('#v2355EmergencyBtn,#v2355ComplaintBtn');if(!btn)return;
+    const d=document.createElement('div');d.id='reqFilesBox140';d.className='form-group';
+    d.innerHTML=`<label class="form-label">📎 إرفاق صور أو ملف (اختياري) <small id="reqFilesCount140">0/${MAX_FILES}</small></label><input type="file" id="reqFilesInput140" accept="image/*,application/pdf" multiple style="display:none" onchange="pickReqFiles140(this)"><button type="button" class="submit-btn" style="background:#475569" onclick="document.getElementById('reqFilesInput140').click()">📷 اختيار صورة أو ملف</button><div style="font-size:11px;color:#64748b;margin-top:4px">تُضغط الصور تلقائياً قبل الرفع. حتى ${MAX_FILES} ملفات.</div><div id="reqFilesList140"></div>`;
+    btn.parentNode.insertBefore(d,btn);render();
+  }
+  const baseForm=window.openClientRequestForm_v2355;
+  if(typeof baseForm==='function'){
+    window.openClientRequestForm_v2355=function(){window.__reqFiles=[];const r=baseForm.apply(this,arguments);try{injectPicker()}catch(e){}return r};
+    try{openClientRequestForm_v2355=window.openClientRequestForm_v2355}catch(e){}
+  }
+  /* ربط المرفقات بالطلب عند الإرسال دون المساس بمنطق الحفظ الموجود */
+  function wrapSubmit(name){
+    const base=window[name];if(typeof base!=='function')return;
+    window[name]=async function(){
+      const files=(window.__reqFiles||[]).slice();
+      if(!files.length)return base.apply(this,arguments);
+      const R=firebase.database.Reference.prototype;
+      const origSet=R.set,origPush=R.push;let used=false,failed=false;
+      const isReq=ref=>{try{return /^(emergencyRequests|complaintRequests)(\/[^/]+)?$/.test(ref.path.toString().replace(/^\//,''))}catch(e){return false}};
+      R.set=function(v){
+        if(!used&&v&&typeof v==='object'&&isReq(this)&&(v.description||v.details)){
+          used=true;const self=this;
+          return origSet.call(this,Object.assign({},v,{attachments:files})).catch(e=>{
+            failed=true;console.warn('attachments rejected',e);return origSet.call(self,v);
+          });
+        }
+        return origSet.apply(this,arguments);
+      };
+      R.push=function(v){
+        if(!used&&v&&typeof v==='object'&&isReq(this)&&(v.description||v.details)){
+          used=true;const ref=origPush.call(this);
+          return Object.assign(ref,{}),(function(){const p=origSet.call(ref,Object.assign({},v,{attachments:files})).catch(e=>{failed=true;console.warn('attachments rejected',e);return origSet.call(ref,v)});ref.then=p.then.bind(p);ref.catch=p.catch.bind(p);return ref})();
+        }
+        return origPush.apply(this,arguments);
+      };
+      try{return await base.apply(this,arguments)}
+      finally{
+        R.set=origSet;R.push=origPush;
+        if(used&&failed)showToast('⚠️ أُرسل الطلب لكن تعذر رفع المرفقات — تواصل مع الإدارة');
+        else if(used)window.__reqFiles=[];
+      }
+    };
+    try{window[name]=window[name]}catch(e){}
+  }
+  wrapSubmit('submitClientEmergency_v2355');wrapSubmit('submitClientComplaint_v2355');
+  /* عرض المرفقات في تفاصيل الطلب */
+  async function fileUrl(f){
+    if(f.enc==='gzip'&&window.DecompressionStream){
+      const b=await (await fetch(f.data)).blob();
+      const out=await new Response(b.stream().pipeThrough(new DecompressionStream('gzip'))).blob();
+      return URL.createObjectURL(new Blob([out],{type:f.type}));
+    }
+    const b=await (await fetch(f.data)).blob();return URL.createObjectURL(new Blob([b],{type:f.type}));
+  }
+  window.openReqFile140=async function(path,key,i){
+    try{const s=await firebase.database().ref(path+'/'+key+'/attachments/'+i).get();const f=s.val();if(!f)return;const u=await fileUrl(f);window.open(u,'_blank')}catch(e){showToast('⚠️ تعذر فتح المرفق')}
+  };
+  const baseDet=window.openServiceRequestDetail_v2355;
+  if(typeof baseDet==='function'){
+    window.openServiceRequestDetail_v2355=async function(path,key){
+      const r=await baseDet.apply(this,arguments);
+      try{
+        const snap=await firebase.database().ref(path+'/'+key+'/attachments').get();
+        const list=snap.val();
+        const root=document.getElementById('appContent');
+        if(list&&root&&!root.querySelector('#reqAtt140')){
+          const arr=Array.isArray(list)?list:Object.values(list);
+          const d=document.createElement('div');d.id='reqAtt140';d.className='card';
+          d.innerHTML='<div class="section-title">📎 المرفقات</div>'+arr.map((f,i)=>f.type&&f.type.startsWith('image/')?`<img src="${f.data}" onclick="openReqFile140('${path}','${key}',${i})" style="width:100%;max-width:320px;border-radius:12px;margin:6px 0;display:block">`:`<button type="button" class="submit-btn" style="margin:6px 0" onclick="openReqFile140('${path}','${key}',${i})">📄 ${esc(f.name)} (${Math.max(1,Math.round((f.origSize||f.size)/1024))} KB)</button>`).join('');
+          root.appendChild(d);
+        }
+      }catch(e){console.warn('attachments view',e)}
+      return r;
+    };
+    try{openServiceRequestDetail_v2355=window.openServiceRequestDetail_v2355}catch(e){}
+  }
+  console.log('✅ v2.3.140 request attachments');
 })();
 </script>
 </body>
