@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>خطوة محترف — بوابة المتعاقدين</title>
-<meta name="app-version" content="2.3.141">
+<meta name="app-version" content="2.3.142">
 <!-- v2.2.1 User Management Fix: إصلاح فتح شاشة إدارة المستخدمين -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -15030,7 +15030,9 @@ console.log('✅ v2.3.90 payment root fix loaded');
     'يُقترح تلقائياً — عدّله لو التقرير يخص زيارة مختلفة':'Suggested automatically — edit it if the report is for a different visit',
     'لا توجد تقارير مرفوعة حتى الآن':'No reports uploaded yet','عميلنا العزيز':'Dear client',
     'إجمالي':'Total','الدفعة السنوية':'Annual Payment','الزيارات القادمة':'Upcoming Visits','العقود السابقة':'Previous Contracts','إجمالي زياراتك':'Your total visits','📜 العقود السابقة':'📜 Previous Contracts','📅 الزيارات القادمة':'📅 Upcoming Visits','✅ اكتملت كل الزيارات':'✅ All visits completed','الدفعة الواحدة':'Single Payment','كل شهرين':'Every 2 months','كل 3 أشهر':'Every 3 months','كل 4 أشهر':'Every 4 months','كل 6 أشهر':'Every 6 months','نصف شهري (كل 15 يوم)':'Twice a month (every 15 days)','الزيارة القادمة:':'Next visit:','الزيارة القادمة':'Next Visit','مواقعي':'My Sites','🏢 مواقعي':'🏢 My Sites','تفصيل المواقع':'Site Breakdown',
-    'مكة المكرمة':'Makkah','الرياض':'Riyadh','جدة':'Jeddah','الدمام':'Dammam'
+    'مكة المكرمة':'Makkah','الرياض':'Riyadh','جدة':'Jeddah','الدمام':'Dammam',
+    'لا توجد نسخة من العقد مرفوعة بعد، تواصل مع الإدارة':'No contract copy has been uploaded yet — please contact management',
+    '⚠️ الحد الأقصى 3 ملفات':'⚠️ Maximum 3 files','✅ تم إرسال الطلب':'✅ Request sent','✅ تم إرسال طلب الطوارئ':'✅ Emergency request sent'
   };
   const REGEX=[
     [/دفعة متأخرة منذ\s*(\d+)\s*(?:أيام|يوم|يوماً|أيّام)/,'Payment overdue by $1 days'],
@@ -15048,7 +15050,7 @@ console.log('✅ v2.3.90 payment root fix loaded');
     ['سيتم التحديد','To be assigned'],['زيارة دورية','Routine Visit'],['متأخرة','Overdue'],
     ['إرفاق صور أو ملف (اختياري)','Attach photos or a file (optional)'],['اختيار صورة أو ملف','Choose a photo or file'],
     ['تُضغط الصور تلقائياً قبل الرفع. حتى','Photos are compressed automatically before upload. Up to'],['ملفات.','files.'],
-    ['المرفقات','Attachments'],['استبدال الإيصال','Replace Receipt'],['حذف الإيصال','Delete Receipt'],
+    ['المرفقات','Attachments'],['منفذة','completed'],['استبدال الإيصال','Replace Receipt'],['حذف الإيصال','Delete Receipt'],
     ['الاستحقاق خلال اليوم','Due today'],['الاستحقاق غداً','Due tomorrow'],['الاستحقاق','Due']
   ].sort((a,b)=>b[0].length-a[0].length);
   const AR=/[؀-ۿ]/;
@@ -15063,7 +15065,7 @@ console.log('✅ v2.3.90 payment root fix loaded');
     for(const [ar,en] of PARTIAL){ if(v.includes(ar)){ v=v.split(ar).join(en); hit=true; } }
     return hit?v:t;
   }
-  const ROOTS=['appContent','bottomNav','appTopnav','modalOverlay'];
+  const ROOTS=['appContent','bottomNav','appTopnav','modalOverlay','toast'];
   const lang=()=>localStorage.getItem('khotwah_lang')||'ar';
   function run(){
     const en=lang()==='en';
